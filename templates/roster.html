@@ -80,7 +80,6 @@
                             <td>{{ member.level }}</td>
                             <td>{{ member.class }}</td>
                             <td>{{ member.race }}</td>
-                            <td>{{ member.rank }}</td>
 							<td>
                                 {% if member.item_level == "N/A" or member.item_level is none %}
                                     <span class="na-value">N/A</span>
@@ -95,6 +94,7 @@
                                      {{ member.raid_progression }}
                                 {% endif %}
                             </td>
+							<td>{{ member.rank }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
