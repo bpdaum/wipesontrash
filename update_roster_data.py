@@ -3,6 +3,7 @@ import os
 import requests
 import time
 from datetime import datetime
+import json # Import json for pretty printing debug output
 
 # --- Standalone SQLAlchemy setup for PostgreSQL/SQLite ---
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index
@@ -103,7 +104,6 @@ def get_blizzard_access_token():
         return access_token
     except requests.exceptions.RequestException as e:
         print(f"Error getting Blizzard access token: {e}")
-        # Add more detailed error logging if needed
         if e.response is not None:
             print(f"Response Status: {e.response.status_code}")
             try:
@@ -123,6 +123,13 @@ def make_api_request(api_url, params, headers):
              print(f"Warning: 404 Not Found for URL: {response.url}")
              return None
         response.raise_for_status()
+        # --- DEBUG: Print successful response ---
+        # print(f"DEBUG: API Success for {api_url}. Status: {response.status_code}")
+        # try:
+        #      print(f"DEBUG: Response JSON sample: {str(response.json())[:200]}...") # Print sample
+        # except:
+        #      print(f"DEBUG: Response Text: {response.text[:200]}...")
+        # --- END DEBUG ---
         return response.json()
     except requests.exceptions.HTTPError as e:
         print(f"HTTP Error during API request: {e}")
@@ -218,24 +225,67 @@ def get_character_raid_progression(realm_slug, character_name):
     api_url = f"{API_BASE_URL}/profile/wow/character/{realm_slug}/{character_name}/encounters/raids"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
+    print(f"DEBUG: Fetching raid progression for {character_name} from {api_url}") # DEBUG
     data = make_api_request(api_url, params, headers)
+    # --- DEBUG: Print raw raid data received ---
+    if data:
+        print(f"DEBUG: Raw raid data received for {character_name}:")
+        try:
+            print(json.dumps(data, indent=2)) # Pretty print the JSON
+        except Exception as e:
+            print(f"(Could not print raw data as JSON: {e}) Raw data: {data}")
+    else:
+        print(f"DEBUG: No raid data received for {character_name} (API returned None or error).")
+    # --- END DEBUG ---
     return data
 
 
 def summarize_raid_progression(raid_data):
     """ Simple function to summarize raid progression from the API data. """
+    # --- DEBUG: Print input to summarize function ---
+    print(f"DEBUG: Summarizing raid data input:")
+    try:
+        print(json.dumps(raid_data, indent=2))
+    except Exception as e:
+        print(f"(Could not print input as JSON: {e}) Raw input: {raid_data}")
+    # --- END DEBUG ---
+
     if not raid_data or 'expansions' not in raid_data:
-        return "N/A"
+        print("DEBUG: Summarize returning N/A (no raid_data or expansions key)") # DEBUG
+        return "N/A" # Return "N/A" string for clarity in logs
+
+    # Find the latest expansion (usually the last one in the list)
     latest_expansion = raid_data['expansions'][-1] if raid_data['expansions'] else None
     if not latest_expansion or 'raids' not in latest_expansion:
+        print("DEBUG: Summarize returning N/A (no latest_expansion or raids key)") # DEBUG
         return "N/A"
+
+    # Find the latest raid within that expansion (usually the last one)
     latest_raid = latest_expansion['raids'][-1] if latest_expansion['raids'] else None
     if not latest_raid or 'modes' not in latest_raid:
+        print("DEBUG: Summarize returning N/A (no latest_raid or modes key)") # DEBUG
         return "N/A"
+
     raid_name = latest_raid.get('instance', {}).get('name', 'Latest Raid')
     progression_summary = []
     difficulty_order = {"LFR": "L", "NORMAL": "N", "HEROIC": "H", "MYTHIC": "M"}
-    sorted_modes = sorted(latest_raid['modes'], key=lambda mode: list(difficulty_order.keys()).index(mode.get('difficulty', {}).get('type', '')) if mode.get('difficulty', {}).get('type') in difficulty_order else 99)
+    # Ensure modes is a list before sorting
+    modes_list = latest_raid.get('modes', [])
+    if not isinstance(modes_list, list):
+         print(f"DEBUG: modes_list is not a list: {modes_list}")
+         modes_list = []
+
+    try:
+        # Sort modes, handle potential errors if difficulty type is unexpected
+        sorted_modes = sorted(
+            modes_list,
+            key=lambda mode: list(difficulty_order.keys()).index(mode.get('difficulty', {}).get('type', '')) if mode.get('difficulty', {}).get('type') in difficulty_order else 99
+        )
+    except Exception as e:
+        print(f"DEBUG: Error sorting modes: {e}. Modes list: {modes_list}")
+        sorted_modes = [] # Fallback to empty list if sorting fails
+
+
     for mode in sorted_modes:
         difficulty_type = mode.get('difficulty', {}).get('type')
         if difficulty_type in difficulty_order:
@@ -244,9 +294,15 @@ def summarize_raid_progression(raid_data):
             total_count = progress.get('total_count', 0)
             if total_count > 0:
                  progression_summary.append(f"{completed_count}/{total_count}{difficulty_order[difficulty_type]}")
+
     if not progression_summary:
-        return f"{raid_name}: No Progress"
-    return f"{raid_name}: {' '.join(progression_summary)}"
+        summary_output = f"{raid_name}: No Progress"
+        print(f"DEBUG: Summarize returning: {summary_output}") # DEBUG
+        return summary_output # Return summary string
+
+    summary_output = f"{raid_name}: {' '.join(progression_summary)}"
+    print(f"DEBUG: Summarize returning: {summary_output}") # DEBUG
+    return summary_output # Return summary string
 
 # --- END API Helper Functions ---
 
@@ -305,9 +361,8 @@ def update_database():
             continue
 
         processed_for_details += 1
-        # Limit excessive logging, maybe log every 10th character processed
         if processed_for_details % 10 == 1 or processed_for_details == total_members:
-             print(f"Processing details for {char_name}-{char_realm_slug} (Rank {rank})... ({processed_for_details}/{total_members} checked)")
+             print(f"\nProcessing details for {char_name}-{char_realm_slug} (Rank {rank})... ({processed_for_details}/{total_members} checked)")
 
 
         # Get Class/Race ID and lookup name
@@ -318,7 +373,7 @@ def update_database():
 
         # Fetch additional data (ilvl, progression)
         item_level = None # Use None for DB instead of "N/A"
-        raid_progression_summary = None
+        raid_progression_summary = None # Default to None
 
         summary_data = get_character_summary(char_realm_slug, char_name)
         api_call_count += 1
@@ -329,9 +384,20 @@ def update_database():
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
         if raid_data:
+            # Pass the fetched raid_data to the summarize function
             raid_progression_summary = summarize_raid_progression(raid_data)
-            # Ensure N/A from summary is stored as None
-            if raid_progression_summary == "N/A": raid_progression_summary = None
+            # Ensure "N/A" from summarize function becomes None for DB
+            if raid_progression_summary == "N/A":
+                 raid_progression_summary = None
+        else:
+            # If get_character_raid_progression returned None (e.g., 404)
+            print(f"DEBUG: No raid data returned from API for {char_name}, setting progression to None.")
+            raid_progression_summary = None
+
+
+        # --- DEBUG: Print value being saved ---
+        print(f"DEBUG: For {char_name}: Saving Item Level = {item_level}, Raid Progression = '{raid_progression_summary}'")
+        # --- END DEBUG ---
 
         # Store details for database update
         characters_to_update[char_id] = {
@@ -341,27 +407,24 @@ def update_database():
             'class_name': class_name,
             'race_name': race_name,
             'item_level': item_level,
-            'raid_progression': raid_progression_summary,
+            'raid_progression': raid_progression_summary, # Store the summary (or None)
             'rank': rank
         }
 
-    print(f"Fetched details for {len(characters_to_update)} members (Rank <= 4). Made {api_call_count} API calls.")
+    print(f"\nFetched details for {len(characters_to_update)} members (Rank <= 4). Made {api_call_count} API calls.")
 
     # --- Update Database ---
     db_session = SessionLocal()
     try:
         print("Updating database...")
-        # Get IDs of characters currently in DB with rank <= 4
         existing_char_ids = {id_tuple[0] for id_tuple in db_session.query(Character.id).filter(Character.rank <= 4).all()}
         fetched_char_ids = set(characters_to_update.keys())
-
-        # IDs to delete (were rank <= 4 before, but not in the new fetch with rank <= 4)
         ids_to_delete = existing_char_ids - fetched_char_ids
+
         if ids_to_delete:
             print(f"Deleting {len(ids_to_delete)} characters no longer meeting rank criteria...")
             db_session.query(Character).filter(Character.id.in_(ids_to_delete)).delete(synchronize_session=False)
 
-        # Update or Insert characters
         updated_count = 0
         inserted_count = 0
         for char_id, details in characters_to_update.items():
@@ -372,9 +435,9 @@ def update_database():
                 character.class_name = details['class_name']
                 character.race_name = details['race_name']
                 character.item_level = details['item_level']
-                character.raid_progression = details['raid_progression']
+                character.raid_progression = details['raid_progression'] # Update progression
                 character.rank = details['rank']
-                character.last_updated = datetime.utcnow() # Explicitly set update time
+                character.last_updated = datetime.utcnow()
                 updated_count += 1
             else:
                 # Insert new character
@@ -400,24 +463,21 @@ def update_database():
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    # Ensure all required env vars are set before running
     required_vars = ['BLIZZARD_CLIENT_ID', 'BLIZZARD_CLIENT_SECRET', 'GUILD_NAME', 'REALM_SLUG', 'REGION', 'DATABASE_URL']
     print(f"Checking environment variables...")
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     if missing_vars:
         print(f"Error: Missing required environment variables: {', '.join(missing_vars)}")
-        # If DATABASE_URL is missing, maybe we intended to use local SQLite?
         if 'DATABASE_URL' in missing_vars and DATABASE_URI.startswith('sqlite:///'):
              print("Attempting to use default local SQLite DB: guild_data.db")
-             # Ensure API keys are present even for local SQLite test
              api_keys_missing = [var for var in required_vars[:-1] if not os.environ.get(var)]
              if api_keys_missing:
                   print(f"Error: Missing API environment variables needed for fetch: {', '.join(api_keys_missing)}")
                   exit(1)
              else:
-                  update_database() # Try running with default SQLite
+                  update_database()
         else:
-             exit(1) # Exit if critical vars like API keys or non-default DB URL are missing
+             exit(1)
     else:
         print("All required environment variables found.")
         update_database()
