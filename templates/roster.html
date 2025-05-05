@@ -9,31 +9,23 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        /* Apply Inter font to the whole page */
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        /* Style table headers */
+        body { font-family: 'Inter', sans-serif; }
         th {
-            text-align: left; /* Align header text left */
-            padding-top: 0.5rem; /* Add padding top */
-            padding-bottom: 0.5rem; /* Add padding bottom */
-            padding-left: 0.5rem; /* Add padding left */
-            padding-right: 0.5rem; /* Add padding right */
-            background-color: #f7fafc; /* Light gray background for headers */
+            text-align: left;
+            padding: 0.5rem 0.75rem; /* Increased padding slightly */
+            background-color: #f7fafc; /* gray-100 */
+            border-bottom: 2px solid #e2e8f0; /* gray-300 */
+            font-weight: 600; /* Semibold */
+            white-space: nowrap; /* Prevent headers from wrapping */
         }
-        /* Style table data cells */
         td {
-            padding-top: 0.5rem; /* Add padding top */
-            padding-bottom: 0.5rem; /* Add padding bottom */
-            padding-left: 0.5rem; /* Add padding left */
-            padding-right: 0.5rem; /* Add padding right */
-            border-bottom: 1px solid #e2e8f0; /* Add a light gray bottom border (Tailwind gray-300) */
+            padding: 0.5rem 0.75rem; /* Increased padding slightly */
+            border-bottom: 1px solid #e2e8f0; /* gray-300 */
+            vertical-align: middle; /* Align cell content vertically */
         }
-        /* Remove bottom border from the last row's cells */
-        tr:last-child td {
-            border-bottom: none;
-        }
+        tr:last-child td { border-bottom: none; }
+        /* Style for N/A values */
+        .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -52,7 +44,13 @@
 
     <main class="container mx-auto mt-8 p-4">
         <div class="bg-white p-6 rounded-lg shadow-lg">
-            <h2 class="text-2xl font-bold mb-4">Guild Roster</h2>
+            <div class="flex justify-between items-center mb-4">
+                 <h2 class="text-2xl font-bold">Guild Roster</h2>
+                 {% if load_duration %}
+                 <span class="text-sm text-gray-500">Loaded in {{ load_duration }}s</span>
+                 {% endif %}
+            </div>
+
 
             {% if error_message %}
             <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
@@ -63,9 +61,11 @@
 
             {% if members %}
             <div class="overflow-x-auto">
-                <table class="min-w-full">
+                <table class="min-w-full whitespace-nowrap">
                     <thead>
-                        <tr class="border-b-2 border-gray-400">
+                        <tr>
+                            <th>Item Level</th>
+                            <th>Progression</th>
                             <th>Name</th>
                             <th>Level</th>
                             <th>Class</th>
@@ -76,22 +76,40 @@
                     <tbody>
                         {% for member in members %}
                         <tr>
+                            <td>
+                                {% if member.item_level == "N/A" or member.item_level is none %}
+                                    <span class="na-value">N/A</span>
+                                {% else %}
+                                    {{ member.item_level }}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if member.raid_progression == "N/A" or member.raid_progression is none %}
+                                     <span class="na-value">N/A</span>
+                                {% else %}
+                                     {{ member.raid_progression }}
+                                {% endif %}
+                            </td>
                             <td>{{ member.name }}</td>
                             <td>{{ member.level }}</td>
                             <td>{{ member.class }}</td>
                             <td>{{ member.race }}</td>
                             <td>{{ member.rank }}</td>
                         </tr>
-                        {% endfor %} </tbody>
+                        {% endfor %}
+                    </tbody>
                 </table>
             </div>
             {% elif not error_message %}
-            <p>No roster members found or the guild might be empty.</p>
-            {% endif %} </div>
+            <p>No roster members found matching rank criteria (<= 4) in the database.</p>
+            {% endif %}
+
+        </div>
     </main>
 
     <footer class="text-center text-gray-500 mt-8 pb-4">
-        &copy; {{ guild_name }} - 2025 </footer>
+        &copy; {{ guild_name }} - 2025
+    </footer>
 
 </body>
 </html>
