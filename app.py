@@ -13,8 +13,7 @@ from datetime import datetime # Needed for Character model timestamp
 # --- Configuration Loading ---
 # Basic app config (can be expanded)
 GUILD_NAME = os.environ.get('GUILD_NAME')
-# Note: Blizzard API keys are not directly needed by the web server anymore,
-# only by the update script.
+REGION = os.environ.get('REGION', 'us').lower() # Needed for Armory URL construction
 
 # --- Flask Application Setup ---
 app = Flask(__name__)
@@ -42,7 +41,7 @@ class Character(db.Model):
     __tablename__ = 'character' # Explicit table name recommended
     id = db.Column(db.Integer, primary_key=True) # Use Blizzard's character ID
     name = db.Column(db.String(100), nullable=False)
-    realm_slug = db.Column(db.String(100), nullable=False)
+    realm_slug = db.Column(db.String(100), nullable=False) # Needed for Armory link
     level = db.Column(db.Integer)
     class_name = db.Column(db.String(50))
     race_name = db.Column(db.String(50))
@@ -70,11 +69,20 @@ def roster_page():
     Route for the roster page ('/roster').
     Fetches character data from the PostgreSQL database, filtering by
     rank <= 4 and item_level >= 600. Sorts by rank (asc) then item_level (desc).
+    Includes realm_slug for Armory links.
     """
     start_time = time.time()
     error_message = None
     members = []
     min_item_level = 600 # Define the minimum item level threshold
+    # Determine locale based on region for Armory URL
+    locale = "en-us" # Default
+    if REGION == "eu":
+        locale = "en-gb"
+    elif REGION == "kr":
+        locale = "ko-kr"
+    elif REGION == "tw":
+         locale = "zh-tw"
 
     try:
         # Ensure the app context is available for database operations
@@ -84,26 +92,21 @@ def roster_page():
                  error_message = "Database table not found. Please run the initial setup/update script."
                  print(error_message) # Log the error
             else:
-                # --- MODIFIED QUERY ---
-                # Query the database:
-                # 1. Filter by rank <= 4
-                # 2. Filter by item_level >= min_item_level (also ensure it's not None)
-                # 3. Order by rank ascending
-                # 4. Then order by item_level descending (handle None values if necessary, e.g., nullslast())
+                # Query the database
                 db_members = Character.query.filter(
                     Character.rank <= 4,
-                    Character.item_level != None, # Ensure item_level is not NULL
+                    Character.item_level != None,
                     Character.item_level >= min_item_level
                 ).order_by(
                     Character.rank.asc(),
-                    Character.item_level.desc().nullslast() # Sort descending, put NULLs last
+                    Character.item_level.desc().nullslast()
                 ).all()
-                # --- END MODIFIED QUERY ---
 
                 # Convert SQLAlchemy objects to dictionaries for the template
                 for char in db_members:
                     members.append({
                         'name': char.name,
+                        'realm_slug': char.realm_slug, # ** ADDED REALM SLUG **
                         'level': char.level,
                         'class': char.class_name,
                         'race': char.race_name,
@@ -114,7 +117,6 @@ def roster_page():
 
                 if not members:
                      print(f"Warning: Character table exists but found no members matching rank <= 4 AND item_level >= {min_item_level}.")
-                     # Optionally set a message or just show an empty table
                      error_message = f"No members found matching rank criteria (<= 4) and item level (>= {min_item_level})."
 
     except Exception as e:
@@ -133,10 +135,11 @@ def roster_page():
                            guild_name=display_guild_name,
                            members=members,
                            error_message=error_message,
-                           load_duration=load_duration) # Pass duration (optional)
+                           load_duration=load_duration, # Pass duration (optional)
+                           wow_region=REGION, # Pass region for Armory URL
+                           wow_locale=locale) # Pass locale for Armory URL
 
 # --- Main Execution Block ---
-# We don't run db.create_all() here in production.
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
