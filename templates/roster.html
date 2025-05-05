@@ -64,19 +64,24 @@
                 <table class="min-w-full whitespace-nowrap">
                     <thead>
                         <tr>
-                            <th>Item Level</th>
-                            <th>Progression</th>
                             <th>Name</th>
                             <th>Level</th>
                             <th>Class</th>
                             <th>Race</th>
+							<th>Item Level</th>
+                            <th>Progression</th>
                             <th>Rank</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for member in members %}
                         <tr>
-                            <td>
+                            <td>{{ member.name }}</td>
+                            <td>{{ member.level }}</td>
+                            <td>{{ member.class }}</td>
+                            <td>{{ member.race }}</td>
+                            <td>{{ member.rank }}</td>
+							<td>
                                 {% if member.item_level == "N/A" or member.item_level is none %}
                                     <span class="na-value">N/A</span>
                                 {% else %}
@@ -90,11 +95,6 @@
                                      {{ member.raid_progression }}
                                 {% endif %}
                             </td>
-                            <td>{{ member.name }}</td>
-                            <td>{{ member.level }}</td>
-                            <td>{{ member.class }}</td>
-                            <td>{{ member.race }}</td>
-                            <td>{{ member.rank }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
