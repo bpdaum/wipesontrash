@@ -3,6 +3,8 @@
 from flask import Flask, render_template, jsonify
 # Import SQLAlchemy for database interaction
 from flask_sqlalchemy import SQLAlchemy
+# Import desc for descending sort order
+from sqlalchemy import desc
 import os
 import requests # Still needed for type hints or potential future use
 import time
@@ -44,7 +46,7 @@ class Character(db.Model):
     level = db.Column(db.Integer)
     class_name = db.Column(db.String(50))
     race_name = db.Column(db.String(50))
-    item_level = db.Column(db.Integer) # Store as integer
+    item_level = db.Column(db.Integer, index=True) # Index item_level for filtering/sorting
     raid_progression = db.Column(db.String(200)) # Store summary string
     rank = db.Column(db.Integer, index=True) # Index rank for faster filtering
     last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
@@ -66,11 +68,13 @@ def home():
 def roster_page():
     """
     Route for the roster page ('/roster').
-    Fetches filtered character data directly from the PostgreSQL database.
+    Fetches character data from the PostgreSQL database, filtering by
+    rank <= 4 and item_level >= 600. Sorts by rank (asc) then item_level (desc).
     """
     start_time = time.time()
     error_message = None
     members = []
+    min_item_level = 600 # Define the minimum item level threshold
 
     try:
         # Ensure the app context is available for database operations
@@ -80,8 +84,21 @@ def roster_page():
                  error_message = "Database table not found. Please run the initial setup/update script."
                  print(error_message) # Log the error
             else:
-                # Query the database for characters with rank <= 4, order by rank then name
-                db_members = Character.query.filter(Character.rank <= 4).order_by(Character.rank, Character.name).all()
+                # --- MODIFIED QUERY ---
+                # Query the database:
+                # 1. Filter by rank <= 4
+                # 2. Filter by item_level >= min_item_level (also ensure it's not None)
+                # 3. Order by rank ascending
+                # 4. Then order by item_level descending (handle None values if necessary, e.g., nullslast())
+                db_members = Character.query.filter(
+                    Character.rank <= 4,
+                    Character.item_level != None, # Ensure item_level is not NULL
+                    Character.item_level >= min_item_level
+                ).order_by(
+                    Character.rank.asc(),
+                    Character.item_level.desc().nullslast() # Sort descending, put NULLs last
+                ).all()
+                # --- END MODIFIED QUERY ---
 
                 # Convert SQLAlchemy objects to dictionaries for the template
                 for char in db_members:
@@ -96,9 +113,9 @@ def roster_page():
                     })
 
                 if not members:
-                     print("Warning: Character table exists but found no members with rank <= 4.")
+                     print(f"Warning: Character table exists but found no members matching rank <= 4 AND item_level >= {min_item_level}.")
                      # Optionally set a message or just show an empty table
-                     # error_message = "No members found matching the rank criteria (<= 4)."
+                     error_message = f"No members found matching rank criteria (<= 4) and item level (>= {min_item_level})."
 
     except Exception as e:
         # Catch potential database errors
@@ -111,7 +128,7 @@ def roster_page():
     load_duration = round(end_time - start_time, 2)
     print(f"Roster page loaded from DB in {load_duration} seconds.")
 
-    # Pass the list of member dictionaries to the template
+    # Pass the filtered and sorted list of member dictionaries to the template
     return render_template('roster.html',
                            guild_name=display_guild_name,
                            members=members,
@@ -122,6 +139,4 @@ def roster_page():
 # We don't run db.create_all() here in production.
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    # When running locally for the first time without DATABASE_URL,
-    # you might need to create the SQLite DB tables manually or via the update script.
     app.run(host='0.0.0.0', port=port, debug=False)
