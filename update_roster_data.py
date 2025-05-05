@@ -123,13 +123,6 @@ def make_api_request(api_url, params, headers):
              print(f"Warning: 404 Not Found for URL: {response.url}")
              return None
         response.raise_for_status()
-        # --- DEBUG: Print successful response ---
-        # print(f"DEBUG: API Success for {api_url}. Status: {response.status_code}")
-        # try:
-        #      print(f"DEBUG: Response JSON sample: {str(response.json())[:200]}...") # Print sample
-        # except:
-        #      print(f"DEBUG: Response Text: {response.text[:200]}...")
-        # --- END DEBUG ---
         return response.json()
     except requests.exceptions.HTTPError as e:
         print(f"HTTP Error during API request: {e}")
@@ -228,81 +221,95 @@ def get_character_raid_progression(realm_slug, character_name):
     print(f"DEBUG: Fetching raid progression for {character_name} from {api_url}") # DEBUG
     data = make_api_request(api_url, params, headers)
     # --- DEBUG: Print raw raid data received ---
-    if data:
-        print(f"DEBUG: Raw raid data received for {character_name}:")
-        try:
-            print(json.dumps(data, indent=2)) # Pretty print the JSON
-        except Exception as e:
-            print(f"(Could not print raw data as JSON: {e}) Raw data: {data}")
-    else:
-        print(f"DEBUG: No raid data received for {character_name} (API returned None or error).")
+    # (Keep this section commented out unless needed, as it's verbose)
+    # if data:
+    #     print(f"DEBUG: Raw raid data received for {character_name}:")
+    #     try:
+    #         print(json.dumps(data, indent=2)) # Pretty print the JSON
+    #     except Exception as e:
+    #         print(f"(Could not print raw data as JSON: {e}) Raw data: {data}")
+    # else:
+    #     print(f"DEBUG: No raid data received for {character_name} (API returned None or error).")
     # --- END DEBUG ---
     return data
 
-
+# --- MODIFIED: summarize_raid_progression ---
 def summarize_raid_progression(raid_data):
-    """ Simple function to summarize raid progression from the API data. """
+    """
+    Summarizes raid progression specifically for 'The War Within' expansion
+    and 'Liberation of Undermine' raid, focusing on Heroic and Mythic kills.
+    Returns a string like "Undermine: 8/8H 3/8M" or indicates if not found/no progress.
+    """
+    target_expansion_name = "The War Within"
+    target_raid_name = "Liberation of Undermine"
+    short_raid_name = "Undermine" # Name used in the output string
+
     # --- DEBUG: Print input to summarize function ---
-    print(f"DEBUG: Summarizing raid data input:")
-    try:
-        print(json.dumps(raid_data, indent=2))
-    except Exception as e:
-        print(f"(Could not print input as JSON: {e}) Raw input: {raid_data}")
+    # print(f"DEBUG: Summarizing raid data input:")
+    # try:
+    #     print(json.dumps(raid_data, indent=2))
+    # except Exception as e:
+    #     print(f"(Could not print input as JSON: {e}) Raw input: {raid_data}")
     # --- END DEBUG ---
 
     if not raid_data or 'expansions' not in raid_data:
-        print("DEBUG: Summarize returning N/A (no raid_data or expansions key)") # DEBUG
-        return "N/A" # Return "N/A" string for clarity in logs
+        print(f"DEBUG ({short_raid_name}): Summarize returning 'Not Found' (no raid_data or expansions key)")
+        return f"{short_raid_name}: Not Found"
 
-    # Find the latest expansion (usually the last one in the list)
-    latest_expansion = raid_data['expansions'][-1] if raid_data['expansions'] else None
-    if not latest_expansion or 'raids' not in latest_expansion:
-        print("DEBUG: Summarize returning N/A (no latest_expansion or raids key)") # DEBUG
-        return "N/A"
+    heroic_kills = 0
+    heroic_total = 0
+    mythic_kills = 0
+    mythic_total = 0
+    raid_found = False
 
-    # Find the latest raid within that expansion (usually the last one)
-    latest_raid = latest_expansion['raids'][-1] if latest_expansion['raids'] else None
-    if not latest_raid or 'modes' not in latest_raid:
-        print("DEBUG: Summarize returning N/A (no latest_raid or modes key)") # DEBUG
-        return "N/A"
+    # Find the target expansion
+    for expansion in raid_data.get('expansions', []):
+        # Use .get() for safer access
+        exp_details = expansion.get('expansion', {})
+        if exp_details.get('name') == target_expansion_name:
+            # Find the target raid instance within the expansion
+            for instance in expansion.get('instances', []):
+                instance_details = instance.get('instance', {})
+                if instance_details.get('name') == target_raid_name:
+                    raid_found = True
+                    print(f"DEBUG ({short_raid_name}): Found raid '{target_raid_name}'. Processing modes.")
+                    # Process modes for Heroic and Mythic
+                    for mode in instance.get('modes', []):
+                        difficulty = mode.get('difficulty', {})
+                        progress = mode.get('progress', {})
+                        difficulty_type = difficulty.get('type')
 
-    raid_name = latest_raid.get('instance', {}).get('name', 'Latest Raid')
-    progression_summary = []
-    difficulty_order = {"LFR": "L", "NORMAL": "N", "HEROIC": "H", "MYTHIC": "M"}
-    # Ensure modes is a list before sorting
-    modes_list = latest_raid.get('modes', [])
-    if not isinstance(modes_list, list):
-         print(f"DEBUG: modes_list is not a list: {modes_list}")
-         modes_list = []
+                        if difficulty_type == "HEROIC":
+                            heroic_kills = progress.get('completed_count', 0)
+                            heroic_total = progress.get('total_count', 0)
+                            print(f"DEBUG ({short_raid_name}): Found Heroic: {heroic_kills}/{heroic_total}")
+                        elif difficulty_type == "MYTHIC":
+                            mythic_kills = progress.get('completed_count', 0)
+                            mythic_total = progress.get('total_count', 0)
+                            print(f"DEBUG ({short_raid_name}): Found Mythic: {mythic_kills}/{mythic_total}")
+                    break # Stop searching instances once the target raid is found
+            break # Stop searching expansions once the target expansion is found
 
-    try:
-        # Sort modes, handle potential errors if difficulty type is unexpected
-        sorted_modes = sorted(
-            modes_list,
-            key=lambda mode: list(difficulty_order.keys()).index(mode.get('difficulty', {}).get('type', '')) if mode.get('difficulty', {}).get('type') in difficulty_order else 99
-        )
-    except Exception as e:
-        print(f"DEBUG: Error sorting modes: {e}. Modes list: {modes_list}")
-        sorted_modes = [] # Fallback to empty list if sorting fails
+    if not raid_found:
+        print(f"DEBUG ({short_raid_name}): Target raid '{target_raid_name}' not found in expansion '{target_expansion_name}'.")
+        return f"{short_raid_name}: Not Found"
 
+    # Format the output string
+    summary_parts = []
+    if heroic_total > 0:
+        summary_parts.append(f"{heroic_kills}/{heroic_total}H")
+    if mythic_total > 0:
+        summary_parts.append(f"{mythic_kills}/{mythic_total}M")
 
-    for mode in sorted_modes:
-        difficulty_type = mode.get('difficulty', {}).get('type')
-        if difficulty_type in difficulty_order:
-            progress = mode.get('progress', {})
-            completed_count = progress.get('completed_count', 0)
-            total_count = progress.get('total_count', 0)
-            if total_count > 0:
-                 progression_summary.append(f"{completed_count}/{total_count}{difficulty_order[difficulty_type]}")
-
-    if not progression_summary:
-        summary_output = f"{raid_name}: No Progress"
-        print(f"DEBUG: Summarize returning: {summary_output}") # DEBUG
-        return summary_output # Return summary string
-
-    summary_output = f"{raid_name}: {' '.join(progression_summary)}"
-    print(f"DEBUG: Summarize returning: {summary_output}") # DEBUG
-    return summary_output # Return summary string
+    if not summary_parts:
+        # This case means the raid was found, but neither H nor M modes had data or bosses (total_count=0)
+        summary_output = f"{short_raid_name}: No H/M Data"
+        print(f"DEBUG ({short_raid_name}): Summarize returning: {summary_output}")
+        return summary_output
+    else:
+        summary_output = f"{short_raid_name}: {' '.join(summary_parts)}"
+        print(f"DEBUG ({short_raid_name}): Summarize returning: {summary_output}")
+        return summary_output
 
 # --- END API Helper Functions ---
 
@@ -384,11 +391,12 @@ def update_database():
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
         if raid_data:
-            # Pass the fetched raid_data to the summarize function
+            # Pass the fetched raid_data to the NEW summarize function
             raid_progression_summary = summarize_raid_progression(raid_data)
-            # Ensure "N/A" from summarize function becomes None for DB
-            if raid_progression_summary == "N/A":
-                 raid_progression_summary = None
+            # Ensure "N/A" or other non-progress strings become None for DB
+            # (The new function returns more specific strings, handle them)
+            if raid_progression_summary is None or "Not Found" in raid_progression_summary or "No H/M Data" in raid_progression_summary:
+                 raid_progression_summary = None # Store as NULL if no specific progress found
         else:
             # If get_character_raid_progression returned None (e.g., 404)
             print(f"DEBUG: No raid data returned from API for {char_name}, setting progression to None.")
@@ -407,7 +415,7 @@ def update_database():
             'class_name': class_name,
             'race_name': race_name,
             'item_level': item_level,
-            'raid_progression': raid_progression_summary, # Store the summary (or None)
+            'raid_progression': raid_progression_summary, # Store the specific summary (or None)
             'rank': rank
         }
 
