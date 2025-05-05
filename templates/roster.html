@@ -12,20 +12,29 @@
         body { font-family: 'Inter', sans-serif; }
         th {
             text-align: left;
-            padding: 0.5rem 0.75rem; /* Increased padding slightly */
+            padding: 0.5rem 0.75rem; /* Padding for headers */
             background-color: #f7fafc; /* gray-100 */
             border-bottom: 2px solid #e2e8f0; /* gray-300 */
             font-weight: 600; /* Semibold */
             white-space: nowrap; /* Prevent headers from wrapping */
         }
         td {
-            padding: 0.5rem 0.75rem; /* Increased padding slightly */
+            padding: 0.5rem 0.75rem; /* Padding for cells */
             border-bottom: 1px solid #e2e8f0; /* gray-300 */
             vertical-align: middle; /* Align cell content vertically */
         }
-        tr:last-child td { border-bottom: none; }
+        tr:last-child td { border-bottom: none; } /* Remove border from last row */
         /* Style for N/A values */
         .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
+        /* Style for Armory links */
+        .armory-link {
+            color: #2b6cb0; /* blue-700 */
+            text-decoration: none;
+        }
+        .armory-link:hover {
+            color: #2c5282; /* blue-800 */
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -51,7 +60,6 @@
                  {% endif %}
             </div>
 
-
             {% if error_message %}
             <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
                 <strong class="font-bold">Error:</strong>
@@ -68,7 +76,7 @@
                             <th>Level</th>
                             <th>Class</th>
                             <th>Race</th>
-							<th>Item Level</th>
+                            <th>Item Level</th>
                             <th>Progression</th>
                             <th>Rank</th>
                         </tr>
@@ -76,11 +84,16 @@
                     <tbody>
                         {% for member in members %}
                         <tr>
-                            <td>{{ member.name }}</td>
+                            <td>
+                                <a href="https://worldofwarcraft.blizzard.com/{{ wow_locale }}/character/{{ wow_region }}/{{ member.realm_slug }}/{{ member.name | urlencode }}"
+                                   target="_blank" rel="noopener noreferrer" class="armory-link">
+                                    {{ member.name }}
+                                </a>
+                            </td>
                             <td>{{ member.level }}</td>
                             <td>{{ member.class }}</td>
                             <td>{{ member.race }}</td>
-							<td>
+                            <td>
                                 {% if member.item_level == "N/A" or member.item_level is none %}
                                     <span class="na-value">N/A</span>
                                 {% else %}
@@ -94,16 +107,15 @@
                                      {{ member.raid_progression }}
                                 {% endif %}
                             </td>
-							<td>{{ member.rank }}</td>
+                            <td>{{ member.rank }}</td>
                         </tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
             {% elif not error_message %}
-            <p>No roster members found matching rank criteria (<= 4) in the database.</p>
+            <p>No members found matching rank criteria (<= 4) and item level (>= 600) in the database.</p>
             {% endif %}
-
         </div>
     </main>
 
