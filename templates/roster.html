@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ guild_name }} - Roster</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Apply Inter font to the whole page */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Style table headers */
+        th {
+            text-align: left; /* Align header text left */
+            padding-top: 0.5rem; /* Add padding top */
+            padding-bottom: 0.5rem; /* Add padding bottom */
+            padding-left: 0.5rem; /* Add padding left */
+            padding-right: 0.5rem; /* Add padding right */
+            background-color: #f7fafc; /* Light gray background for headers */
+        }
+        /* Style table data cells */
+        td {
+            padding-top: 0.5rem; /* Add padding top */
+            padding-bottom: 0.5rem; /* Add padding bottom */
+            padding-left: 0.5rem; /* Add padding left */
+            padding-right: 0.5rem; /* Add padding right */
+            border-bottom: 1px solid #e2e8f0; /* Add a light gray bottom border (Tailwind gray-300) */
+        }
+        /* Remove bottom border from the last row's cells */
+        tr:last-child td {
+            border-bottom: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <nav class="bg-gray-800 text-white p-4 shadow-md">
+        <div class="container mx-auto flex flex-wrap justify-between items-center">
+            <h1 class="text-xl font-semibold mb-2 sm:mb-0">{{ guild_name }} Portal</h1>
+            <div class="flex space-x-2">
+                <a href="/" class="px-3 py-2 rounded hover:bg-gray-700">Home</a>
+                <a href="/roster" class="px-3 py-2 rounded bg-gray-700 font-medium">Roster</a>
+                <a href="#" class="px-3 py-2 rounded hover:bg-gray-700">Raids</a>
+                <a href="#" class="px-3 py-2 rounded hover:bg-gray-700">Loot</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto mt-8 p-4">
+        <div class="bg-white p-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-bold mb-4">Guild Roster</h2>
+
+            {% if error_message %}
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                <strong class="font-bold">Error:</strong>
+                <span class="block sm:inline">{{ error_message }}</span>
+            </div>
+            {% endif %}
+
+            {% if members %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full">
+                    <thead>
+                        <tr class="border-b-2 border-gray-400">
+                            <th>Name</th>
+                            <th>Level</th>
+                            <th>Class</th>
+                            <th>Race</th>
+                            <th>Rank</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for member in members %}
+                        <tr>
+                            <td>{{ member.name }}</td>
+                            <td>{{ member.level }}</td>
+                            <td>{{ member.class }}</td>
+                            <td>{{ member.race }}</td>
+                            <td>{{ member.rank }}</td>
+                        </tr>
+                        {% endfor %} </tbody>
+                </table>
+            </div>
+            {% elif not error_message %}
+            <p>No roster members found or the guild might be empty.</p>
+            {% endif %} </div>
+    </main>
+
+    <footer class="text-center text-gray-500 mt-8 pb-4">
+        &copy; {{ guild_name }} - 2025 </footer>
+
+</body>
+</html>

@@ -1,33 +1,127 @@
 # app.py
-# Import the Flask library
-from flask import Flask, render_template
-import os # Import os to potentially use environment variables later
+# Import necessary libraries
+from flask import Flask, render_template, jsonify
+# Import SQLAlchemy for database interaction
+from flask_sqlalchemy import SQLAlchemy
+import os
+import requests # Still needed for type hints or potential future use
+import time
+from datetime import datetime # Needed for Character model timestamp
 
-# Create an instance of the Flask class.
-# __name__ is a special Python variable that gets the name of the current module.
-# Flask uses this to know where to look for resources like templates and static files.
+# --- Configuration Loading ---
+# Basic app config (can be expanded)
+GUILD_NAME = os.environ.get('GUILD_NAME')
+# Note: Blizzard API keys are not directly needed by the web server anymore,
+# only by the update script.
+
+# --- Flask Application Setup ---
 app = Flask(__name__)
 
-# Define a route for the homepage ('/') of the website.
-# The @app.route decorator tells Flask what URL should trigger our function.
+# --- Database Configuration ---
+# Get the DATABASE_URL from Heroku environment variables
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if not DATABASE_URL:
+    # Default to a local SQLite file if DATABASE_URL is not set (for local dev)
+    print("WARNING: DATABASE_URL environment variable not found. Defaulting to local sqlite:///guild_data.db")
+    DATABASE_URL = 'sqlite:///guild_data.db'
+else:
+    # Heroku Postgres URLs start with 'postgres://', SQLAlchemy prefers 'postgresql://'
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Disable modification tracking
+db = SQLAlchemy(app) # Initialize SQLAlchemy with the Flask app
+
+# --- Database Model ---
+# Defines the structure for storing character data in the database.
+# This should match the definition in update_roster_data.py
+class Character(db.Model):
+    __tablename__ = 'character' # Explicit table name recommended
+    id = db.Column(db.Integer, primary_key=True) # Use Blizzard's character ID
+    name = db.Column(db.String(100), nullable=False)
+    realm_slug = db.Column(db.String(100), nullable=False)
+    level = db.Column(db.Integer)
+    class_name = db.Column(db.String(50))
+    race_name = db.Column(db.String(50))
+    item_level = db.Column(db.Integer) # Store as integer
+    raid_progression = db.Column(db.String(200)) # Store summary string
+    rank = db.Column(db.Integer, index=True) # Index rank for faster filtering
+    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
+
+    # Define a unique constraint on name and realm_slug
+    __table_args__ = (db.UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
+
+    def __repr__(self):
+        return f'<Character {self.name}-{self.realm_slug}>'
+
+# --- Routes ---
 @app.route('/')
 def home():
-  """
-  This function runs when someone visits the root URL ('/').
-  It renders the 'index.html' template.
-  """
-  # The render_template function looks for HTML files in the 'templates' folder.
-  # We can pass variables to the template here if needed in the future.
-  guild_name = "Your Guild Name" # Example variable
-  return render_template('index.html', guild_name=guild_name)
+    """ Route for the homepage ('/'). """
+    display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
+    return render_template('index.html', guild_name=display_guild_name)
 
-# This block ensures the development server runs only when the script is executed directly
-# (not when imported as a module).
-# It's useful for local testing. Heroku uses the Procfile and Gunicorn instead.
+@app.route('/roster')
+def roster_page():
+    """
+    Route for the roster page ('/roster').
+    Fetches filtered character data directly from the PostgreSQL database.
+    """
+    start_time = time.time()
+    error_message = None
+    members = []
+
+    try:
+        # Ensure the app context is available for database operations
+        with app.app_context():
+            # Check if the table exists before querying
+            if not db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
+                 error_message = "Database table not found. Please run the initial setup/update script."
+                 print(error_message) # Log the error
+            else:
+                # Query the database for characters with rank <= 4, order by rank then name
+                db_members = Character.query.filter(Character.rank <= 4).order_by(Character.rank, Character.name).all()
+
+                # Convert SQLAlchemy objects to dictionaries for the template
+                for char in db_members:
+                    members.append({
+                        'name': char.name,
+                        'level': char.level,
+                        'class': char.class_name,
+                        'race': char.race_name,
+                        'item_level': char.item_level if char.item_level is not None else "N/A",
+                        'raid_progression': char.raid_progression if char.raid_progression else "N/A",
+                        'rank': char.rank
+                    })
+
+                if not members:
+                     print("Warning: Character table exists but found no members with rank <= 4.")
+                     # Optionally set a message or just show an empty table
+                     # error_message = "No members found matching the rank criteria (<= 4)."
+
+    except Exception as e:
+        # Catch potential database errors
+        print(f"Error querying database: {e}")
+        error_message = "Error retrieving data from the database. Has the update script run successfully?"
+
+
+    display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
+    end_time = time.time()
+    load_duration = round(end_time - start_time, 2)
+    print(f"Roster page loaded from DB in {load_duration} seconds.")
+
+    # Pass the list of member dictionaries to the template
+    return render_template('roster.html',
+                           guild_name=display_guild_name,
+                           members=members,
+                           error_message=error_message,
+                           load_duration=load_duration) # Pass duration (optional)
+
+# --- Main Execution Block ---
+# We don't run db.create_all() here in production.
 if __name__ == '__main__':
-  # Get port from environment variable for Heroku compatibility, default to 5000 locally
-  port = int(os.environ.get('PORT', 5000))
-  # Run the app. debug=True enables auto-reloading and detailed error pages during development.
-  # Set host='0.0.0.0' to make the server accessible on your network.
-  # Set debug=False when deploying to production (Heroku).
-  app.run(host='0.0.0.0', port=port, debug=True) # Set debug=False for production
+    port = int(os.environ.get('PORT', 5000))
+    # When running locally for the first time without DATABASE_URL,
+    # you might need to create the SQLite DB tables manually or via the update script.
+    app.run(host='0.0.0.0', port=port, debug=False)
