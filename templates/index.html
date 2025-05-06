@@ -88,49 +88,55 @@
             </div>
         </div>
 
-        <div class="bg-white p-6 rounded-lg shadow-lg">
-            <h2 class="text-2xl font-bold mb-6 text-gray-900">Raid Status (Wipers)</h2>
-            {# Grid layout for 5 KPI cards #}
-            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div class="bg-white p-6 rounded-lg shadow-lg space-y-6"> {# Added space-y-6 for spacing inside #}
+            <h2 class="text-2xl font-bold text-gray-900">Raid Status (Wipers)</h2>
 
-                {# Max Heroic Kills Card #}
-                 <div class="kpi-card">
-                     <div class="kpi-icon prog-heroic"><i class="fas fa-trophy"></i></div>
-                     {# Display max kills / total bosses #}
-                     <div class="kpi-value">{{ max_heroic_kills | default(0) }}/{{ heroic_total_bosses | default('?') }}</div>
-                     <div class="kpi-label">LoU Heroic</div>
-                 </div>
+            {# Progression Row #}
+            <div>
+                <h3 class="text-lg font-semibold mb-4 text-gray-800">Progression</h3>
+                {# Grid layout for 2 KPI cards #}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
+                     {# Max Heroic Kills Card #}
+                     <div class="kpi-card">
+                         <div class="kpi-icon prog-heroic"><i class="fas fa-trophy"></i></div>
+                         <div class="kpi-value">{{ max_heroic_kills | default(0) }}/{{ heroic_total_bosses | default('?') }}</div>
+                         <div class="kpi-label">Max Heroic Kills</div>
+                     </div>
 
-                 {# Max Mythic Kills Card #}
-                 <div class="kpi-card">
-                     <div class="kpi-icon prog-mythic"><i class="fas fa-skull-crossbones"></i></div>
-                     {# Display max kills / total bosses #}
-                     <div class="kpi-value">{{ max_mythic_kills | default(0) }}/{{ mythic_total_bosses | default('?') }}</div>
-                     <div class="kpi-label">LoU Mythic</div>
-                 </div>
+                     {# Max Mythic Kills Card #}
+                     <div class="kpi-card">
+                         <div class="kpi-icon prog-mythic"><i class="fas fa-skull-crossbones"></i></div>
+                         <div class="kpi-value">{{ max_mythic_kills | default(0) }}/{{ mythic_total_bosses | default('?') }}</div>
+                         <div class="kpi-label">Max Mythic Kills</div>
+                     </div>
+                </div>
+            </div>
 
-                 {# Tank Card #}
-                 <div class="kpi-card">
-                     <div class="kpi-icon role-tank"><i class="fas fa-shield-halved"></i></div>
-                     {# Display tank count from Flask variable #}
-                     <div class="kpi-value">{{ raid_status_counts.Tank | default(0) }}</div>
-                     <div class="kpi-label">Tanks</div>
-                 </div>
+            {# Current Roster Row #}
+            <div>
+                 <h3 class="text-lg font-semibold mb-4 text-gray-800">Current Roster</h3>
+                 {# Grid layout for 3 KPI cards #}
+                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
+                     {# Tank Card #}
+                     <div class="kpi-card">
+                         <div class="kpi-icon role-tank"><i class="fas fa-shield-halved"></i></div>
+                         <div class="kpi-value">{{ raid_status_counts.Tank | default(0) }}</div>
+                         <div class="kpi-label">Tanks</div>
+                     </div>
 
-                 {# Healer Card #}
-                 <div class="kpi-card">
-                     <div class="kpi-icon role-healer"><i class="fas fa-briefcase-medical"></i></div>
-                     {# Display healer count from Flask variable #}
-                     <div class="kpi-value">{{ raid_status_counts.Healer | default(0) }}</div>
-                     <div class="kpi-label">Healers</div>
-                 </div>
+                     {# Healer Card #}
+                     <div class="kpi-card">
+                         <div class="kpi-icon role-healer"><i class="fas fa-briefcase-medical"></i></div>
+                         <div class="kpi-value">{{ raid_status_counts.Healer | default(0) }}</div>
+                         <div class="kpi-label">Healers</div>
+                     </div>
 
-                 {# DPS Card #}
-                 <div class="kpi-card">
-                     <div class="kpi-icon role-dps"><i class="fas fa-khanda"></i></div>
-                     {# Display DPS count from Flask variable #}
-                     <div class="kpi-value">{{ raid_status_counts.DPS | default(0) }}</div>
-                     <div class="kpi-label">DPS</div>
+                     {# DPS Card #}
+                     <div class="kpi-card">
+                         <div class="kpi-icon role-dps"><i class="fas fa-khanda"></i></div>
+                         <div class="kpi-value">{{ raid_status_counts.DPS | default(0) }}</div>
+                         <div class="kpi-label">DPS</div>
+                     </div>
                  </div>
             </div>
         </div>
