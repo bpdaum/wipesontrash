@@ -39,7 +39,6 @@
             width: 1em; /* Give arrow some space */
             text-align: center;
         }
-        /* --- FIXED: Removed extra backslash --- */
         .sort-arrow.asc::after { content: '\25B2'; } /* Up arrow ▲ */
         .sort-arrow.desc::after { content: '\25BC'; } /* Down arrow ▼ */
 
@@ -96,11 +95,13 @@
                         <tr>
                             <th class="sortable" data-column-index="0" data-sort-type="string">Name <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="1" data-sort-type="number">Level <span class="sort-arrow"></span></th>
-                            <th>Role</th> <th class="sortable" data-column-index="3" data-sort-type="string">Spec <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="2" data-sort-type="string">Role <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="3" data-sort-type="string">Spec <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="4" data-sort-type="string">Class <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="5" data-sort-type="number">Item Level <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="6" data-sort-type="string">Race <span class="sort-arrow"></span></th>
-                            <th>Progression</th> <th class="sortable" data-column-index="8" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="7" data-sort-type="string">Progression <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="8" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
                         </tr>
                     </thead>
                     <tbody id="rosterBody">
@@ -165,11 +166,9 @@
     </footer>
 
     <script>
-        // Wait for the DOM to be fully loaded
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
             const tableBody = document.getElementById('rosterBody');
-            // Ensure table and body exist before proceeding
             if (!table || !tableBody) {
                 console.error("Roster table or body not found!");
                 return;
@@ -198,7 +197,7 @@
 
         function sortTable(columnIndex, sortType, ascending) {
             const tableBody = document.getElementById('rosterBody');
-             if (!tableBody) return; // Exit if body not found
+             if (!tableBody) return;
             const rows = Array.from(tableBody.querySelectorAll('tr'));
 
             const compareFunction = (rowA, rowB) => {
@@ -207,21 +206,31 @@
 
                 if (!cellA || !cellB) return 0;
 
-                // Extract text, handle potential N/A values represented by spans
-                let valueA = cellA.querySelector('.na-value') ? 'N/A' : cellA.textContent.trim();
-                let valueB = cellB.querySelector('.na-value') ? 'N/A' : cellB.textContent.trim();
+                let valueA, valueB;
 
-                const isValueANa = valueA === 'N/A';
-                const isValueBNa = valueB === 'N/A';
+                // --- MODIFIED: Get value based on column index ---
+                if (columnIndex === 2) { // Role column (index 2)
+                    const iconA = cellA.querySelector('i');
+                    const iconB = cellB.querySelector('i');
+                    valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A'; // Get title attribute
+                    valueB = iconB ? iconB.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
+                } else { // Other columns
+                    valueA = cellA.querySelector('.na-value') ? 'N/A' : cellA.textContent.trim();
+                    valueB = cellB.querySelector('.na-value') ? 'N/A' : cellB.textContent.trim();
+                }
+                // --- END MODIFICATION ---
 
-                // Logic to handle N/A: place them at the bottom when ascending, top when descending
+                const isValueANa = valueA === 'N/A' || valueA === 'Unknown/N/A';
+                const isValueBNa = valueB === 'N/A' || valueB === 'Unknown/N/A';
+
+                // Handle N/A: Place them at the bottom regardless of sort direction
                 if (isValueANa && isValueBNa) return 0;
-                if (isValueANa) return 1; // N/A is always "greater" (comes last)
-                if (isValueBNa) return -1; // N/A is always "greater" (comes last)
+                if (isValueANa) return 1; // N/A is always "greater"
+                if (isValueBNa) return -1; // N/A is always "greater"
 
                 // Parse values based on sortType
                 if (sortType === 'number') {
-                    valueA = parseFloat(valueA) || 0; // Default to 0 if parsing fails
+                    valueA = parseFloat(valueA) || 0;
                     valueB = parseFloat(valueB) || 0;
                 } else { // string sort (case-insensitive)
                     valueA = valueA.toLowerCase();
@@ -239,8 +248,7 @@
             };
 
             rows.sort(compareFunction);
-            // Re-append rows (no need to clear first, appendChild moves them)
-            rows.forEach(row => tableBody.appendChild(row));
+            rows.forEach(row => tableBody.appendChild(row)); // Re-append sorted rows
         }
 
         function updateSortArrows(headers, activeColumnIndex, ascending) {
