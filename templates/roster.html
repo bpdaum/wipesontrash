@@ -35,6 +35,10 @@
             color: #2c5282; /* blue-800 */
             text-decoration: underline;
         }
+        /* Role-based text colors (optional) */
+        .role-dps { color: #c53030; } /* red-700 */
+        .role-healer { color: #2f855a; } /* green-700 */
+        .role-tank { color: #2b6cb0; } /* blue-700 */
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -74,11 +78,9 @@
                         <tr>
                             <th>Name</th>
                             <th>Level</th>
-                            <th>Class</th>
-                            <th>Race</th>
-                            <th>Item Level</th>
-                            <th>Progression</th>
-                            <th>Rank</th>
+                            <th>Role</th> <th>Spec</th> <th>Class</th>
+                            <th>Item Level</th> <th>Race</th>
+                            <th>Progression</th> <th>Rank</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -91,15 +93,37 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                            <td>{{ member.class }}</td>
-                            <td>{{ member.race }}</td>
+                             <td>
+                                {# Apply styling based on role #}
+                                {% set role_lower = member.role | lower if member.role else '' %}
+                                {% if role_lower == "n/a" or member.role is none %}
+                                    <span class="na-value">N/A</span>
+                                {% elif role_lower == 'dps' %}
+                                    <span class="role-dps font-semibold">{{ member.role }}</span>
+                                {% elif role_lower == 'healer' %}
+                                     <span class="role-healer font-semibold">{{ member.role }}</span>
+                                {% elif role_lower == 'tank' %}
+                                     <span class="role-tank font-semibold">{{ member.role }}</span>
+                                {% else %}
+                                     {{ member.role }} {# Fallback if role is unexpected #}
+                                {% endif %}
+                            </td>
                             <td>
+                                {% if member.spec_name == "N/A" or member.spec_name is none %}
+                                    <span class="na-value">N/A</span>
+                                {% else %}
+                                    {{ member.spec_name }}
+                                {% endif %}
+                            </td>
+                            <td>{{ member.class }}</td>
+                             <td>
                                 {% if member.item_level == "N/A" or member.item_level is none %}
                                     <span class="na-value">N/A</span>
                                 {% else %}
                                     {{ member.item_level }}
                                 {% endif %}
                             </td>
+                            <td>{{ member.race }}</td>
                             <td>
                                 {% if member.raid_progression == "N/A" or member.raid_progression is none %}
                                      <span class="na-value">N/A</span>

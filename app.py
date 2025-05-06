@@ -36,7 +36,7 @@ db = SQLAlchemy(app) # Initialize SQLAlchemy with the Flask app
 
 # --- Database Model ---
 # Defines the structure for storing character data in the database.
-# This should match the definition in update_roster_data.py
+# This MUST match the definition in update_roster_data.py
 class Character(db.Model):
     __tablename__ = 'character' # Explicit table name recommended
     id = db.Column(db.Integer, primary_key=True) # Use Blizzard's character ID
@@ -45,6 +45,8 @@ class Character(db.Model):
     level = db.Column(db.Integer)
     class_name = db.Column(db.String(50))
     race_name = db.Column(db.String(50))
+    spec_name = db.Column(db.String(50)) # Active Specialization Name
+    role = db.Column(db.String(10))      # Role (Tank, Healer, DPS)
     item_level = db.Column(db.Integer, index=True) # Index item_level for filtering/sorting
     raid_progression = db.Column(db.String(200)) # Store summary string
     rank = db.Column(db.Integer, index=True) # Index rank for faster filtering
@@ -67,8 +69,8 @@ def home():
 def roster_page():
     """
     Route for the roster page ('/roster').
-    Fetches character data from the PostgreSQL database, filtering by
-    rank <= 4 and item_level >= 600. Sorts by rank (asc) then item_level (desc).
+    Fetches character data including spec/role from the PostgreSQL database,
+    filtering by rank <= 4 and item_level >= 600. Sorts by rank (asc) then item_level (desc).
     Includes realm_slug for Armory links.
     """
     start_time = time.time()
@@ -106,10 +108,12 @@ def roster_page():
                 for char in db_members:
                     members.append({
                         'name': char.name,
-                        'realm_slug': char.realm_slug, # ** ADDED REALM SLUG **
+                        'realm_slug': char.realm_slug,
                         'level': char.level,
                         'class': char.class_name,
                         'race': char.race_name,
+                        'spec_name': char.spec_name if char.spec_name else "N/A", # Fetch spec
+                        'role': char.role if char.role else "N/A",               # Fetch role
                         'item_level': char.item_level if char.item_level is not None else "N/A",
                         'raid_progression': char.raid_progression if char.raid_progression else "N/A",
                         'rank': char.rank

@@ -33,7 +33,8 @@ except Exception as e:
      print(f"Error creating database engine: {e}")
      exit(1)
 
-# Re-define the model here (should match app.py)
+# --- Database Model ---
+# Defines the structure for storing character data in the database.
 class Character(Base):
     """ Defines the structure for storing character data in the database. """
     __tablename__ = 'character'
@@ -43,9 +44,11 @@ class Character(Base):
     level = Column(Integer)
     class_name = Column(String(50))
     race_name = Column(String(50))
-    item_level = Column(Integer)
+    spec_name = Column(String(50)) # Active Specialization Name
+    role = Column(String(10))      # Role (Tank, Healer, DPS)
+    item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
-    rank = Column(Integer, index=True) # Index rank for faster filtering
+    rank = Column(Integer, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
 
     # Define a unique constraint on name and realm_slug
@@ -197,7 +200,7 @@ def get_guild_roster():
     return data
 
 def get_character_summary(realm_slug, character_name):
-    """ Fetches character profile summary (for item level). """
+    """ Fetches character profile summary (for item level, spec, role). """
     access_token = get_blizzard_access_token()
     if not access_token: return None
     realm_slug = realm_slug.lower()
@@ -220,37 +223,30 @@ def get_character_raid_progression(realm_slug, character_name):
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
     print(f"DEBUG: Fetching raid progression for {character_name} from {api_url}") # DEBUG
     data = make_api_request(api_url, params, headers)
-    # --- DEBUG: Print raw raid data received ---
-    # (Keep this section commented out unless needed, as it's verbose)
+    # (Optional verbose debug logging for raw data)
     # if data:
     #     print(f"DEBUG: Raw raid data received for {character_name}:")
-    #     try:
-    #         print(json.dumps(data, indent=2)) # Pretty print the JSON
-    #     except Exception as e:
-    #         print(f"(Could not print raw data as JSON: {e}) Raw data: {data}")
+    #     try: print(json.dumps(data, indent=2))
+    #     except Exception as e: print(f"(Could not print raw data as JSON: {e}) Raw data: {data}")
     # else:
     #     print(f"DEBUG: No raid data received for {character_name} (API returned None or error).")
-    # --- END DEBUG ---
     return data
 
-# --- MODIFIED: summarize_raid_progression ---
+
 def summarize_raid_progression(raid_data):
     """
     Summarizes raid progression specifically for 'The War Within' expansion
     and 'Liberation of Undermine' raid, focusing on Heroic and Mythic kills.
     Returns a string like "Undermine: 8/8H 3/8M" or indicates if not found/no progress.
     """
-    target_expansion_name = "The War Within"
-    target_raid_name = "Liberation of Undermine"
+    target_expansion_name = "The War Within" # Update if needed
+    target_raid_name = "Liberation of Undermine" # Update if needed
     short_raid_name = "Undermine" # Name used in the output string
 
-    # --- DEBUG: Print input to summarize function ---
+    # (Optional verbose debug logging for input data)
     # print(f"DEBUG: Summarizing raid data input:")
-    # try:
-    #     print(json.dumps(raid_data, indent=2))
-    # except Exception as e:
-    #     print(f"(Could not print input as JSON: {e}) Raw input: {raid_data}")
-    # --- END DEBUG ---
+    # try: print(json.dumps(raid_data, indent=2))
+    # except Exception as e: print(f"(Could not print input as JSON: {e}) Raw input: {raid_data}")
 
     if not raid_data or 'expansions' not in raid_data:
         print(f"DEBUG ({short_raid_name}): Summarize returning 'Not Found' (no raid_data or expansions key)")
@@ -264,7 +260,6 @@ def summarize_raid_progression(raid_data):
 
     # Find the target expansion
     for expansion in raid_data.get('expansions', []):
-        # Use .get() for safer access
         exp_details = expansion.get('expansion', {})
         if exp_details.get('name') == target_expansion_name:
             # Find the target raid instance within the expansion
@@ -302,7 +297,6 @@ def summarize_raid_progression(raid_data):
         summary_parts.append(f"{mythic_kills}/{mythic_total}M")
 
     if not summary_parts:
-        # This case means the raid was found, but neither H nor M modes had data or bosses (total_count=0)
         summary_output = f"{short_raid_name}: No H/M Data"
         print(f"DEBUG ({short_raid_name}): Summarize returning: {summary_output}")
         return summary_output
@@ -378,34 +372,65 @@ def update_database():
         class_name = CLASS_MAP.get(class_id, f"ID: {class_id}" if class_id else "N/A")
         race_name = RACE_MAP.get(race_id, f"ID: {race_id}" if race_id else "N/A")
 
-        # Fetch additional data (ilvl, progression)
-        item_level = None # Use None for DB instead of "N/A"
-        raid_progression_summary = None # Default to None
+        # Fetch additional data (ilvl, progression, spec, role)
+        item_level = None
+        raid_progression_summary = None
+        spec_name = None # Default spec name
+        role = None      # Default role
 
         summary_data = get_character_summary(char_realm_slug, char_name)
         api_call_count += 1
         if summary_data:
+            # Get Item Level
             ilvl_raw = summary_data.get('average_item_level')
             item_level = int(ilvl_raw) if isinstance(ilvl_raw, (int, float)) else None
+
+            # Get Spec and Role
+            active_spec_data = summary_data.get('active_spec')
+            if active_spec_data and isinstance(active_spec_data, dict):
+                spec_name = active_spec_data.get('name') # e.g., "Fury"
+                try:
+                    # Determine role based on spec type
+                    spec_type = None
+                    # Check primary location first (might vary across API versions)
+                    if 'type' in active_spec_data:
+                        spec_type = active_spec_data.get('type', '').upper()
+                    # Fallback check within media object
+                    elif 'media' in active_spec_data and isinstance(active_spec_data['media'], dict) and 'type' in active_spec_data['media']:
+                         spec_type = active_spec_data['media'].get('type', '').upper()
+
+                    if spec_type == 'HEALING':
+                        role = 'Healer'
+                    elif spec_type == 'TANK':
+                        role = 'Tank'
+                    elif spec_type == 'DAMAGE':
+                         role = 'DPS'
+                    else: # Fallback based on common spec names if type is missing/unexpected
+                        print(f"DEBUG: Spec type '{spec_type}' not found or unexpected for {char_name}. Falling back to name heuristic.")
+                        if spec_name in ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]:
+                            role = "Tank"
+                        elif spec_name in ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]:
+                             role = "Healer"
+                        elif spec_name: # If spec name exists but doesn't match Tank/Healer
+                             role = "DPS"
+                except Exception as spec_err:
+                    print(f"Warning: Could not determine role for {char_name} from spec data: {spec_err}")
+
+            print(f"DEBUG: For {char_name}: Spec='{spec_name}', Role='{role}'") # DEBUG
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
         if raid_data:
-            # Pass the fetched raid_data to the NEW summarize function
             raid_progression_summary = summarize_raid_progression(raid_data)
-            # Ensure "N/A" or other non-progress strings become None for DB
-            # (The new function returns more specific strings, handle them)
             if raid_progression_summary is None or "Not Found" in raid_progression_summary or "No H/M Data" in raid_progression_summary:
-                 raid_progression_summary = None # Store as NULL if no specific progress found
+                 raid_progression_summary = None
         else:
-            # If get_character_raid_progression returned None (e.g., 404)
             print(f"DEBUG: No raid data returned from API for {char_name}, setting progression to None.")
             raid_progression_summary = None
 
 
-        # --- DEBUG: Print value being saved ---
-        print(f"DEBUG: For {char_name}: Saving Item Level = {item_level}, Raid Progression = '{raid_progression_summary}'")
-        # --- END DEBUG ---
+        # Print value being saved
+        print(f"DEBUG: For {char_name}: Saving Item Level = {item_level}, Raid Progression = '{raid_progression_summary}', Spec = '{spec_name}', Role = '{role}'")
 
         # Store details for database update
         characters_to_update[char_id] = {
@@ -414,8 +439,10 @@ def update_database():
             'level': character_info.get('level'),
             'class_name': class_name,
             'race_name': race_name,
+            'spec_name': spec_name, # Add spec
+            'role': role,           # Add role
             'item_level': item_level,
-            'raid_progression': raid_progression_summary, # Store the specific summary (or None)
+            'raid_progression': raid_progression_summary,
             'rank': rank
         }
 
@@ -442,8 +469,10 @@ def update_database():
                 character.level = details['level']
                 character.class_name = details['class_name']
                 character.race_name = details['race_name']
+                character.spec_name = details['spec_name'] # Update spec
+                character.role = details['role']           # Update role
                 character.item_level = details['item_level']
-                character.raid_progression = details['raid_progression'] # Update progression
+                character.raid_progression = details['raid_progression']
                 character.rank = details['rank']
                 character.last_updated = datetime.utcnow()
                 updated_count += 1
@@ -471,21 +500,23 @@ def update_database():
 
 # --- Main Execution ---
 if __name__ == "__main__":
+    # Check environment variables
     required_vars = ['BLIZZARD_CLIENT_ID', 'BLIZZARD_CLIENT_SECRET', 'GUILD_NAME', 'REALM_SLUG', 'REGION', 'DATABASE_URL']
     print(f"Checking environment variables...")
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     if missing_vars:
         print(f"Error: Missing required environment variables: {', '.join(missing_vars)}")
+        # Handle case where DATABASE_URL is missing but we might use default SQLite
         if 'DATABASE_URL' in missing_vars and DATABASE_URI.startswith('sqlite:///'):
              print("Attempting to use default local SQLite DB: guild_data.db")
-             api_keys_missing = [var for var in required_vars[:-1] if not os.environ.get(var)]
+             api_keys_missing = [var for var in required_vars[:-1] if not os.environ.get(var)] # Check others
              if api_keys_missing:
                   print(f"Error: Missing API environment variables needed for fetch: {', '.join(api_keys_missing)}")
                   exit(1)
              else:
-                  update_database()
+                  update_database() # Try running with default SQLite
         else:
-             exit(1)
+             exit(1) # Exit if critical vars like API keys or non-default DB URL are missing
     else:
         print("All required environment variables found.")
         update_database()
