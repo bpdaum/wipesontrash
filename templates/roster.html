@@ -10,48 +10,59 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
+        /* Base styles */
         body { font-family: 'Inter', sans-serif; }
         th {
-            text-align: left; padding: 0.5rem 0.75rem; background-color: #f7fafc;
-            border-bottom: 2px solid #e2e8f0; font-weight: 600; white-space: nowrap;
+            text-align: left; padding: 0.5rem 0.75rem; background-color: #f7fafc; /* gray-100 */
+            border-bottom: 2px solid #e2e8f0; /* gray-300 */ font-weight: 600; /* Semibold */
+            white-space: nowrap;
         }
+        /* Clickable sortable headers */
         th.sortable { cursor: pointer; position: relative; }
-        th.sortable:hover { background-color: #edf2f7; }
+        th.sortable:hover { background-color: #edf2f7; /* gray-200 */ }
+        /* Sort arrows */
         .sort-arrow {
-            font-size: 0.8em; margin-left: 0.3em; color: #a0aec0; position: absolute;
+            font-size: 0.8em; margin-left: 0.3em; color: #a0aec0; /* gray-500 */ position: absolute;
             right: 0.5rem; top: 50%; transform: translateY(-50%); width: 1em; text-align: center;
         }
-        .sort-arrow.asc::after { content: '\25B2'; }
-        .sort-arrow.desc::after { content: '\25BC'; }
-        td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+        .sort-arrow.asc::after { content: '\25B2'; } /* Up arrow ▲ */
+        .sort-arrow.desc::after { content: '\25BC'; } /* Down arrow ▼ */
+        /* Table cell styles */
+        td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; /* gray-300 */ vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
-        .na-value { color: #a0aec0; font-style: italic; }
-        .armory-link { color: #2b6cb0; text-decoration: none; }
-        .armory-link:hover { color: #2c5282; text-decoration: underline; }
+        /* Utility styles */
+        .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
+        .armory-link { color: #2b6cb0; /* blue-700 */ text-decoration: none; }
+        .armory-link:hover { color: #2c5282; /* blue-800 */ text-decoration: underline; }
         .role-icon { font-size: 1.1rem; width: 1.5em; text-align: center; display: inline-block; }
         .role-dps { color: #c53030; } .role-healer { color: #2f855a; } .role-tank { color: #2b6cb0; } .role-unknown { color: #a0aec0; }
 
         /* Styles for Spec Editing */
-        .spec-display { display: inline-block; margin-right: 5px;}
-        .edit-spec-btn {
+        .display-value { display: inline-block; margin-right: 5px;}
+        .edit-btn {
             cursor: pointer; color: #a0aec0; font-size: 0.8em; vertical-align: middle; display: inline-block;
             padding: 1px 3px; border-radius: 3px; margin-left: 4px;
         }
-        .edit-spec-btn:hover { color: #4a5568; background-color: #e2e8f0;}
-        .spec-select {
+        .edit-btn:hover { color: #4a5568; background-color: #e2e8f0;}
+        .edit-control { /* Common class for selects */
             display: none; padding: 2px 4px; border: 1px solid #cbd5e0; border-radius: 4px;
             font-size: 0.9em; vertical-align: middle; margin-left: 5px; max-width: 150px;
         }
-        .spec-select-container { display: inline-block; }
-        .spec-save-btn, .spec-cancel-btn {
+        .edit-container { display: inline-block; } /* Container for select and save/cancel */
+        .save-btn, .cancel-btn {
             display: none; margin-left: 5px; padding: 1px 4px; font-size: 0.8em; border-radius: 3px; cursor: pointer;
             vertical-align: middle; border: 1px solid transparent;
         }
-        .spec-save-btn { background-color: #38a169; color: white; border-color: #2f855a;}
-        .spec-save-btn:hover { background-color: #2f855a; }
-        .spec-cancel-btn { background-color: #e53e3e; color: white; border-color: #c53030;}
-        .spec-cancel-btn:hover { background-color: #c53030; }
+        .save-btn { background-color: #38a169; color: white; border-color: #2f855a;}
+        .save-btn:hover { background-color: #2f855a; }
+        .cancel-btn { background-color: #e53e3e; color: white; border-color: #c53030;}
+        .cancel-btn:hover { background-color: #c53030; }
         .update-status { font-size: 0.8em; margin-left: 5px; font-style: italic; color: #4a5568; }
+
+        /* Optional: Status Text Styling */
+        .status-wiper { color: #b7791f; font-weight: 500;} /* yellow-700 */
+        .status-member { color: #38a169; } /* green-600 */
+        .status-wiping-alt { color: #718096; } /* gray-600 */
 
     </style>
 </head>
@@ -96,7 +107,7 @@
                             <th class="sortable" data-column-index="3" data-sort-type="string">Spec <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="4" data-sort-type="string">Class <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="5" data-sort-type="number">Item Level <span class="sort-arrow"></span></th>
-                            <th class="sortable" data-column-index="6" data-sort-type="string">Race <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="6" data-sort-type="string">Status <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="7" data-sort-type="string">Progression <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="8" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
                         </tr>
@@ -104,7 +115,7 @@
                     <tbody id="rosterBody">
                         {% for member in members %}
                         {# Add character and class IDs to the row for JavaScript access #}
-                        <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}" data-api-spec="{{ member.spec_name }}"> {# Store API spec #}
+                        <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}" data-api-spec="{{ member.spec_name }}">
                             <td>
                                 <a href="https://worldofwarcraft.blizzard.com/{{ wow_locale }}/character/{{ wow_region }}/{{ member.realm_slug }}/{{ member.name | urlencode }}"
                                    target="_blank" rel="noopener noreferrer" class="armory-link">
@@ -112,15 +123,15 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                             <td class="text-center role-cell"> {# Added class for easier selection #}
-                                {% set initial_role = member.role | lower if member.role else '' %}
-                                {% if initial_role == 'dps' %} <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i>
-                                {% elif initial_role == 'healer' %} <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
-                                {% elif initial_role == 'tank' %} <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
+                             <td class="text-center role-cell"> {# Center align the icon #}
+                                {% set role_lower = member.role | lower if member.role else '' %}
+                                {% if role_lower == 'dps' %} <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i>
+                                {% elif role_lower == 'healer' %} <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
+                                {% elif role_lower == 'tank' %} <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
                                 {% else %} <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {% endif %}
                             </td>
                             <td>
-                                <span class="spec-display">
+                                <span class="spec-display display-value"> {# Added common class #}
                                     {# Display override if set, otherwise API spec #}
                                     {% if member.main_spec_override %}
                                         {{ member.main_spec_override }}
@@ -130,21 +141,31 @@
                                         {{ member.spec_name }} {# Display API spec if no override #}
                                     {% endif %}
                                 </span>
-                                <i class="fas fa-pencil-alt edit-spec-btn" title="Set Main Spec"></i> {# Edit Icon #}
-                                <div class="spec-select-container"> {# Container for dropdown and buttons #}
-                                    <select class="spec-select">
+                                <i class="fas fa-pencil-alt edit-btn edit-spec-btn" title="Set Main Spec"></i> {# Common class #}
+                                <div class="edit-container spec-edit-container"> {# Common class #}
+                                    <select class="edit-control spec-select">
                                         {# Options will be populated by JavaScript based on class_id #}
                                     </select>
-                                    <button class="spec-save-btn">Save</button>
-                                    <button class="spec-cancel-btn">Cancel</button>
+                                    <button class="save-btn spec-save-btn">Save</button>
+                                    <button class="cancel-btn spec-cancel-btn">Cancel</button>
                                 </div>
-                                <span class="update-status"></span> {# For showing update messages like 'Saving...', 'Saved!', 'Error' #}
+                                <span class="update-status spec-update-status"></span> {# Specific class #}
                             </td>
                             <td>{{ member.class }}</td>
                              <td>
                                 {% if member.item_level == "N/A" or member.item_level is none %} <span class="na-value">N/A</span> {% else %} {{ member.item_level }} {% endif %}
                             </td>
-                            <td>{{ member.race }}</td>
+                            <td>
+                                 {# Apply styling based on status #}
+                                 {% set status_lower = member.status | lower if member.status else '' %}
+                                 <span class="status-display display-value
+                                     {% if status_lower == 'wiper' %} status-wiper
+                                     {% elif status_lower == 'member' %} status-member
+                                     {% elif status_lower == 'wiping alt' %} status-wiping-alt
+                                     {% endif %}">
+                                     {{ member.status | default('Unknown') }} {# Display calculated status #}
+                                 </span>
+                             </td>
                             <td>
                                 {% if member.raid_progression == "N/A" or member.raid_progression is none %} <span class="na-value">N/A</span> {% else %} {{ member.raid_progression }} {% endif %}
                             </td>
@@ -169,60 +190,39 @@
         // Parse the spec data passed from Flask
         const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
 
-        // --- NEW: Spec to Role Mapping ---
-        // Define known Tank and Healer specs (all others default to DPS)
+        // Spec to Role Mapping
         const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
         const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
 
         function getRoleFromSpec(specName) {
-            if (!specName || specName === 'N/A') return 'Unknown'; // Handle missing spec
+            if (!specName || specName === 'N/A') return 'Unknown';
             if (tankSpecs.includes(specName)) return 'Tank';
             if (healerSpecs.includes(specName)) return 'Healer';
             return 'DPS'; // Default to DPS
         }
 
-        // --- NEW: Function to update role icon ---
+        // Function to update role icon based on role name
         function updateRoleIcon(tableRow, newRole) {
-            const roleCell = tableRow.querySelector('.role-cell'); // Use the added class
+            const roleCell = tableRow.querySelector('.role-cell');
             if (!roleCell) return;
             const icon = roleCell.querySelector('i');
             if (!icon) return;
-
-            // Remove existing role classes
-            icon.classList.remove('fa-khanda', 'fa-briefcase-medical', 'fa-shield-halved', 'fa-question');
-            icon.classList.remove('role-dps', 'role-healer', 'role-tank', 'role-unknown');
-
-            // Add new classes based on role
-            let iconClass = 'fa-question'; // Default
-            let colorClass = 'role-unknown';
-            let title = 'Unknown/N/A';
-
-            if (newRole === 'DPS') {
-                iconClass = 'fa-khanda';
-                colorClass = 'role-dps';
-                title = 'DPS';
-            } else if (newRole === 'Healer') {
-                iconClass = 'fa-briefcase-medical';
-                colorClass = 'role-healer';
-                title = 'Healer';
-            } else if (newRole === 'Tank') {
-                iconClass = 'fa-shield-halved';
-                colorClass = 'role-tank';
-                title = 'Tank';
-            }
-
-            icon.classList.add('fa-solid', iconClass, colorClass);
+            icon.className = 'role-icon fa-solid'; // Reset classes
+            let iconClass = 'fa-question', colorClass = 'role-unknown', title = 'Unknown/N/A';
+            if (newRole === 'DPS') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; }
+            else if (newRole === 'Healer') { iconClass = 'fa-briefcase-medical'; colorClass = 'role-healer'; title = 'Healer'; }
+            else if (newRole === 'Tank') { iconClass = 'fa-shield-halved'; colorClass = 'role-tank'; title = 'Tank'; }
+            icon.classList.add(iconClass, colorClass);
             icon.setAttribute('title', title);
         }
 
-
-        // Wait for the DOM to be fully loaded
+        // Main script execution after DOM loads
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
             const tableBody = document.getElementById('rosterBody');
             if (!table || !tableBody) { console.error("Roster table or body not found!"); return; }
             const headers = table.querySelectorAll('th.sortable');
-            let currentSort = { column: -1, ascending: true };
+            let currentSort = { column: -1, ascending: true }; // Track current sort state
 
             // --- Sorting Event Listeners ---
             headers.forEach(header => {
@@ -236,192 +236,146 @@
                 });
             });
 
-            // --- Spec Editing Event Listeners (using event delegation on tbody) ---
+            // --- Spec Editing Event Listeners ---
             tableBody.addEventListener('click', function(event) {
-                if (event.target.classList.contains('edit-spec-btn')) { startEdit(event.target); }
-                else if (event.target.classList.contains('spec-save-btn')) { saveSpec(event.target); }
-                else if (event.target.classList.contains('spec-cancel-btn')) { cancelEdit(event.target); }
+                // Spec Editing ONLY (Status editing removed)
+                if (event.target.classList.contains('edit-spec-btn')) { startEdit(event.target, 'spec'); }
+                else if (event.target.classList.contains('spec-save-btn')) { saveEdit(event.target, 'spec'); }
+                else if (event.target.classList.contains('spec-cancel-btn')) { cancelEdit(event.target, 'spec'); }
             });
 
             // --- Spec Editing Functions ---
-            function startEdit(editButton) {
+            function startEdit(editButton, type) { // Only 'spec' type is now used
+                if (type !== 'spec') return;
                 const td = editButton.closest('td');
                 const tr = editButton.closest('tr');
-                const specDisplay = td.querySelector('.spec-display');
-                const selectContainer = td.querySelector('.spec-select-container');
+                const displaySpan = td.querySelector('.spec-display');
+                const selectContainer = td.querySelector('.spec-edit-container');
                 const select = selectContainer.querySelector('.spec-select');
                 const saveBtn = selectContainer.querySelector('.spec-save-btn');
                 const cancelBtn = selectContainer.querySelector('.spec-cancel-btn');
-                const statusSpan = td.querySelector('.update-status');
+                const statusSpan = td.querySelector('.spec-update-status');
 
                 const classId = tr.dataset.classId;
-                const currentDisplayedSpec = specDisplay.textContent.trim();
+                const currentDisplayedValue = displaySpan.textContent.trim(); // Get current displayed spec
                 const specsForClass = allSpecsByClass[classId] || [];
 
                 // Populate dropdown
-                select.innerHTML = '<option value="">-- Use API Spec --</option>'; // Changed text
+                select.innerHTML = '<option value="">-- Use API Spec --</option>'; // Option to clear override
                 specsForClass.forEach(spec => {
                     const option = document.createElement('option');
-                    option.value = spec.name;
-                    option.textContent = spec.name;
-                    if (currentDisplayedSpec === spec.name) {
+                    option.value = spec.name; option.textContent = spec.name;
+                    // Select the currently displayed value in the dropdown
+                    if (currentDisplayedValue === spec.name && !displaySpan.querySelector('.na-value')) {
                         option.selected = true;
                     }
                     select.appendChild(option);
                 });
 
                 // Show editing UI
-                specDisplay.style.display = 'none';
-                editButton.style.display = 'none';
-                selectContainer.style.display = 'inline-block';
-                select.style.display = 'inline-block';
-                saveBtn.style.display = 'inline-block';
-                cancelBtn.style.display = 'inline-block';
+                displaySpan.style.display = 'none'; editButton.style.display = 'none';
+                selectContainer.style.display = 'inline-block'; select.style.display = 'inline-block';
+                saveBtn.style.display = 'inline-block'; cancelBtn.style.display = 'inline-block';
                 statusSpan.textContent = '';
             }
 
-            function cancelEdit(cancelButton) {
+            function cancelEdit(cancelButton, type) {
+                 if (type !== 'spec') return;
                  const td = cancelButton.closest('td');
-                 const specDisplay = td.querySelector('.spec-display');
+                 const displaySpan = td.querySelector('.spec-display');
                  const editButton = td.querySelector('.edit-spec-btn');
-                 const selectContainer = td.querySelector('.spec-select-container');
-
+                 const selectContainer = td.querySelector('.spec-edit-container');
                  selectContainer.style.display = 'none';
-                 specDisplay.style.display = 'inline-block';
+                 displaySpan.style.display = 'inline-block';
                  editButton.style.display = 'inline-block';
             }
 
-            function saveSpec(saveButton) {
+            function saveEdit(saveButton, type) {
+                if (type !== 'spec') return;
                 const td = saveButton.closest('td');
                 const tr = saveButton.closest('tr');
                 const select = td.querySelector('.spec-select');
-                const statusSpan = td.querySelector('.update-status');
+                const statusSpan = td.querySelector('.spec-update-status');
                 const characterId = tr.dataset.characterId;
-                const selectedSpecName = select.value; // Empty string if "-- Use API Spec --" selected
-                const apiSpecName = tr.dataset.apiSpec; // Get original API spec from data attribute
+                const selectedValue = select.value; // Selected override ("" if clearing)
+                const apiSpecName = tr.dataset.apiSpec; // Original API spec
 
                 if (!characterId) { /* ... error handling ... */ return; }
+                statusSpan.textContent = 'Saving...'; statusSpan.style.color = '#4a5568';
 
-                statusSpan.textContent = 'Saving...';
-                statusSpan.style.color = '#4a5568';
-
-                fetch('/update_spec', {
+                fetch('/update_spec', { // Call spec update endpoint
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify({
-                        character_id: parseInt(characterId),
-                        spec_name: selectedSpecName // Send selected override (or "" to clear)
-                    })
+                    body: JSON.stringify({ character_id: parseInt(characterId), spec_name: selectedValue })
                 })
                 .then(response => {
-                    if (!response.ok) {
-                         return response.json().then(errData => { throw new Error(errData.description || `HTTP error ${response.status}`); })
-                                           .catch(() => { throw new Error(`HTTP error ${response.status}`); });
-                    }
+                    if (!response.ok) { throw new Error(`HTTP error ${response.status}`); }
                     return response.json();
                 })
                 .then(data => {
                     if (data.success) {
-                        statusSpan.textContent = 'Saved!';
-                        statusSpan.style.color = 'green';
+                        statusSpan.textContent = 'Saved!'; statusSpan.style.color = 'green';
                         const specDisplay = td.querySelector('.spec-display');
-
-                        // --- MODIFIED: Update display and role icon ---
                         let finalSpecName;
-                        if (selectedSpecName) {
-                            finalSpecName = selectedSpecName; // Use the override
+                        if (selectedValue) { // If override was set
+                            finalSpecName = selectedValue;
                             specDisplay.textContent = finalSpecName;
-                            // Remove na-value class if it was there
-                            const naSpan = specDisplay.querySelector('.na-value');
-                            if (naSpan) specDisplay.innerHTML = finalSpecName;
-                        } else {
-                            finalSpecName = apiSpecName; // Use the stored API spec name
-                             // Display API spec or N/A
-                            if (finalSpecName && finalSpecName !== "N/A") {
-                                 specDisplay.textContent = finalSpecName;
-                                 const naSpan = specDisplay.querySelector('.na-value');
-                                 if (naSpan) specDisplay.innerHTML = finalSpecName;
-                            } else {
-                                 specDisplay.innerHTML = '<span class="na-value">N/A</span>';
-                            }
+                        } else { // If override was cleared
+                            finalSpecName = apiSpecName;
+                            specDisplay.textContent = (finalSpecName && finalSpecName !== "N/A") ? finalSpecName : '';
+                            if (!specDisplay.textContent) specDisplay.innerHTML = '<span class="na-value">N/A</span>';
                         }
-
-                        // Update the role icon based on the final displayed spec
+                        // Update role icon based on the final displayed spec
                         const newRole = getRoleFromSpec(finalSpecName);
                         updateRoleIcon(tr, newRole);
-                        // --- END MODIFICATION ---
 
-                        setTimeout(() => {
-                            cancelEdit(saveButton);
-                            statusSpan.textContent = '';
-                        }, 1500);
-                    } else {
-                        throw new Error(data.message || "Unknown error saving spec.");
-                    }
+                        setTimeout(() => { cancelEdit(saveButton, type); statusSpan.textContent = ''; }, 1500);
+                    } else { throw new Error(data.message || "Unknown error saving spec."); }
                 })
                 .catch(error => {
-                    console.error('Error updating spec:', error);
-                    statusSpan.textContent = `Error: ${error.message}`;
-                    statusSpan.style.color = 'red';
+                    console.error(`Error updating ${type}:`, error);
+                    statusSpan.textContent = `Error: ${error.message}`; statusSpan.style.color = 'red';
                 });
             }
 
         }); // End DOMContentLoaded
 
-        // --- Sorting Functions (Unchanged) ---
+        // --- Sorting Functions ---
         function sortTable(columnIndex, sortType, ascending) {
             const tableBody = document.getElementById('rosterBody');
              if (!tableBody) return;
             const rows = Array.from(tableBody.querySelectorAll('tr'));
-
             const compareFunction = (rowA, rowB) => {
                 const cellA = rowA.querySelectorAll('td')[columnIndex];
                 const cellB = rowB.querySelectorAll('td')[columnIndex];
                 if (!cellA || !cellB) return 0;
                 let valueA, valueB;
 
-                if (columnIndex === 2) { // Role column
-                    const iconA = cellA.querySelector('i');
-                    const iconB = cellB.querySelector('i');
+                if (columnIndex === 2) { // Role column (index 2)
+                    const iconA = cellA.querySelector('i'); const iconB = cellB.querySelector('i');
                     valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                     valueB = iconB ? iconB.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                 } else { // Other columns
                     valueA = cellA.querySelector('.na-value') ? 'N/A' : cellA.textContent.trim();
                     valueB = cellB.querySelector('.na-value') ? 'N/A' : cellB.textContent.trim();
                 }
-
                 const isValueANa = valueA === 'N/A' || valueA === 'Unknown/N/A';
                 const isValueBNa = valueB === 'N/A' || valueB === 'Unknown/N/A';
-
-                if (isValueANa && isValueBNa) return 0;
-                if (isValueANa) return 1;
-                if (isValueBNa) return -1;
-
-                if (sortType === 'number') {
-                    valueA = parseFloat(valueA) || 0;
-                    valueB = parseFloat(valueB) || 0;
-                } else {
-                    valueA = valueA.toLowerCase();
-                    valueB = valueB.toLowerCase();
-                }
-
-                if (valueA < valueB) { return ascending ? -1 : 1; }
-                if (valueA > valueB) { return ascending ? 1 : -1; }
-                return 0;
+                if (isValueANa && isValueBNa) return 0; if (isValueANa) return 1; if (isValueBNa) return -1;
+                if (sortType === 'number') { valueA = parseFloat(valueA) || 0; valueB = parseFloat(valueB) || 0; }
+                else { valueA = valueA.toLowerCase(); valueB = valueB.toLowerCase(); }
+                if (valueA < valueB) { return ascending ? -1 : 1; } if (valueA > valueB) { return ascending ? 1 : -1; } return 0;
             };
             rows.sort(compareFunction);
             rows.forEach(row => tableBody.appendChild(row));
         }
-
         function updateSortArrows(headers, activeColumnIndex, ascending) {
              headers.forEach(header => {
                 const arrowSpan = header.querySelector('.sort-arrow');
                 if (arrowSpan) {
                     const colIndex = parseInt(header.dataset.columnIndex);
                     arrowSpan.classList.remove('asc', 'desc');
-                    if (colIndex === activeColumnIndex) {
-                        arrowSpan.classList.add(ascending ? 'asc' : 'desc');
-                    }
+                    if (colIndex === activeColumnIndex) { arrowSpan.classList.add(ascending ? 'asc' : 'desc'); }
                 }
              });
         }

@@ -3,7 +3,7 @@ import os
 import requests
 import time
 from datetime import datetime
-import json # Import json for pretty printing debug output
+import json
 
 # --- Standalone SQLAlchemy setup for PostgreSQL/SQLite ---
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index
@@ -33,7 +33,8 @@ except Exception as e:
      print(f"Error creating database engine: {e}")
      exit(1)
 
-# --- Database Model (with class_id and override) ---
+# --- Database Model ---
+# Includes class_id, status; removes race_name
 class Character(Base):
     """ Defines the structure for storing character data in the database. """
     __tablename__ = 'character'
@@ -43,10 +44,11 @@ class Character(Base):
     level = Column(Integer)
     class_id = Column(Integer) # Store the class ID
     class_name = Column(String(50))
-    race_name = Column(String(50))
+    # race_name removed
     spec_name = Column(String(50)) # API Active Spec
     main_spec_override = Column(String(50), nullable=True) # User override
     role = Column(String(10))      # Role (Tank, Healer, DPS)
+    status = Column(String(15), nullable=False, index=True) # Calculated Status field
     item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
@@ -72,8 +74,8 @@ API_BASE_URL = f"https://{REGION}.api.blizzard.com"
 # --- Caching (For API calls within this script run) ---
 access_token_cache = { "token": None, "expires_at": 0 }
 CLASS_MAP = {}
-RACE_MAP = {}
-SPEC_MAP_BY_CLASS = {}
+# RACE_MAP = {} # Removed
+SPEC_MAP_BY_CLASS = {} # Cache for all specs {class_id: [{id: spec_id, name: spec_name}, ...]}
 
 # --- API Helper Functions ---
 
@@ -116,11 +118,11 @@ def get_blizzard_access_token():
 def make_api_request(api_url, params, headers):
     """ Helper function to make API GET requests and handle common errors """
     try:
-        response = requests.get(api_url, params=params, headers=headers, timeout=30)
+        response = requests.get(api_url, params=params, headers=headers, timeout=30) # Added timeout
         if response.status_code == 404:
              print(f"Warning: 404 Not Found for URL: {response.url}")
              return None
-        response.raise_for_status()
+        response.raise_for_status() # Raise for other errors (401, 403, 5xx)
         return response.json()
     except requests.exceptions.HTTPError as e:
         print(f"HTTP Error during API request: {e}")
@@ -142,7 +144,7 @@ def make_api_request(api_url, params, headers):
 
 def get_static_data(endpoint, use_base_url=True):
     """
-    Fetches static data (classes, races, specs).
+    Fetches static data (classes, specs).
     Can fetch from a full URL if use_base_url is False.
     """
     access_token = get_blizzard_access_token()
@@ -155,13 +157,11 @@ def get_static_data(endpoint, use_base_url=True):
 
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-    print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}")
+    # Reduce logging verbosity for static data calls unless debugging
+    # print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}")
     data = make_api_request(api_url, params, headers)
-    # Avoid excessive logging for spec detail calls
-    # if data and use_base_url:
-    #     print(f"Successfully fetched static data from {endpoint}.")
-    # elif not data:
-    #      print(f"Failed to fetch static data from {endpoint or api_url}.")
+    # if data and use_base_url: print(f"Successfully fetched static data from {endpoint}.")
+    # elif not data: print(f"Failed to fetch static data from {endpoint or api_url}.")
     return data
 
 
@@ -207,7 +207,6 @@ def populate_spec_cache():
             continue
 
         # Fetch detail data for this specific spec using its href
-        # print(f"Fetching details for spec ID {spec_id} ({spec_name})...") # Reduce verbosity
         spec_detail_data = get_static_data(detail_href, use_base_url=False)
         processed_count += 1
 
@@ -228,9 +227,9 @@ def populate_spec_cache():
             temp_spec_map[class_id] = []
         temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
 
-        if processed_count % 10 == 0: # Log progress every 10 specs
+        if processed_count % 10 == 0:
              print(f"Processed details for {processed_count}/{len(spec_list)} specs...")
-        time.sleep(0.05) # Small delay
+        time.sleep(0.05) # Small delay to avoid hitting rate limits
 
     # Sort specs within each class list now
     for cid in temp_spec_map:
@@ -248,11 +247,12 @@ def populate_spec_cache():
 
 
 def populate_static_caches():
-    """ Populates CLASS_MAP, RACE_MAP, and SPEC_MAP_BY_CLASS if empty. """
-    global CLASS_MAP, RACE_MAP
+    """ Populates CLASS_MAP and SPEC_MAP_BY_CLASS if empty. """
+    global CLASS_MAP
     class_success = True
-    race_success = True
+    spec_success = True
 
+    # Populate Class Map
     if not CLASS_MAP:
         print("Class map empty, attempting to fetch...")
         class_data = get_static_data('/playable-class/index')
@@ -263,19 +263,10 @@ def populate_static_caches():
             print("Failed to fetch or parse playable class data.")
             class_success = False
 
-    if not RACE_MAP:
-        print("Race map empty, attempting to fetch...")
-        race_data = get_static_data('/playable-race/index')
-        if race_data and 'races' in race_data:
-            RACE_MAP = {race['id']: race['name'] for race in race_data['races']}
-            print(f"Race map populated with {len(RACE_MAP)} entries.")
-        else:
-            print("Failed to fetch or parse playable race data.")
-            race_success = False
-
+    # Populate Spec Map
     spec_success = populate_spec_cache()
 
-    return class_success and race_success and spec_success
+    return class_success and spec_success
 
 
 def get_guild_roster():
@@ -320,7 +311,7 @@ def get_character_raid_progression(realm_slug, character_name):
     api_url = f"{API_BASE_URL}/profile/wow/character/{realm_slug}/{character_name}/encounters/raids"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    print(f"DEBUG: Fetching raid progression for {character_name} from {api_url}")
+    # print(f"DEBUG: Fetching raid progression for {character_name} from {api_url}") # Reduce logging
     data = make_api_request(api_url, params, headers)
     if not data:
         print(f"DEBUG: No raid data received for {character_name} (API returned None or error).")
@@ -331,57 +322,67 @@ def summarize_raid_progression(raid_data):
     """
     Summarizes raid progression specifically for 'The War Within' expansion
     and 'Liberation of Undermine' raid, focusing on Heroic and Mythic kills.
+    Returns a tuple: (summary_string, heroic_kills_count)
+    Returns (None, -1) if raid/expansion not found or error.
     """
-    target_expansion_name = "The War Within"
-    target_raid_name = "Liberation of Undermine"
-    short_raid_name = "Undermine"
+    target_expansion_name = "The War Within" # Update if needed when TWW launches
+    target_raid_name = "Liberation of Undermine" # Update if needed when TWW launches
+    short_raid_name = "Undermine" # Name used in the output string
 
     if not raid_data or 'expansions' not in raid_data:
-        print(f"DEBUG ({short_raid_name}): Summarize returning 'Not Found' (no raid_data or expansions key)")
-        return f"{short_raid_name}: Not Found"
+        # print(f"DEBUG ({short_raid_name}): Summarize returning None, -1 (no raid_data or expansions key)")
+        return None, -1 # Indicate error or not found
 
-    heroic_kills = 0
+    heroic_kills = -1 # Use -1 to indicate data not found for this difficulty
     heroic_total = 0
-    mythic_kills = 0
+    mythic_kills = -1
     mythic_total = 0
     raid_found = False
 
+    # Find the target expansion
     for expansion in raid_data.get('expansions', []):
         exp_details = expansion.get('expansion', {})
         if exp_details.get('name') == target_expansion_name:
+            # Find the target raid instance within the expansion
             for instance in expansion.get('instances', []):
                 instance_details = instance.get('instance', {})
                 if instance_details.get('name') == target_raid_name:
                     raid_found = True
-                    print(f"DEBUG ({short_raid_name}): Found raid '{target_raid_name}'. Processing modes.")
+                    # print(f"DEBUG ({short_raid_name}): Found raid '{target_raid_name}'. Processing modes.")
+                    # Process modes for Heroic and Mythic
                     for mode in instance.get('modes', []):
                         difficulty = mode.get('difficulty', {})
                         progress = mode.get('progress', {})
                         difficulty_type = difficulty.get('type')
                         if difficulty_type == "HEROIC":
-                            heroic_kills = progress.get('completed_count', 0)
+                            heroic_kills = progress.get('completed_count', 0) # Get kills, default 0 if missing
                             heroic_total = progress.get('total_count', 0)
-                            print(f"DEBUG ({short_raid_name}): Found Heroic: {heroic_kills}/{heroic_total}")
+                            # print(f"DEBUG ({short_raid_name}): Found Heroic: {heroic_kills}/{heroic_total}")
                         elif difficulty_type == "MYTHIC":
                             mythic_kills = progress.get('completed_count', 0)
                             mythic_total = progress.get('total_count', 0)
-                            print(f"DEBUG ({short_raid_name}): Found Mythic: {mythic_kills}/{mythic_total}")
-                    break
-            break
+                            # print(f"DEBUG ({short_raid_name}): Found Mythic: {mythic_kills}/{mythic_total}")
+                    break # Stop searching instances once the target raid is found
+            break # Stop searching expansions once the target expansion is found
 
     if not raid_found:
-        print(f"DEBUG ({short_raid_name}): Target raid '{target_raid_name}' not found in expansion '{target_expansion_name}'.")
-        return f"{short_raid_name}: Not Found"
+        # print(f"DEBUG ({short_raid_name}): Target raid '{target_raid_name}' not found.")
+        return f"{short_raid_name}: Not Found", -1 # Return specific string and -1 kills
 
+    # Format the output string
     summary_parts = []
-    if heroic_total > 0: summary_parts.append(f"{heroic_kills}/{heroic_total}H")
-    if mythic_total > 0: summary_parts.append(f"{mythic_kills}/{mythic_total}M")
+    if heroic_kills != -1 and heroic_total > 0: summary_parts.append(f"{heroic_kills}/{heroic_total}H")
+    if mythic_kills != -1 and mythic_total > 0: summary_parts.append(f"{mythic_kills}/{mythic_total}M")
 
-    if not summary_parts: summary_output = f"{short_raid_name}: No H/M Data"
-    else: summary_output = f"{short_raid_name}: {' '.join(summary_parts)}"
+    if not summary_parts:
+        summary_output = f"{short_raid_name}: No H/M Data"
+        hc_kills_return = 0 if heroic_kills == -1 else heroic_kills
+    else:
+        summary_output = f"{short_raid_name}: {' '.join(summary_parts)}"
+        hc_kills_return = heroic_kills if heroic_kills != -1 else 0
 
-    print(f"DEBUG ({short_raid_name}): Summarize returning: {summary_output}")
-    return summary_output
+    # print(f"DEBUG ({short_raid_name}): Summarize returning: ('{summary_output}', {hc_kills_return})")
+    return summary_output, hc_kills_return
 
 # --- END API Helper Functions ---
 
@@ -409,12 +410,10 @@ def update_database():
         return
     # --- END Drop and Recreate ---
 
-    # Populate static caches first
     if not populate_static_caches():
         print("Error: Failed to populate static caches. Aborting update.")
         return
 
-    # Fetch the main guild roster
     roster_data = get_guild_roster()
     if not roster_data or 'members' not in roster_data:
         print("Error: Failed to fetch guild roster. Aborting update.")
@@ -434,7 +433,6 @@ def update_database():
         char_name = character_info.get('name')
         char_realm_slug = character_info.get('realm', {}).get('slug')
 
-        # Filter: Skip if rank > 4 or essential info missing
         if rank is None or rank > 4 or not char_id or not char_name or not char_realm_slug:
             continue
 
@@ -442,18 +440,15 @@ def update_database():
         if processed_for_details % 10 == 1 or processed_for_details == total_members:
              print(f"\nProcessing details for {char_name}-{char_realm_slug} (Rank {rank})... ({processed_for_details}/{total_members} checked)")
 
-        # Get Class/Race ID and lookup name
         class_id = character_info.get('playable_class', {}).get('id')
-        race_id = character_info.get('playable_race', {}).get('id')
         class_name = CLASS_MAP.get(class_id, f"ID: {class_id}" if class_id else "N/A")
-        race_name = RACE_MAP.get(race_id, f"ID: {race_id}" if race_id else "N/A")
 
-        # Fetch additional data
         item_level = None
         raid_progression_summary = None
         spec_name = None
         role = None
-        main_spec_override = None # Always None on initial insert/recreate
+        main_spec_override = None
+        heroic_kills = -1
 
         summary_data = get_character_summary(char_realm_slug, char_name)
         api_call_count += 1
@@ -463,41 +458,53 @@ def update_database():
             active_spec_data = summary_data.get('active_spec')
             if active_spec_data and isinstance(active_spec_data, dict):
                 spec_name = active_spec_data.get('name')
-                try:
+                try: # Determine role
                     spec_type = None
                     if 'type' in active_spec_data: spec_type = active_spec_data.get('type', '').upper()
                     elif 'media' in active_spec_data and isinstance(active_spec_data['media'], dict): spec_type = active_spec_data['media'].get('type', '').upper()
                     if spec_type == 'HEALING': role = 'Healer'
                     elif spec_type == 'TANK': role = 'Tank'
                     elif spec_type == 'DAMAGE': role = 'DPS'
-                    else:
+                    else: # Fallback
                         if spec_name in ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]: role = "Tank"
                         elif spec_name in ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]: role = "Healer"
                         elif spec_name: role = "DPS"
-                except Exception as spec_err: print(f"Warning: Could not determine role for {char_name} from spec data: {spec_err}")
-            print(f"DEBUG: For {char_name}: API Spec='{spec_name}', Role='{role}'")
+                except Exception as spec_err: print(f"Warning: Could not determine role for {char_name}: {spec_err}")
+            # print(f"DEBUG: For {char_name}: API Spec='{spec_name}', Role='{role}'") # Reduce logging
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
         if raid_data:
-            raid_progression_summary = summarize_raid_progression(raid_data)
+            raid_progression_summary, heroic_kills = summarize_raid_progression(raid_data)
             if raid_progression_summary is None or "Not Found" in raid_progression_summary or "No H/M Data" in raid_progression_summary:
                  raid_progression_summary = None
         else:
             raid_progression_summary = None
+            heroic_kills = -1
 
-        print(f"DEBUG: For {char_name}: Preparing Item Level = {item_level}, Raid Progression = '{raid_progression_summary}', Spec = '{spec_name}', Role = '{role}', ClassID = {class_id}")
+        # Calculate Status based on ilvl and heroic kills
+        calculated_status = "Member" # Default
+        if item_level is None or item_level < 650:
+            calculated_status = "Wiping Alt"
+        elif heroic_kills > 6 : # Must have found heroic data (>=0) and have > 6 kills
+             calculated_status = "Wiper"
+        # elif heroic_kills >= 0 and heroic_kills <= 6: # If ilvl >= 650 and H kills <= 6
+        #      calculated_status = "Member" # This is covered by the default
+        print(f"DEBUG: For {char_name}: iLvl={item_level}, HKills={heroic_kills} -> Status='{calculated_status}'")
+
+        # print(f"DEBUG: For {char_name}: Preparing Item Level = {item_level}, Raid Progression = '{raid_progression_summary}', Spec = '{spec_name}', Role = '{role}', ClassID = {class_id}, Status = '{calculated_status}'")
 
         characters_to_insert.append(Character(
             id=char_id, name=char_name, realm_slug=char_realm_slug, level=character_info.get('level'),
-            class_id=class_id, class_name=class_name, race_name=race_name, spec_name=spec_name,
-            main_spec_override=None, role=role, item_level=item_level,
-            raid_progression=raid_progression_summary, rank=rank
+            class_id=class_id, class_name=class_name,
+            spec_name=spec_name, main_spec_override=None, role=role,
+            status=calculated_status, # Use calculated status
+            item_level=item_level, raid_progression=raid_progression_summary, rank=rank
         ))
 
     print(f"\nFetched details for {len(characters_to_insert)} members (Rank <= 4). Made {api_call_count} API calls.")
 
-    # --- Insert Data into Newly Created Table ---
+    # --- Insert Data ---
     db_session = SessionLocal()
     try:
         print(f"Inserting {len(characters_to_insert)} characters into the database...")
@@ -522,21 +529,26 @@ def update_database():
 
 # --- Main Execution ---
 if __name__ == "__main__":
+    # Check environment variables before running
     required_vars = ['BLIZZARD_CLIENT_ID', 'BLIZZARD_CLIENT_SECRET', 'GUILD_NAME', 'REALM_SLUG', 'REGION', 'DATABASE_URL']
     print(f"Checking environment variables...")
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     if missing_vars:
         print(f"Error: Missing required environment variables: {', '.join(missing_vars)}")
+        # Allow fallback to SQLite only if DATABASE_URL is the *only* missing var
         if missing_vars == ['DATABASE_URL'] and DATABASE_URI.startswith('sqlite:///'):
              print("Attempting to use default local SQLite DB: guild_data.db")
+             # Check if API keys are still present for the fetch
              api_keys_missing = [var for var in required_vars[:-1] if not os.environ.get(var)]
              if api_keys_missing:
                   print(f"Error: Missing API environment variables needed for fetch: {', '.join(api_keys_missing)}")
                   exit(1)
              else:
-                  update_database()
+                  update_database() # Try running with default SQLite
         else:
+             # Exit if API keys or non-default DB URL are missing
              exit(1)
     else:
         print("All required environment variables found.")
         update_database()
+
