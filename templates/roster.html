@@ -37,7 +37,7 @@
         .role-icon { font-size: 1.1rem; width: 1.5em; text-align: center; display: inline-block; }
         .role-dps { color: #c53030; } .role-healer { color: #2f855a; } .role-tank { color: #2b6cb0; } .role-unknown { color: #a0aec0; }
 
-        /* Styles for Spec Editing */
+        /* Styles for Editing (shared for spec and status) */
         .display-value { display: inline-block; margin-right: 5px;}
         .edit-btn {
             cursor: pointer; color: #a0aec0; font-size: 0.8em; vertical-align: middle; display: inline-block;
@@ -59,10 +59,13 @@
         .cancel-btn:hover { background-color: #c53030; }
         .update-status { font-size: 0.8em; margin-left: 5px; font-style: italic; color: #4a5568; }
 
-        /* Optional: Status Text Styling */
+        /* Status Text Styling */
         .status-wiper { color: #b7791f; font-weight: 500;} /* yellow-700 */
         .status-member { color: #38a169; } /* green-600 */
         .status-wiping-alt { color: #718096; } /* gray-600 */
+        .status-raid { /* Default style? */ }
+        .status-casual { color: #4299e1; } /* blue-500 */
+        .status-alt { color: #9f7aea; } /* purple-500 */
 
     </style>
 </head>
@@ -107,7 +110,7 @@
                             <th class="sortable" data-column-index="3" data-sort-type="string">Spec <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="4" data-sort-type="string">Class <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="5" data-sort-type="number">Item Level <span class="sort-arrow"></span></th>
-                            <th class="sortable" data-column-index="6" data-sort-type="string">Status <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="6" data-sort-type="string">Status <span class="sort-arrow"></span></th> {# Status Header #}
                             <th class="sortable" data-column-index="7" data-sort-type="string">Progression <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="8" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
                         </tr>
@@ -131,41 +134,51 @@
                                 {% else %} <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {% endif %}
                             </td>
                             <td>
-                                <span class="spec-display display-value"> {# Added common class #}
-                                    {# Display override if set, otherwise API spec #}
-                                    {% if member.main_spec_override %}
-                                        {{ member.main_spec_override }}
-                                    {% elif member.spec_name == "N/A" or member.spec_name is none %}
-                                        <span class="na-value">N/A</span>
-                                    {% else %}
-                                        {{ member.spec_name }} {# Display API spec if no override #}
-                                    {% endif %}
+                                <span class="spec-display display-value">
+                                    {% if member.main_spec_override %} {{ member.main_spec_override }}
+                                    {% elif member.spec_name == "N/A" or member.spec_name is none %} <span class="na-value">N/A</span>
+                                    {% else %} {{ member.spec_name }} {% endif %}
                                 </span>
-                                <i class="fas fa-pencil-alt edit-btn edit-spec-btn" title="Set Main Spec"></i> {# Common class #}
-                                <div class="edit-container spec-edit-container"> {# Common class #}
-                                    <select class="edit-control spec-select">
-                                        {# Options will be populated by JavaScript based on class_id #}
-                                    </select>
+                                <i class="fas fa-pencil-alt edit-btn edit-spec-btn" title="Set Main Spec"></i>
+                                <div class="edit-container spec-edit-container">
+                                    <select class="edit-control spec-select"> </select>
                                     <button class="save-btn spec-save-btn">Save</button>
                                     <button class="cancel-btn spec-cancel-btn">Cancel</button>
                                 </div>
-                                <span class="update-status spec-update-status"></span> {# Specific class #}
+                                <span class="update-status spec-update-status"></span>
                             </td>
                             <td>{{ member.class }}</td>
                              <td>
                                 {% if member.item_level == "N/A" or member.item_level is none %} <span class="na-value">N/A</span> {% else %} {{ member.item_level }} {% endif %}
                             </td>
                             <td>
-                                 {# Apply styling based on status #}
-                                 {% set status_lower = member.status | lower if member.status else '' %}
-                                 <span class="status-display display-value
-                                     {% if status_lower == 'wiper' %} status-wiper
-                                     {% elif status_lower == 'member' %} status-member
-                                     {% elif status_lower == 'wiping alt' %} status-wiping-alt
-                                     {% endif %}">
-                                     {{ member.status | default('Unknown') }} {# Display calculated status #}
-                                 </span>
-                             </td>
+                                <span class="status-display display-value">
+                                     {# Apply styling based on status #}
+                                     {% set status_lower = member.status | lower if member.status else '' %}
+                                     <span class="
+                                         {% if status_lower == 'wiper' %} status-wiper
+                                         {% elif status_lower == 'member' %} status-member
+                                         {% elif status_lower == 'wiping alt' %} status-wiping-alt
+                                         {% elif status_lower == 'raid' %} status-raid
+                                         {% elif status_lower == 'casual' %} status-casual
+                                         {% elif status_lower == 'alt' %} status-alt
+                                         {% endif %}">
+                                         {{ member.status | default('Unknown') }} {# Display current status #}
+                                     </span>
+                                </span>
+                                <i class="fas fa-pencil-alt edit-btn edit-status-btn" title="Set Status"></i> {# Edit Icon #}
+                                <div class="edit-container status-edit-container"> {# Container #}
+                                    <select class="edit-control status-select">
+                                        {# User-settable options #}
+                                        <option value="Raid">Raid</option>
+                                        <option value="Casual">Casual</option>
+                                        <option value="Alt">Alt</option>
+                                    </select>
+                                    <button class="save-btn status-save-btn">Save</button>
+                                    <button class="cancel-btn status-cancel-btn">Cancel</button>
+                                </div>
+                                <span class="update-status status-update-status"></span> {# Specific class #}
+                            </td>
                             <td>
                                 {% if member.raid_progression == "N/A" or member.raid_progression is none %} <span class="na-value">N/A</span> {% else %} {{ member.raid_progression }} {% endif %}
                             </td>
@@ -190,18 +203,17 @@
         // Parse the spec data passed from Flask
         const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
 
-        // Spec to Role Mapping
+        // --- Role Determination Logic ---
         const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
         const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
-
         function getRoleFromSpec(specName) {
             if (!specName || specName === 'N/A') return 'Unknown';
             if (tankSpecs.includes(specName)) return 'Tank';
             if (healerSpecs.includes(specName)) return 'Healer';
-            return 'DPS'; // Default to DPS
+            return 'DPS';
         }
 
-        // Function to update role icon based on role name
+        // --- UI Update Functions ---
         function updateRoleIcon(tableRow, newRole) {
             const roleCell = tableRow.querySelector('.role-cell');
             if (!roleCell) return;
@@ -216,13 +228,26 @@
             icon.setAttribute('title', title);
         }
 
-        // Main script execution after DOM loads
+        function updateStatusDisplay(displaySpan, newStatus) {
+             const innerSpan = displaySpan.querySelector('span'); // Target the inner span for styling
+             if (!innerSpan) return; // Should exist, but check just in case
+             // Remove existing status classes
+             innerSpan.classList.remove('status-wiper', 'status-member', 'status-wiping-alt', 'status-raid', 'status-casual', 'status-alt');
+             // Add new class based on the status value
+             if (newStatus) {
+                 const statusClass = 'status-' + newStatus.toLowerCase().replace(' ', '-');
+                 innerSpan.classList.add(statusClass);
+             }
+             innerSpan.textContent = newStatus || 'Unknown'; // Update text
+        }
+
+        // --- Main Script Logic ---
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
             const tableBody = document.getElementById('rosterBody');
             if (!table || !tableBody) { console.error("Roster table or body not found!"); return; }
             const headers = table.querySelectorAll('th.sortable');
-            let currentSort = { column: -1, ascending: true }; // Track current sort state
+            let currentSort = { column: -1, ascending: true };
 
             // --- Sorting Event Listeners ---
             headers.forEach(header => {
@@ -236,41 +261,51 @@
                 });
             });
 
-            // --- Spec Editing Event Listeners ---
+            // --- Editing Event Listeners (using event delegation) ---
             tableBody.addEventListener('click', function(event) {
-                // Spec Editing ONLY (Status editing removed)
+                // Spec Editing
                 if (event.target.classList.contains('edit-spec-btn')) { startEdit(event.target, 'spec'); }
                 else if (event.target.classList.contains('spec-save-btn')) { saveEdit(event.target, 'spec'); }
                 else if (event.target.classList.contains('spec-cancel-btn')) { cancelEdit(event.target, 'spec'); }
+                // Status Editing
+                else if (event.target.classList.contains('edit-status-btn')) { startEdit(event.target, 'status'); }
+                else if (event.target.classList.contains('status-save-btn')) { saveEdit(event.target, 'status'); }
+                else if (event.target.classList.contains('status-cancel-btn')) { cancelEdit(event.target, 'status'); }
             });
 
-            // --- Spec Editing Functions ---
-            function startEdit(editButton, type) { // Only 'spec' type is now used
-                if (type !== 'spec') return;
+            // --- Generic Editing Functions ---
+            function startEdit(editButton, type) { // type is 'spec' or 'status'
                 const td = editButton.closest('td');
                 const tr = editButton.closest('tr');
-                const displaySpan = td.querySelector('.spec-display');
-                const selectContainer = td.querySelector('.spec-edit-container');
-                const select = selectContainer.querySelector('.spec-select');
-                const saveBtn = selectContainer.querySelector('.spec-save-btn');
-                const cancelBtn = selectContainer.querySelector('.spec-cancel-btn');
-                const statusSpan = td.querySelector('.spec-update-status');
+                const displaySpan = td.querySelector(`.${type}-display`);
+                const selectContainer = td.querySelector(`.${type}-edit-container`);
+                const select = selectContainer.querySelector(`.${type}-select`);
+                const saveBtn = selectContainer.querySelector(`.${type}-save-btn`);
+                const cancelBtn = selectContainer.querySelector(`.${type}-cancel-btn`);
+                const statusSpan = td.querySelector(`.${type}-update-status`);
 
-                const classId = tr.dataset.classId;
-                const currentDisplayedValue = displaySpan.textContent.trim(); // Get current displayed spec
-                const specsForClass = allSpecsByClass[classId] || [];
+                const currentDisplayedValue = displaySpan.textContent.trim();
 
-                // Populate dropdown
-                select.innerHTML = '<option value="">-- Use API Spec --</option>'; // Option to clear override
-                specsForClass.forEach(spec => {
-                    const option = document.createElement('option');
-                    option.value = spec.name; option.textContent = spec.name;
-                    // Select the currently displayed value in the dropdown
-                    if (currentDisplayedValue === spec.name && !displaySpan.querySelector('.na-value')) {
-                        option.selected = true;
-                    }
-                    select.appendChild(option);
-                });
+                // Populate dropdown if it's for spec
+                if (type === 'spec') {
+                    const classId = tr.dataset.classId;
+                    const specsForClass = allSpecsByClass[classId] || [];
+                    select.innerHTML = '<option value="">-- Use API Spec --</option>'; // Option to clear override
+                    specsForClass.forEach(spec => {
+                        const option = document.createElement('option');
+                        option.value = spec.name; option.textContent = spec.name;
+                        // Select current value (handle N/A case)
+                        if (currentDisplayedValue === spec.name && !displaySpan.querySelector('.na-value')) {
+                            option.selected = true;
+                        }
+                        select.appendChild(option);
+                    });
+                } else if (type === 'status') {
+                     // Pre-select current status for Status dropdown
+                     Array.from(select.options).forEach(option => {
+                         option.selected = (option.value === currentDisplayedValue);
+                     });
+                }
 
                 // Show editing UI
                 displaySpan.style.display = 'none'; editButton.style.display = 'none';
@@ -280,57 +315,70 @@
             }
 
             function cancelEdit(cancelButton, type) {
-                 if (type !== 'spec') return;
                  const td = cancelButton.closest('td');
-                 const displaySpan = td.querySelector('.spec-display');
-                 const editButton = td.querySelector('.edit-spec-btn');
-                 const selectContainer = td.querySelector('.spec-edit-container');
+                 const displaySpan = td.querySelector(`.${type}-display`);
+                 const editButton = td.querySelector(`.edit-${type}-btn`);
+                 const selectContainer = td.querySelector(`.${type}-edit-container`);
                  selectContainer.style.display = 'none';
                  displaySpan.style.display = 'inline-block';
                  editButton.style.display = 'inline-block';
             }
 
-            function saveEdit(saveButton, type) {
-                if (type !== 'spec') return;
+            function saveEdit(saveButton, type) { // type is 'spec' or 'status'
                 const td = saveButton.closest('td');
                 const tr = saveButton.closest('tr');
-                const select = td.querySelector('.spec-select');
-                const statusSpan = td.querySelector('.spec-update-status');
+                const select = td.querySelector(`.${type}-select`);
+                const statusSpan = td.querySelector(`.${type}-update-status`);
                 const characterId = tr.dataset.characterId;
-                const selectedValue = select.value; // Selected override ("" if clearing)
-                const apiSpecName = tr.dataset.apiSpec; // Original API spec
+                const selectedValue = select.value;
 
                 if (!characterId) { /* ... error handling ... */ return; }
                 statusSpan.textContent = 'Saving...'; statusSpan.style.color = '#4a5568';
 
-                fetch('/update_spec', { // Call spec update endpoint
+                // Determine endpoint and payload based on type
+                let endpoint = '';
+                let payload = {};
+                if (type === 'spec') {
+                    endpoint = '/update_spec';
+                    payload = { character_id: parseInt(characterId), spec_name: selectedValue };
+                } else if (type === 'status') {
+                    endpoint = '/update_status';
+                    payload = { character_id: parseInt(characterId), status: selectedValue };
+                } else { return; }
+
+                fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body: JSON.stringify({ character_id: parseInt(characterId), spec_name: selectedValue })
+                    body: JSON.stringify(payload)
                 })
                 .then(response => {
-                    if (!response.ok) { throw new Error(`HTTP error ${response.status}`); }
+                    if (!response.ok) {
+                         return response.json().then(errData => { throw new Error(errData.description || `HTTP error ${response.status}`); })
+                                           .catch(() => { throw new Error(`HTTP error ${response.status}`); });
+                    }
                     return response.json();
                 })
                 .then(data => {
                     if (data.success) {
                         statusSpan.textContent = 'Saved!'; statusSpan.style.color = 'green';
-                        const specDisplay = td.querySelector('.spec-display');
-                        let finalSpecName;
-                        if (selectedValue) { // If override was set
-                            finalSpecName = selectedValue;
-                            specDisplay.textContent = finalSpecName;
-                        } else { // If override was cleared
-                            finalSpecName = apiSpecName;
-                            specDisplay.textContent = (finalSpecName && finalSpecName !== "N/A") ? finalSpecName : '';
-                            if (!specDisplay.textContent) specDisplay.innerHTML = '<span class="na-value">N/A</span>';
+                        const displaySpan = td.querySelector(`.${type}-display`);
+
+                        if (type === 'spec') {
+                            const apiSpecName = tr.dataset.apiSpec;
+                            let finalSpecName = selectedValue ? selectedValue : apiSpecName;
+                            // Update display text
+                            displaySpan.textContent = (finalSpecName && finalSpecName !== "N/A") ? finalSpecName : '';
+                            if (!displaySpan.textContent) displaySpan.innerHTML = '<span class="na-value">N/A</span>';
+                            // Update role icon
+                            const newRole = getRoleFromSpec(finalSpecName);
+                            updateRoleIcon(tr, newRole);
+                        } else if (type === 'status') {
+                             // Update status display text and style
+                             updateStatusDisplay(displaySpan.querySelector('span'), selectedValue);
                         }
-                        // Update role icon based on the final displayed spec
-                        const newRole = getRoleFromSpec(finalSpecName);
-                        updateRoleIcon(tr, newRole);
 
                         setTimeout(() => { cancelEdit(saveButton, type); statusSpan.textContent = ''; }, 1500);
-                    } else { throw new Error(data.message || "Unknown error saving spec."); }
+                    } else { throw new Error(data.message || "Unknown error saving data."); }
                 })
                 .catch(error => {
                     console.error(`Error updating ${type}:`, error);
@@ -351,11 +399,11 @@
                 if (!cellA || !cellB) return 0;
                 let valueA, valueB;
 
-                if (columnIndex === 2) { // Role column (index 2)
+                if (columnIndex === 2) { // Role column
                     const iconA = cellA.querySelector('i'); const iconB = cellB.querySelector('i');
                     valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                     valueB = iconB ? iconB.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
-                } else { // Other columns
+                } else { // Other columns (including Status at index 6)
                     valueA = cellA.querySelector('.na-value') ? 'N/A' : cellA.textContent.trim();
                     valueB = cellB.querySelector('.na-value') ? 'N/A' : cellB.textContent.trim();
                 }

@@ -5,11 +5,11 @@ import time
 from datetime import datetime
 import json
 
-# --- Standalone SQLAlchemy setup for PostgreSQL/SQLite ---
+# --- Standalone SQLAlchemy setup ---
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.sql import func # for current_timestamp
-from sqlalchemy.exc import OperationalError # To catch DB connection errors
+from sqlalchemy.sql import func
+from sqlalchemy.exc import OperationalError
 
 # Get DB URI from environment or default to local SQLite
 DATABASE_URI = os.environ.get('DATABASE_URL')
@@ -25,16 +25,16 @@ try:
     engine = create_engine(DATABASE_URI)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
-    metadata = MetaData() # Use MetaData for table existence check
+    metadata = MetaData()
 except ImportError as e:
      print(f"Error: Database driver likely missing. Did you 'pip install psycopg2-binary' (for Postgres) or ensure SQLAlchemy is installed? Details: {e}")
-     exit(1) # Exit if driver is missing
+     exit(1)
 except Exception as e:
      print(f"Error creating database engine: {e}")
      exit(1)
 
 # --- Database Model ---
-# Includes class_id, status; removes race_name
+# Status column length adjusted for calculated values
 class Character(Base):
     """ Defines the structure for storing character data in the database. """
     __tablename__ = 'character'
@@ -48,7 +48,7 @@ class Character(Base):
     spec_name = Column(String(50)) # API Active Spec
     main_spec_override = Column(String(50), nullable=True) # User override
     role = Column(String(10))      # Role (Tank, Healer, DPS)
-    status = Column(String(15), nullable=False, index=True) # Calculated Status field
+    status = Column(String(15), nullable=False, index=True) # Calculated/User Status
     item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
@@ -74,8 +74,7 @@ API_BASE_URL = f"https://{REGION}.api.blizzard.com"
 # --- Caching (For API calls within this script run) ---
 access_token_cache = { "token": None, "expires_at": 0 }
 CLASS_MAP = {}
-# RACE_MAP = {} # Removed
-SPEC_MAP_BY_CLASS = {} # Cache for all specs {class_id: [{id: spec_id, name: spec_name}, ...]}
+SPEC_MAP_BY_CLASS = {}
 
 # --- API Helper Functions ---
 
@@ -120,7 +119,8 @@ def make_api_request(api_url, params, headers):
     try:
         response = requests.get(api_url, params=params, headers=headers, timeout=30) # Added timeout
         if response.status_code == 404:
-             print(f"Warning: 404 Not Found for URL: {response.url}")
+             # Log 404s but don't treat as critical error for character data
+             # print(f"Warning: 404 Not Found for URL: {response.url}")
              return None
         response.raise_for_status() # Raise for other errors (401, 403, 5xx)
         return response.json()
@@ -157,7 +157,7 @@ def get_static_data(endpoint, use_base_url=True):
 
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-    # Reduce logging verbosity for static data calls unless debugging
+    # Reduce logging verbosity unless debugging needed
     # print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}")
     data = make_api_request(api_url, params, headers)
     # if data and use_base_url: print(f"Successfully fetched static data from {endpoint}.")
@@ -189,7 +189,7 @@ def populate_spec_cache():
     spec_list = spec_index_data.get(spec_list_key, [])
     if not spec_list:
         print("Warning: Specialization list received from API is empty.")
-        return False
+        return False # Treat empty list as failure for now
 
     print(f"Fetched {len(spec_list)} specializations from index. Fetching details...")
 
@@ -206,7 +206,6 @@ def populate_spec_cache():
             print(f"Warning: Skipping spec entry in index due to missing data: {spec_info_from_index}")
             continue
 
-        # Fetch detail data for this specific spec using its href
         spec_detail_data = get_static_data(detail_href, use_base_url=False)
         processed_count += 1
 
@@ -229,7 +228,7 @@ def populate_spec_cache():
 
         if processed_count % 10 == 0:
              print(f"Processed details for {processed_count}/{len(spec_list)} specs...")
-        time.sleep(0.05) # Small delay to avoid hitting rate limits
+        time.sleep(0.05) # Small delay
 
     # Sort specs within each class list now
     for cid in temp_spec_map:
@@ -252,7 +251,6 @@ def populate_static_caches():
     class_success = True
     spec_success = True
 
-    # Populate Class Map
     if not CLASS_MAP:
         print("Class map empty, attempting to fetch...")
         class_data = get_static_data('/playable-class/index')
@@ -263,7 +261,6 @@ def populate_static_caches():
             print("Failed to fetch or parse playable class data.")
             class_success = False
 
-    # Populate Spec Map
     spec_success = populate_spec_cache()
 
     return class_success and spec_success
@@ -400,7 +397,7 @@ def update_database():
         Character.__table__.drop(engine, checkfirst=True)
         print(f"Table '{Character.__tablename__}' dropped (or did not exist).")
         print(f"Creating table '{Character.__tablename__}'...")
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=engine) # Recreates with new schema
         print("Table created successfully.")
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.")
@@ -470,7 +467,7 @@ def update_database():
                         elif spec_name in ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]: role = "Healer"
                         elif spec_name: role = "DPS"
                 except Exception as spec_err: print(f"Warning: Could not determine role for {char_name}: {spec_err}")
-            # print(f"DEBUG: For {char_name}: API Spec='{spec_name}', Role='{role}'") # Reduce logging
+            # print(f"DEBUG: For {char_name}: API Spec='{spec_name}', Role='{role}'")
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
@@ -482,15 +479,15 @@ def update_database():
             raid_progression_summary = None
             heroic_kills = -1
 
-        # Calculate Status based on ilvl and heroic kills
+        # Calculate Initial Status
         calculated_status = "Member" # Default
         if item_level is None or item_level < 650:
             calculated_status = "Wiping Alt"
-        elif heroic_kills > 6 : # Must have found heroic data (>=0) and have > 6 kills
+        elif heroic_kills > 6:
              calculated_status = "Wiper"
-        # elif heroic_kills >= 0 and heroic_kills <= 6: # If ilvl >= 650 and H kills <= 6
-        #      calculated_status = "Member" # This is covered by the default
-        print(f"DEBUG: For {char_name}: iLvl={item_level}, HKills={heroic_kills} -> Status='{calculated_status}'")
+        elif heroic_kills >= 0 and heroic_kills <= 6:
+             calculated_status = "Member"
+        print(f"DEBUG: For {char_name}: iLvl={item_level}, HKills={heroic_kills} -> Initial Status='{calculated_status}'")
 
         # print(f"DEBUG: For {char_name}: Preparing Item Level = {item_level}, Raid Progression = '{raid_progression_summary}', Spec = '{spec_name}', Role = '{role}', ClassID = {class_id}, Status = '{calculated_status}'")
 
@@ -498,7 +495,7 @@ def update_database():
             id=char_id, name=char_name, realm_slug=char_realm_slug, level=character_info.get('level'),
             class_id=class_id, class_name=class_name,
             spec_name=spec_name, main_spec_override=None, role=role,
-            status=calculated_status, # Use calculated status
+            status=calculated_status, # Use calculated status as initial value
             item_level=item_level, raid_progression=raid_progression_summary, rank=rank
         ))
 
@@ -551,4 +548,3 @@ if __name__ == "__main__":
     else:
         print("All required environment variables found.")
         update_database()
-

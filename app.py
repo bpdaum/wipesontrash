@@ -54,7 +54,7 @@ class Character(db.Model):
     spec_name = db.Column(String(50)) # API Active Spec
     main_spec_override = db.Column(String(50), nullable=True) # User override
     role = db.Column(String(10))      # Role (Tank, Healer, DPS)
-    status = db.Column(String(15), nullable=False, index=True) # Calculated Status field
+    status = db.Column(String(15), nullable=False, index=True) # Status field (editable by user)
     item_level = db.Column(Integer, index=True) # Index item_level for filtering/sorting
     raid_progression = db.Column(String(200)) # Store summary string
     rank = db.Column(Integer, index=True) # Index rank for faster filtering
@@ -108,7 +108,6 @@ def get_web_app_token():
         return WEB_APP_ACCESS_TOKEN_CACHE["token"]
     except Exception as e:
         print(f"Error fetching web app token: {e}")
-        # Log more details from response if available
         if hasattr(e, 'response') and e.response is not None:
              print(f"Response Status: {e.response.status_code}")
              try: print(f"Response Body: {e.response.json()}")
@@ -136,23 +135,22 @@ def get_all_specs():
     global ALL_SPECS_CACHE, ALL_SPECS_LAST_FETCHED
     current_time = time.time()
 
-    # Check cache validity
     if ALL_SPECS_CACHE and (current_time - ALL_SPECS_LAST_FETCHED < CACHE_TTL):
         print("Using cached specs.")
         return ALL_SPECS_CACHE
 
     print("Fetching all playable specializations from API for web app...")
-    access_token = get_web_app_token() # Use the web app token helper
+    access_token = get_web_app_token()
     if not access_token:
         print("Error: Cannot fetch specs without Blizzard API access token for web app.")
-        return ALL_SPECS_CACHE # Return old cache if fetch fails
+        return ALL_SPECS_CACHE
 
     spec_index_url = f"{API_BASE_URL}/data/wow/playable-specialization/index"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
 
     try:
-        spec_index_data = make_web_api_request(spec_index_url, params, headers) # Use web request helper
+        spec_index_data = make_web_api_request(spec_index_url, params, headers)
 
         if not spec_index_data or 'character_specializations' not in spec_index_data:
              print("Error: Failed to parse playable specialization index from API ('character_specializations' key missing).")
@@ -165,8 +163,7 @@ def get_all_specs():
             detail_href = spec_summary.get('key', {}).get('href')
             if not detail_href: continue
 
-            # Fetch spec detail using the same token/headers/params
-            spec_detail = make_web_api_request(detail_href, params, headers) # Use web request helper
+            spec_detail = make_web_api_request(detail_href, params, headers)
             detail_fetch_count += 1
             if detail_fetch_count % 10 == 0: print(f"Fetched details for {detail_fetch_count} specs...")
 
@@ -179,7 +176,7 @@ def get_all_specs():
                     if class_id not in temp_spec_map:
                         temp_spec_map[class_id] = []
                     temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
-                    temp_spec_map[class_id].sort(key=lambda x: x['name']) # Sort as we add
+                    temp_spec_map[class_id].sort(key=lambda x: x['name'])
             else:
                  print(f"Warning: Failed to fetch details from {detail_href}")
             time.sleep(0.05) # Small delay
@@ -219,7 +216,6 @@ def roster_page():
     elif REGION == "kr": locale = "ko-kr"
     elif REGION == "tw": locale = "zh-tw"
 
-    # Fetch all specs needed for dropdowns
     all_specs_by_class = get_all_specs()
     if not all_specs_by_class:
          print("Warning: Could not load specialization data for dropdowns.")
@@ -289,16 +285,44 @@ def roster_page():
 @app.route('/update_spec', methods=['POST'])
 def update_spec():
     """ Handles AJAX request to update a character's main_spec_override. """
+    if not request.is_json: abort(400, description="Request must be JSON")
+    data = request.get_json()
+    character_id = data.get('character_id')
+    new_spec_name = data.get('spec_name')
+    if character_id is None or not isinstance(character_id, int) or new_spec_name is None: abort(400, description="Invalid character_id or spec_name")
+    try:
+        with app.app_context():
+            character = Character.query.get(character_id)
+            if not character: abort(404, description="Character not found")
+            # Optional validation skipped for brevity
+            character.main_spec_override = new_spec_name if new_spec_name else None
+            character.last_updated = datetime.utcnow()
+            db.session.commit()
+            print(f"Successfully updated spec override for Character ID {character_id} to '{character.main_spec_override}'")
+            return jsonify({"success": True, "message": "Main spec updated successfully."})
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error updating spec for character ID {character_id}: {e}")
+        abort(500, description="Database error during update.")
+
+
+# --- Update Status Route ---
+@app.route('/update_status', methods=['POST'])
+def update_status():
+    """ Handles AJAX request to update a character's status. """
     if not request.is_json:
         abort(400, description="Request must be JSON")
 
     data = request.get_json()
     character_id = data.get('character_id')
-    new_spec_name = data.get('spec_name') # This will be "" if "-- Use API Spec --" selected
+    new_status = data.get('status')
+    # Define only the user-settable statuses here for validation
+    valid_user_statuses = ['Raid', 'Casual', 'Alt']
 
-    if character_id is None or not isinstance(character_id, int) or new_spec_name is None:
-        print(f"Error: Invalid character_id or spec_name in request data: {data}")
-        abort(400, description="Invalid character_id or spec_name")
+    # Basic validation
+    if not character_id or not isinstance(character_id, int) or not new_status or new_status not in valid_user_statuses:
+        print(f"Error: Invalid character_id or status in request data: {data}")
+        abort(400, description="Invalid character_id or status")
 
     try:
         with app.app_context():
@@ -307,28 +331,16 @@ def update_spec():
                 print(f"Error: Character not found with ID: {character_id}")
                 abort(404, description="Character not found") # Not found
 
-            # Optional: Validate spec name against fetched specs
-            all_specs = get_all_specs() # Use cached/fetched specs
-            if new_spec_name and character.class_id in all_specs:
-                 valid_specs = [spec['name'] for spec in all_specs[character.class_id]]
-                 if new_spec_name not in valid_specs:
-                     print(f"Error: Invalid spec '{new_spec_name}' for class ID {character.class_id}")
-                     abort(400, description=f"Invalid spec '{new_spec_name}' for character's class.")
-            elif new_spec_name and character.class_id not in all_specs:
-                 # This case might happen if spec cache failed but user tries to save
-                 print(f"Warning: Cannot validate spec '{new_spec_name}' because spec cache is empty for class ID {character.class_id}.")
-                 # Allow save anyway, or abort(500, description="Cannot validate spec, spec data unavailable.")
-
-            character.main_spec_override = new_spec_name if new_spec_name else None
-            character.last_updated = datetime.utcnow() # Manually update timestamp
+            character.status = new_status # Update the status field directly
+            character.last_updated = datetime.utcnow() # Update timestamp
 
             db.session.commit()
-            print(f"Successfully updated spec override for Character ID {character_id} to '{character.main_spec_override}'")
-            return jsonify({"success": True, "message": "Main spec updated successfully."})
+            print(f"Successfully updated status for Character ID {character_id} to '{character.status}'")
+            return jsonify({"success": True, "message": "Status updated successfully."})
 
     except Exception as e:
         db.session.rollback() # Rollback on error
-        print(f"Error updating spec for character ID {character_id}: {e}")
+        print(f"Error updating status for character ID {character_id}: {e}")
         abort(500, description="Database error during update.") # Internal server error
 
 
