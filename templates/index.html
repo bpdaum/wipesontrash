@@ -47,14 +47,22 @@
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    <nav class="bg-gray-800 text-white p-4 shadow-md">
+    {# Added inline style for background color #}
+    <nav class="text-white p-4 shadow-md" style="background-color: #6B1A51;">
         <div class="container mx-auto flex flex-wrap justify-between items-center">
-            <h1 class="text-xl font-semibold mb-2 sm:mb-0">{{ guild_name }} Portal</h1>
+            {# Wrapped title and image in a flex container #}
+            <div class="flex items-center space-x-3 mb-2 sm:mb-0">
+                 {# Added image tag #}
+                 <img src="images/wot_logo.png"
+                      alt="{{ guild_name }} Logo"
+                      class="h-8 w-8 rounded-full border-2 border-white">
+                 <h1 class="text-xl font-semibold">{{ guild_name }} Portal</h1>
+            </div>
             <div class="flex space-x-2">
-                <a href="/" class="px-3 py-2 rounded bg-gray-700 font-medium">Home</a>
-                <a href="/roster" class="px-3 py-2 rounded hover:bg-gray-700">Roster</a>
-                <a href="#" class="px-3 py-2 rounded hover:bg-gray-700">Raids</a>
-                <a href="#" class="px-3 py-2 rounded hover:bg-gray-700">Loot</a>
+                <a href="/" class="px-3 py-2 rounded bg-gray-700 font-medium hover:bg-gray-600">Home</a> {# Added hover effect #}
+                <a href="/roster" class="px-3 py-2 rounded hover:bg-gray-600">Roster</a>
+                <a href="#" class="px-3 py-2 rounded hover:bg-gray-600">Raids</a>
+                <a href="#" class="px-3 py-2 rounded hover:bg-gray-600">Loot</a>
             </div>
         </div>
     </nav>
@@ -99,16 +107,16 @@
                      {# Max Heroic Kills Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon prog-heroic"><i class="fas fa-trophy"></i></div>
+                         {# Display max kills / total bosses #}
                          <div class="kpi-value">{{ max_heroic_kills | default(0) }}/{{ heroic_total_bosses | default('?') }}</div>
-                         {# UPDATED LABEL #}
                          <div class="kpi-label">LoU Heroic</div>
                      </div>
 
                      {# Max Mythic Kills Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon prog-mythic"><i class="fas fa-skull-crossbones"></i></div>
+                         {# Display max kills / total bosses #}
                          <div class="kpi-value">{{ max_mythic_kills | default(0) }}/{{ mythic_total_bosses | default('?') }}</div>
-                         {# UPDATED LABEL #}
                          <div class="kpi-label">LoU Mythic</div>
                      </div>
                 </div>
@@ -122,6 +130,7 @@
                      {# Tank Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon role-tank"><i class="fas fa-shield-halved"></i></div>
+                         {# Display tank count from Flask variable #}
                          <div class="kpi-value">{{ raid_status_counts.Tank | default(0) }}</div>
                          <div class="kpi-label">Tanks</div>
                      </div>
@@ -129,6 +138,7 @@
                      {# Healer Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon role-healer"><i class="fas fa-briefcase-medical"></i></div>
+                         {# Display healer count from Flask variable #}
                          <div class="kpi-value">{{ raid_status_counts.Healer | default(0) }}</div>
                          <div class="kpi-label">Healers</div>
                      </div>
@@ -136,6 +146,7 @@
                      {# DPS Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon role-dps"><i class="fas fa-khanda"></i></div>
+                         {# Display DPS count from Flask variable #}
                          <div class="kpi-value">{{ raid_status_counts.DPS | default(0) }}</div>
                          <div class="kpi-label">DPS</div>
                      </div>
