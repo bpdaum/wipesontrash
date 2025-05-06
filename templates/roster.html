@@ -19,6 +19,28 @@
             font-weight: 600; /* Semibold */
             white-space: nowrap;
         }
+        /* Make sortable headers clickable */
+        th.sortable {
+            cursor: pointer;
+            position: relative; /* Needed for absolute positioning of arrows */
+        }
+        th.sortable:hover {
+            background-color: #edf2f7; /* gray-200 */
+        }
+        /* Sort arrows */
+        .sort-arrow {
+            font-size: 0.8em;
+            margin-left: 0.3em;
+            color: #a0aec0; /* gray-500 */
+            /* display: inline-block; */ /* Use absolute positioning instead */
+            position: absolute;
+            right: 0.5rem; /* Position arrow to the right */
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        .sort-arrow.asc::after { content: '\\25B2'; } /* Up arrow ▲ */
+        .sort-arrow.desc::after { content: '\\25BC'; } /* Down arrow ▼ */
+
         td {
             padding: 0.5rem 0.75rem;
             border-bottom: 1px solid #e2e8f0; /* gray-300 */
@@ -28,19 +50,11 @@
         .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
         .armory-link { color: #2b6cb0; /* blue-700 */ text-decoration: none; }
         .armory-link:hover { color: #2c5282; /* blue-800 */ text-decoration: underline; }
-        /* Icon styling (optional) */
-        .role-icon {
-            font-size: 1.1rem; /* Slightly larger icon */
-            width: 1.5em; /* Ensure consistent width for alignment */
-            text-align: center;
-            display: inline-block; /* Allows text-align to work */
-        }
-        /* Specific icon colors (optional, can remove if default color is preferred) */
+        .role-icon { font-size: 1.1rem; width: 1.5em; text-align: center; display: inline-block; }
         .role-dps { color: #c53030; } /* red-700 */
         .role-healer { color: #2f855a; } /* green-700 */
         .role-tank { color: #2b6cb0; } /* blue-700 */
         .role-unknown { color: #a0aec0; } /* gray-500 */
-
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -75,20 +89,19 @@
 
             {% if members %}
             <div class="overflow-x-auto">
-                <table class="min-w-full whitespace-nowrap">
+                <table id="rosterTable" class="min-w-full whitespace-nowrap">
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Level</th>
-                            <th>Role</th> <th>Spec</th>
-                            <th>Class</th>
-                            <th>Item Level</th>
-                            <th>Race</th>
-                            <th>Progression</th>
-                            <th>Rank</th>
+                            <th class="sortable" data-column-index="0" data-sort-type="string">Name <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="1" data-sort-type="number">Level <span class="sort-arrow"></span></th>
+                            <th>Role</th> <th class="sortable" data-column-index="3" data-sort-type="string">Spec <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="4" data-sort-type="string">Class <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="5" data-sort-type="number">Item Level <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="6" data-sort-type="string">Race <span class="sort-arrow"></span></th>
+                            <th>Progression</th> <th class="sortable" data-column-index="8" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="rosterBody">
                         {% for member in members %}
                         <tr>
                             <td>
@@ -98,16 +111,16 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                             <td class="text-center"> {# Center align the icon #}
+                             <td class="text-center">
                                 {% set role_lower = member.role | lower if member.role else '' %}
                                 {% if role_lower == 'dps' %}
-                                    <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i> {# Crossed swords icon #}
+                                    <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i>
                                 {% elif role_lower == 'healer' %}
-                                     <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i> {# Medical bag icon #}
+                                     <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
                                 {% elif role_lower == 'tank' %}
-                                     <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i> {# Shield icon #}
+                                     <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
                                 {% else %}
-                                     <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {# Question mark for N/A #}
+                                     <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i>
                                 {% endif %}
                             </td>
                             <td>
@@ -149,5 +162,106 @@
         &copy; {{ guild_name }} - 2025
     </footer>
 
+    <script>
+        // Wait for the DOM to be fully loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            const table = document.getElementById('rosterTable');
+            const tableBody = document.getElementById('rosterBody');
+            const headers = table.querySelectorAll('th.sortable'); // Get only sortable headers
+            let currentSort = { column: -1, ascending: true }; // Track current sort state
+
+            headers.forEach(header => {
+                header.addEventListener('click', function() {
+                    const columnIndex = parseInt(this.dataset.columnIndex);
+                    const sortType = this.dataset.sortType || 'string'; // Default to string sort
+
+                    // Determine sort direction
+                    let ascending = true;
+                    if (currentSort.column === columnIndex) {
+                        ascending = !currentSort.ascending; // Toggle direction if same column clicked
+                    } else {
+                        ascending = true; // Default to ascending for new column
+                    }
+
+                    // Update current sort state
+                    currentSort = { column: columnIndex, ascending: ascending };
+
+                    // Sort the table
+                    sortTable(columnIndex, sortType, ascending);
+
+                    // Update sort arrows
+                    updateSortArrows(headers, columnIndex, ascending);
+                });
+            });
+        });
+
+        function sortTable(columnIndex, sortType, ascending) {
+            const tableBody = document.getElementById('rosterBody');
+            const rows = Array.from(tableBody.querySelectorAll('tr')); // Get rows as an array
+
+            // Define comparison function
+            const compareFunction = (rowA, rowB) => {
+                const cellA = rowA.querySelectorAll('td')[columnIndex];
+                const cellB = rowB.querySelectorAll('td')[columnIndex];
+
+                // Handle potential missing cells (shouldn't happen in valid HTML)
+                if (!cellA || !cellB) return 0;
+
+                let valueA = cellA.textContent.trim();
+                let valueB = cellB.textContent.trim();
+
+                // Handle "N/A" values - treat them as lowest/highest depending on sort order?
+                // For simplicity, let's treat N/A as lowest for numbers, first for strings.
+                const isValueANa = valueA === 'N/A';
+                const isValueBNa = valueB === 'N/A';
+
+                if (isValueANa && isValueBNa) return 0;
+                if (isValueANa) return ascending ? -1 : 1; // N/A comes first when ascending
+                if (isValueBNa) return ascending ? 1 : -1; // N/A comes first when ascending
+
+                // Parse values based on sortType
+                if (sortType === 'number') {
+                    valueA = parseFloat(valueA) || 0; // Default to 0 if parsing fails
+                    valueB = parseFloat(valueB) || 0;
+                } else { // string sort (case-insensitive)
+                    valueA = valueA.toLowerCase();
+                    valueB = valueB.toLowerCase();
+                }
+
+                // Comparison logic
+                if (valueA < valueB) {
+                    return ascending ? -1 : 1;
+                }
+                if (valueA > valueB) {
+                    return ascending ? 1 : -1;
+                }
+                return 0; // Values are equal
+            };
+
+            // Sort the rows array
+            rows.sort(compareFunction);
+
+            // Clear the current table body
+            tableBody.innerHTML = '';
+
+            // Append sorted rows back to the table body
+            rows.forEach(row => tableBody.appendChild(row));
+        }
+
+        function updateSortArrows(headers, activeColumnIndex, ascending) {
+             headers.forEach(header => {
+                const arrowSpan = header.querySelector('.sort-arrow');
+                if (arrowSpan) { // Ensure span exists
+                    const colIndex = parseInt(header.dataset.columnIndex);
+                    arrowSpan.classList.remove('asc', 'desc'); // Remove existing direction classes
+                    if (colIndex === activeColumnIndex) {
+                        arrowSpan.classList.add(ascending ? 'asc' : 'desc'); // Add the correct direction class
+                    }
+                }
+             });
+        }
+    </script>
+
 </body>
 </html>
+
