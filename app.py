@@ -15,6 +15,8 @@ import json # For parsing request body
 # Basic app config (can be expanded)
 GUILD_NAME = os.environ.get('GUILD_NAME')
 REGION = os.environ.get('REGION', 'us').lower() # Needed for Armory URL construction
+BLIZZARD_CLIENT_ID = os.environ.get('BLIZZARD_CLIENT_ID') # Needed for spec cache fetch
+BLIZZARD_CLIENT_SECRET = os.environ.get('BLIZZARD_CLIENT_SECRET') # Needed for spec cache fetch
 
 # --- Flask Application Setup ---
 app = Flask(__name__)
@@ -40,20 +42,21 @@ db = SQLAlchemy(app) # Initialize SQLAlchemy with the Flask app
 # This MUST match the definition in update_roster_data.py
 class Character(db.Model):
     __tablename__ = 'character' # Explicit table name recommended
-    id = db.Column(db.Integer, primary_key=True) # Use Blizzard's character ID
-    name = db.Column(db.String(100), nullable=False)
-    realm_slug = db.Column(db.String(100), nullable=False) # Needed for Armory link
-    level = db.Column(db.Integer)
-    class_id = db.Column(db.Integer) # NEW: Store the class ID
-    class_name = db.Column(db.String(50))
-    race_name = db.Column(db.String(50))
+    # Use imported types (Integer, String, DateTime)
+    id = db.Column(Integer, primary_key=True) # Use Blizzard's character ID
+    name = db.Column(String(100), nullable=False)
+    realm_slug = db.Column(String(100), nullable=False) # Needed for Armory link
+    level = db.Column(Integer)
+    class_id = db.Column(Integer) # Store the class ID
+    class_name = db.Column(String(50))
+    race_name = db.Column(String(50))
     spec_name = db.Column(String(50)) # API Active Spec
-    main_spec_override = db.Column(String(50), nullable=True) # NEW: User override
+    main_spec_override = db.Column(String(50), nullable=True) # User override
     role = db.Column(String(10))      # Role (Tank, Healer, DPS)
-    item_level = db.Column(db.Integer, index=True) # Index item_level for filtering/sorting
-    raid_progression = db.Column(db.String(200)) # Store summary string
-    rank = db.Column(db.Integer, index=True) # Index rank for faster filtering
-    last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
+    item_level = db.Column(Integer, index=True) # Index item_level for filtering/sorting
+    raid_progression = db.Column(String(200)) # Store summary string
+    rank = db.Column(Integer, index=True) # Index rank for faster filtering
+    last_updated = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
 
     # Define a unique constraint on name and realm_slug
     __table_args__ = (db.UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
@@ -61,90 +64,125 @@ class Character(db.Model):
     def __repr__(self):
         return f'<Character {self.name}-{self.realm_slug}>'
 
-# --- Data Caching (for Specs) ---
+# --- Data Caching & API Config ---
 # Simple in-memory cache for all specs, populated on first roster load
 ALL_SPECS_CACHE = {} # Structure: {class_id: [{id: spec_id, name: spec_name}, ...]}
 ALL_SPECS_LAST_FETCHED = 0
 CACHE_TTL = 3600 * 6 # Cache specs for 6 hours (adjust as needed)
 
+# Separate token cache for the spec fetching within the web app context
+# (distinct from the one used in update_roster_data.py)
+WEB_APP_ACCESS_TOKEN_CACHE = {"token": None, "expires_at": 0}
+API_BASE_URL = f"https://{REGION}.api.blizzard.com"
+TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
+
+
+# --- API Helper Functions (for Web App Context) ---
+
+def get_web_app_token():
+    """ Gets/refreshes token specifically for web app needs (like spec fetching). """
+    global WEB_APP_ACCESS_TOKEN_CACHE # Use the dedicated cache
+    now = time.time()
+    if WEB_APP_ACCESS_TOKEN_CACHE["token"] and WEB_APP_ACCESS_TOKEN_CACHE["expires_at"] > now + 60:
+        return WEB_APP_ACCESS_TOKEN_CACHE["token"]
+
+    client_id = BLIZZARD_CLIENT_ID # Use globally loaded creds
+    client_secret = BLIZZARD_CLIENT_SECRET
+    if not client_id or not client_secret:
+        print("Error: Blizzard API credentials not configured for web app token fetch.")
+        return None
+    try:
+        res = requests.post(TOKEN_URL, auth=(client_id, client_secret), data={'grant_type': 'client_credentials'}, timeout=10)
+        res.raise_for_status()
+        data = res.json()
+        access_token = data.get('access_token')
+        if not access_token:
+             print(f"Error fetching web app token: No access_token in response {data}")
+             return None
+        WEB_APP_ACCESS_TOKEN_CACHE["token"] = access_token
+        WEB_APP_ACCESS_TOKEN_CACHE["expires_at"] = now + data.get('expires_in', 0)
+        print("Fetched new web app access token.")
+        return WEB_APP_ACCESS_TOKEN_CACHE["token"]
+    except Exception as e:
+        print(f"Error fetching web app token: {e}")
+        # Log more details from response if available
+        if hasattr(e, 'response') and e.response is not None:
+             print(f"Response Status: {e.response.status_code}")
+             try: print(f"Response Body: {e.response.json()}")
+             except: print(f"Response Body: {e.response.text}")
+        return None
+
+def make_web_api_request(api_url, params, headers):
+    """ Helper function to make API requests within web app context """
+    try:
+        response = requests.get(api_url, params=params, headers=headers, timeout=15)
+        if response.status_code == 404:
+             print(f"Warning (Web App): 404 Not Found for URL: {response.url}")
+             return None
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Error in make_web_api_request for {api_url}: {e}")
+        return None
+
 def get_all_specs():
     """
     Fetches and caches all playable specializations from Blizzard API.
-    Requires BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET env vars to be set
-    for the web dyno if the cache needs to be populated.
-    Returns a dictionary mapping class_id to a list of its specs.
+    Uses the web app's token cache and helper functions.
     """
     global ALL_SPECS_CACHE, ALL_SPECS_LAST_FETCHED
     current_time = time.time()
 
-    # Check cache validity
     if ALL_SPECS_CACHE and (current_time - ALL_SPECS_LAST_FETCHED < CACHE_TTL):
         print("Using cached specs.")
         return ALL_SPECS_CACHE
 
-    print("Fetching all playable specializations from API...")
-    # Need API access here - temporarily copy relevant functions or use a shared utility
-    # ---- Temporary API Access ----
-    temp_access_token_cache = {"token": None, "expires_at": 0}
-    def get_temp_token():
-        # Simplified token fetch for this function
-        global temp_access_token_cache
-        now = time.time()
-        if temp_access_token_cache["token"] and temp_access_token_cache["expires_at"] > now + 60:
-            return temp_access_token_cache["token"]
-        client_id = os.environ.get('BLIZZARD_CLIENT_ID')
-        client_secret = os.environ.get('BLIZZARD_CLIENT_SECRET')
-        if not client_id or not client_secret:
-            print("Error: Blizzard API credentials not configured for spec fetch.")
-            return None
-        try:
-            token_url = f"https://{REGION}.battle.net/oauth/token"
-            res = requests.post(token_url, auth=(client_id, client_secret), data={'grant_type': 'client_credentials'}, timeout=10)
-            res.raise_for_status()
-            data = res.json()
-            temp_access_token_cache["token"] = data.get('access_token')
-            temp_access_token_cache["expires_at"] = now + data.get('expires_in', 0)
-            return temp_access_token_cache["token"]
-        except Exception as e:
-            print(f"Error fetching temp token for specs: {e}")
-            return None
-
-    access_token = get_temp_token()
+    print("Fetching all playable specializations from API for web app...")
+    access_token = get_web_app_token() # Use the web app token helper
     if not access_token:
-        print("Error: Cannot fetch specs without Blizzard API access token.")
+        print("Error: Cannot fetch specs without Blizzard API access token for web app.")
         return ALL_SPECS_CACHE # Return old cache if fetch fails
 
-    api_url = f"{API_BASE_URL}/data/wow/playable-specialization/index"
+    spec_index_url = f"{API_BASE_URL}/data/wow/playable-specialization/index"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-    # ---- End Temporary API Access ----
 
     try:
-        response = requests.get(api_url, params=params, headers=headers, timeout=15)
-        response.raise_for_status()
-        spec_index_data = response.json()
+        spec_index_data = make_web_api_request(spec_index_url, params, headers) # Use web request helper
 
         if not spec_index_data or 'character_specializations' not in spec_index_data:
-            print("Error: Failed to parse playable specialization index from API.")
-            return ALL_SPECS_CACHE # Return old cache
+             print("Error: Failed to parse playable specialization index from API ('character_specializations' key missing).")
+             return ALL_SPECS_CACHE
 
         temp_spec_map = {}
-        for spec_info in spec_index_data.get('character_specializations', []):
-            class_id = spec_info.get('playable_class', {}).get('id')
-            spec_id = spec_info.get('id')
-            spec_name = spec_info.get('name')
+        print(f"Fetching details for {len(spec_index_data['character_specializations'])} specs...")
+        detail_fetch_count = 0
+        for spec_summary in spec_index_data['character_specializations']:
+            detail_href = spec_summary.get('key', {}).get('href')
+            if not detail_href: continue
 
-            if class_id and spec_id and spec_name:
-                if class_id not in temp_spec_map:
-                    temp_spec_map[class_id] = []
-                # Store as dictionary for potential future use (e.g., spec ID)
-                temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
-                # Sort specs alphabetically within each class
-                temp_spec_map[class_id].sort(key=lambda x: x['name'])
+            # Fetch spec detail using the same token/headers/params
+            spec_detail = make_web_api_request(detail_href, params, headers) # Use web request helper
+            detail_fetch_count += 1
+            if detail_fetch_count % 10 == 0: print(f"Fetched details for {detail_fetch_count} specs...")
+
+            if spec_detail:
+                class_id = spec_detail.get('playable_class', {}).get('id')
+                spec_id = spec_detail.get('id')
+                spec_name = spec_detail.get('name')
+
+                if class_id and spec_id and spec_name:
+                    if class_id not in temp_spec_map:
+                        temp_spec_map[class_id] = []
+                    temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
+                    temp_spec_map[class_id].sort(key=lambda x: x['name'])
+            else:
+                 print(f"Warning: Failed to fetch details from {detail_href}")
+            time.sleep(0.05) # Small delay
 
         if not temp_spec_map:
             print("Error: Could not build specialization map from fetched data.")
-            return ALL_SPECS_CACHE # Return old cache
+            return ALL_SPECS_CACHE
 
         ALL_SPECS_CACHE = temp_spec_map
         ALL_SPECS_LAST_FETCHED = current_time
@@ -153,7 +191,7 @@ def get_all_specs():
 
     except Exception as e:
         print(f"Error fetching/processing all specs: {e}")
-        return ALL_SPECS_CACHE # Return old cache on error
+        return ALL_SPECS_CACHE
 
 # --- Routes ---
 @app.route('/')
@@ -171,78 +209,67 @@ def roster_page():
     start_time = time.time()
     error_message = None
     members = []
-    min_item_level = 630 # Define the minimum item level threshold
-    # Determine locale based on region for Armory URL
-    locale = "en-us" # Default
+    min_item_level = 600
+    locale = "en-us"
     if REGION == "eu": locale = "en-gb"
     elif REGION == "kr": locale = "ko-kr"
     elif REGION == "tw": locale = "zh-tw"
 
     # Fetch all specs needed for dropdowns
-    # Requires Blizzard API keys set for the web dyno if cache is empty
-    all_specs_by_class = get_all_specs()
+    all_specs_by_class = get_all_specs() # This now uses web app token cache
     if not all_specs_by_class:
-         # Decide how to handle this - maybe disable editing?
          print("Warning: Could not load specialization data for dropdowns.")
-         # error_message = "Could not load specialization options." # Optional user message
 
     try:
-        # Ensure the app context is available for database operations
         with app.app_context():
-            # Check if the table exists before querying
             if not db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
                  error_message = "Database table not found. Please run the initial setup/update script."
-                 print(error_message) # Log the error
+                 print(error_message)
             else:
-                # Query the database
                 db_members = Character.query.filter(
                     Character.rank <= 4,
                     Character.item_level != None,
                     Character.item_level >= min_item_level
                 ).order_by(
                     Character.rank.asc(),
-                    Character.item_level.desc().nullslast() # Handles potential NULLs in sorting
+                    Character.item_level.desc().nullslast()
                 ).all()
 
-                # Convert SQLAlchemy objects to dictionaries for the template
                 for char in db_members:
                     members.append({
-                        'id': char.id, # Pass character ID for updates
+                        'id': char.id,
                         'name': char.name,
                         'realm_slug': char.realm_slug,
                         'level': char.level,
-                        'class_id': char.class_id, # Pass class ID for spec dropdown filtering
+                        'class_id': char.class_id,
                         'class': char.class_name,
                         'race': char.race_name,
-                        'spec_name': char.spec_name if char.spec_name else "N/A", # API Spec
-                        'main_spec_override': char.main_spec_override, # User Override Spec
+                        'spec_name': char.spec_name if char.spec_name else "N/A",
+                        'main_spec_override': char.main_spec_override,
                         'role': char.role if char.role else "N/A",
                         'item_level': char.item_level if char.item_level is not None else "N/A",
                         'raid_progression': char.raid_progression if char.raid_progression else "N/A",
                         'rank': char.rank
                     })
 
-                if not members and not error_message: # Avoid overwriting DB error
+                if not members and not error_message:
                      print(f"Warning: Character table exists but found no members matching filters.")
                      error_message = f"No members found matching rank criteria (<= 4) and item level (>= {min_item_level})."
 
     except Exception as e:
-        # Catch potential database errors
         print(f"Error querying database: {e}")
         error_message = "Error retrieving data from the database."
-
 
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     end_time = time.time()
     load_duration = round(end_time - start_time, 2)
     print(f"Roster page loaded from DB in {load_duration} seconds.")
 
-    # Pass the specs data to the template, safely dumping to JSON
     try:
         all_specs_json = json.dumps(all_specs_by_class)
     except Exception as json_err:
         print(f"Error dumping specs to JSON: {json_err}")
-        all_specs_json = '{}' # Pass empty JSON object on error
+        all_specs_json = '{}'
 
     return render_template('roster.html',
                            guild_name=display_guild_name,
@@ -251,7 +278,7 @@ def roster_page():
                            load_duration=load_duration,
                            wow_region=REGION,
                            wow_locale=locale,
-                           all_specs_by_class=all_specs_json) # Pass specs as JSON string
+                           all_specs_by_class=all_specs_json)
 
 # --- Update Spec Route ---
 @app.route('/update_spec', methods=['POST'])
@@ -259,13 +286,12 @@ def update_spec():
     """ Handles AJAX request to update a character's main_spec_override. """
     if not request.is_json:
         print("Error: Request was not JSON")
-        abort(400, description="Request must be JSON") # Bad request
+        abort(400, description="Request must be JSON")
 
     data = request.get_json()
     character_id = data.get('character_id')
-    new_spec_name = data.get('spec_name') # This will be "" if "-- Clear Override --" selected
+    new_spec_name = data.get('spec_name')
 
-    # Basic validation
     if character_id is None or not isinstance(character_id, int) or new_spec_name is None:
         print(f"Error: Invalid character_id or spec_name in request data: {data}")
         abort(400, description="Invalid character_id or spec_name")
@@ -275,34 +301,33 @@ def update_spec():
             character = Character.query.get(character_id)
             if not character:
                 print(f"Error: Character not found with ID: {character_id}")
-                abort(404, description="Character not found") # Not found
+                abort(404, description="Character not found")
 
-            # Optional: Validate if the new_spec_name is valid for the character's class
-            # Requires fetching the spec map again or ensuring it's available globally/cached
-            all_specs = get_all_specs() # Use cached/fetched specs
+            # Optional: Validate spec name against fetched specs
+            all_specs = get_all_specs()
             if new_spec_name and character.class_id in all_specs:
                  valid_specs = [spec['name'] for spec in all_specs[character.class_id]]
                  if new_spec_name not in valid_specs:
                      print(f"Error: Invalid spec '{new_spec_name}' for class ID {character.class_id}")
                      abort(400, description=f"Invalid spec '{new_spec_name}' for character's class.")
+            elif new_spec_name and character.class_id not in all_specs:
+                 print(f"Warning: Cannot validate spec '{new_spec_name}' because spec cache is empty for class ID {character.class_id}.")
+                 # Allow save anyway, or abort(500, description="Cannot validate spec, spec data unavailable.")
 
-            # Update the override (set to None if empty string received, otherwise use the name)
             character.main_spec_override = new_spec_name if new_spec_name else None
-            character.last_updated = datetime.utcnow() # Manually update timestamp
+            character.last_updated = datetime.utcnow()
 
             db.session.commit()
             print(f"Successfully updated spec override for Character ID {character_id} to '{character.main_spec_override}'")
             return jsonify({"success": True, "message": "Main spec updated successfully."})
 
     except Exception as e:
-        db.session.rollback() # Rollback on error
+        db.session.rollback()
         print(f"Error updating spec for character ID {character_id}: {e}")
-        abort(500, description="Database error during update.") # Internal server error
+        abort(500, description="Database error during update.")
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    # When running locally for the first time without DATABASE_URL,
-    # the update script should handle table creation.
-    # You might need to ensure Blizzard API keys are set locally if the spec cache is empty.
     app.run(host='0.0.0.0', port=port, debug=False)
+
