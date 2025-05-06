@@ -10,44 +10,27 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
+        /* Base styles */
         body { font-family: 'Inter', sans-serif; }
         th {
-            text-align: left;
-            padding: 0.5rem 0.75rem;
-            background-color: #f7fafc; /* gray-100 */
-            border-bottom: 2px solid #e2e8f0; /* gray-300 */
-            font-weight: 600; /* Semibold */
+            text-align: left; padding: 0.5rem 0.75rem; background-color: #f7fafc; /* gray-100 */
+            border-bottom: 2px solid #e2e8f0; /* gray-300 */ font-weight: 600; /* Semibold */
             white-space: nowrap;
         }
-        /* Make sortable headers clickable */
-        th.sortable {
-            cursor: pointer;
-            position: relative; /* Needed for absolute positioning of arrows */
-        }
-        th.sortable:hover {
-            background-color: #edf2f7; /* gray-200 */
-        }
+        /* Clickable sortable headers */
+        th.sortable { cursor: pointer; position: relative; }
+        th.sortable:hover { background-color: #edf2f7; /* gray-200 */ }
         /* Sort arrows */
         .sort-arrow {
-            font-size: 0.8em;
-            margin-left: 0.3em;
-            color: #a0aec0; /* gray-500 */
-            position: absolute;
-            right: 0.5rem; /* Position arrow to the right */
-            top: 50%;
-            transform: translateY(-50%);
-            width: 1em; /* Give arrow some space */
-            text-align: center;
+            font-size: 0.8em; margin-left: 0.3em; color: #a0aec0; /* gray-500 */ position: absolute;
+            right: 0.5rem; top: 50%; transform: translateY(-50%); width: 1em; text-align: center;
         }
         .sort-arrow.asc::after { content: '\25B2'; } /* Up arrow ▲ */
         .sort-arrow.desc::after { content: '\25BC'; } /* Down arrow ▼ */
-
-        td {
-            padding: 0.5rem 0.75rem;
-            border-bottom: 1px solid #e2e8f0; /* gray-300 */
-            vertical-align: middle;
-        }
+        /* Table cell styles */
+        td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; /* gray-300 */ vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
+        /* Utility styles */
         .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
         .armory-link { color: #2b6cb0; /* blue-700 */ text-decoration: none; }
         .armory-link:hover { color: #2c5282; /* blue-800 */ text-decoration: underline; }
@@ -56,6 +39,31 @@
         .role-healer { color: #2f855a; } /* green-700 */
         .role-tank { color: #2b6cb0; } /* blue-700 */
         .role-unknown { color: #a0aec0; } /* gray-500 */
+
+        /* Styles for Spec Editing */
+        .spec-display { display: inline-block; margin-right: 5px;}
+        .edit-spec-btn {
+            cursor: pointer; color: #a0aec0; /* gray-500 */ font-size: 0.8em; vertical-align: middle; display: inline-block;
+            padding: 1px 3px; border-radius: 3px; margin-left: 4px;
+        }
+        .edit-spec-btn:hover { color: #4a5568; background-color: #e2e8f0;}
+        .spec-select {
+            display: none; /* Hidden by default */
+            padding: 2px 4px; border: 1px solid #cbd5e0; border-radius: 4px;
+            font-size: 0.9em; vertical-align: middle; margin-left: 5px; max-width: 150px; /* Limit width */
+        }
+        .spec-select-container { display: inline-block; } /* Container for select and save/cancel */
+        .spec-save-btn, .spec-cancel-btn {
+            display: none; /* Hidden by default */
+            margin-left: 5px; padding: 1px 4px; font-size: 0.8em; border-radius: 3px; cursor: pointer;
+            vertical-align: middle; border: 1px solid transparent;
+        }
+        .spec-save-btn { background-color: #38a169; color: white; border-color: #2f855a;} /* green */
+        .spec-save-btn:hover { background-color: #2f855a; }
+        .spec-cancel-btn { background-color: #e53e3e; color: white; border-color: #c53030;} /* red */
+        .spec-cancel-btn:hover { background-color: #c53030; }
+        .update-status { font-size: 0.8em; margin-left: 5px; font-style: italic; color: #4a5568; }
+
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -106,7 +114,8 @@
                     </thead>
                     <tbody id="rosterBody">
                         {% for member in members %}
-                        <tr>
+                        {# Add character and class IDs to the row for JavaScript access #}
+                        <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}">
                             <td>
                                 <a href="https://worldofwarcraft.blizzard.com/{{ wow_locale }}/character/{{ wow_region }}/{{ member.realm_slug }}/{{ member.name | urlencode }}"
                                    target="_blank" rel="noopener noreferrer" class="armory-link">
@@ -114,24 +123,38 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                             <td class="text-center">
+                             <td class="text-center"> {# Center align the icon #}
                                 {% set role_lower = member.role | lower if member.role else '' %}
                                 {% if role_lower == 'dps' %}
-                                    <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i>
+                                    <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i> {# Crossed swords icon #}
                                 {% elif role_lower == 'healer' %}
-                                     <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
+                                     <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i> {# Medical bag icon #}
                                 {% elif role_lower == 'tank' %}
-                                     <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
+                                     <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i> {# Shield icon #}
                                 {% else %}
-                                     <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i>
+                                     <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {# Question mark for N/A #}
                                 {% endif %}
                             </td>
                             <td>
-                                {% if member.spec_name == "N/A" or member.spec_name is none %}
-                                    <span class="na-value">N/A</span>
-                                {% else %}
-                                    {{ member.spec_name }}
-                                {% endif %}
+                                <span class="spec-display">
+                                    {# Display override if set, otherwise API spec #}
+                                    {% if member.main_spec_override %}
+                                        {{ member.main_spec_override }}
+                                    {% elif member.spec_name == "N/A" or member.spec_name is none %}
+                                        <span class="na-value">N/A</span>
+                                    {% else %}
+                                        {{ member.spec_name }} {# Display API spec if no override #}
+                                    {% endif %}
+                                </span>
+                                <i class="fas fa-pencil-alt edit-spec-btn" title="Set Main Spec"></i> {# Edit Icon #}
+                                <div class="spec-select-container"> {# Container for dropdown and buttons #}
+                                    <select class="spec-select">
+                                        {# Options will be populated by JavaScript based on class_id #}
+                                    </select>
+                                    <button class="spec-save-btn">Save</button>
+                                    <button class="spec-cancel-btn">Cancel</button>
+                                </div>
+                                <span class="update-status"></span> {# For showing update messages like 'Saving...', 'Saved!', 'Error' #}
                             </td>
                             <td>{{ member.class }}</td>
                              <td>
@@ -151,13 +174,14 @@
                             </td>
                             <td>{{ member.rank }}</td>
                         </tr>
-                        {% endfor %}
+                        {% endfor %} {# End of member loop #}
                     </tbody>
                 </table>
             </div>
             {% elif not error_message %}
+            {# Message if no members match the filter criteria #}
             <p>No members found matching rank criteria (<= 4) and item level (>= 600) in the database.</p>
-            {% endif %}
+            {% endif %} {# End of members check #}
         </div>
     </main>
 
@@ -166,35 +190,187 @@
     </footer>
 
     <script>
+        // Parse the spec data passed from Flask
+        // Use '|| {}' as a fallback in case the variable is missing or invalid JSON
+        const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
+
+        // Wait for the DOM to be fully loaded
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
             const tableBody = document.getElementById('rosterBody');
+            // Ensure table and body exist before proceeding
             if (!table || !tableBody) {
                 console.error("Roster table or body not found!");
                 return;
             }
             const headers = table.querySelectorAll('th.sortable');
-            let currentSort = { column: -1, ascending: true };
+            let currentSort = { column: -1, ascending: true }; // Track current sort state
 
+            // --- Sorting Event Listeners ---
             headers.forEach(header => {
                 header.addEventListener('click', function() {
                     const columnIndex = parseInt(this.dataset.columnIndex);
-                    const sortType = this.dataset.sortType || 'string';
+                    const sortType = this.dataset.sortType || 'string'; // Default to string sort
 
-                    let ascending = true;
-                    if (currentSort.column === columnIndex) {
-                        ascending = !currentSort.ascending;
-                    } else {
-                        ascending = true; // Default ASC for new column
-                    }
+                    // Determine sort direction (toggle if same column, default asc if new)
+                    let ascending = (currentSort.column === columnIndex) ? !currentSort.ascending : true;
 
+                    // Update current sort state
                     currentSort = { column: columnIndex, ascending: ascending };
+
+                    // Sort the table
                     sortTable(columnIndex, sortType, ascending);
+
+                    // Update sort arrows in headers
                     updateSortArrows(headers, columnIndex, ascending);
                 });
             });
-        });
 
+            // --- Spec Editing Event Listeners (using event delegation on tbody) ---
+            tableBody.addEventListener('click', function(event) {
+                // Handle Edit Button Click
+                if (event.target.classList.contains('edit-spec-btn')) {
+                    startEdit(event.target);
+                }
+                // Handle Save Button Click
+                else if (event.target.classList.contains('spec-save-btn')) {
+                    saveSpec(event.target);
+                }
+                // Handle Cancel Button Click
+                else if (event.target.classList.contains('spec-cancel-btn')) {
+                    cancelEdit(event.target);
+                }
+            });
+
+            // --- Spec Editing Functions ---
+            function startEdit(editButton) {
+                const td = editButton.closest('td');
+                const tr = editButton.closest('tr');
+                const specDisplay = td.querySelector('.spec-display');
+                const selectContainer = td.querySelector('.spec-select-container');
+                const select = selectContainer.querySelector('.spec-select');
+                const saveBtn = selectContainer.querySelector('.spec-save-btn');
+                const cancelBtn = selectContainer.querySelector('.spec-cancel-btn');
+                const statusSpan = td.querySelector('.update-status');
+
+                const classId = tr.dataset.classId; // Get class ID from row data attribute
+                const currentDisplayedSpec = specDisplay.textContent.trim(); // Get currently shown spec name
+                const specsForClass = allSpecsByClass[classId] || []; // Get specs for this class from cached data
+
+                // Populate dropdown options
+                select.innerHTML = '<option value="">-- Clear Override --</option>'; // Option to remove override
+                specsForClass.forEach(spec => {
+                    const option = document.createElement('option');
+                    option.value = spec.name; // Use spec name as value
+                    option.textContent = spec.name;
+                    // Pre-select the option matching the currently displayed spec
+                    if (currentDisplayedSpec === spec.name) {
+                        option.selected = true;
+                    }
+                    select.appendChild(option);
+                });
+
+                // Show editing UI elements and hide display elements
+                specDisplay.style.display = 'none';
+                editButton.style.display = 'none';
+                selectContainer.style.display = 'inline-block'; // Show container
+                select.style.display = 'inline-block';
+                saveBtn.style.display = 'inline-block';
+                cancelBtn.style.display = 'inline-block';
+                statusSpan.textContent = ''; // Clear any previous status message
+            }
+
+            function cancelEdit(cancelButton) {
+                 // Find relevant elements within the same table cell
+                 const td = cancelButton.closest('td');
+                 const specDisplay = td.querySelector('.spec-display');
+                 const editButton = td.querySelector('.edit-spec-btn');
+                 const selectContainer = td.querySelector('.spec-select-container');
+
+                 // Hide editing UI, show display elements
+                 selectContainer.style.display = 'none'; // Hide container holding select/buttons
+                 specDisplay.style.display = 'inline-block';
+                 editButton.style.display = 'inline-block';
+            }
+
+            function saveSpec(saveButton) {
+                const td = saveButton.closest('td');
+                const tr = saveButton.closest('tr');
+                const select = td.querySelector('.spec-select');
+                const statusSpan = td.querySelector('.update-status');
+                const characterId = tr.dataset.characterId; // Get character ID from row
+                const selectedSpecName = select.value; // Get selected value ("" if clear override)
+
+                if (!characterId) {
+                    console.error("Could not find character ID for row.");
+                    statusSpan.textContent = 'Error: ID missing.';
+                    statusSpan.style.color = 'red';
+                    return;
+                }
+
+                statusSpan.textContent = 'Saving...';
+                statusSpan.style.color = '#4a5568'; // Default text color
+
+                // Send data to backend endpoint using Fetch API
+                fetch('/update_spec', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                        // TODO: Add CSRF token header if using Flask-WTF/CSRFProtect
+                    },
+                    body: JSON.stringify({
+                        character_id: parseInt(characterId), // Ensure ID is sent as integer
+                        spec_name: selectedSpecName // Send selected spec name (or empty string)
+                    })
+                })
+                .then(response => { // Check if response is successful
+                    if (!response.ok) {
+                        // Try to parse error message from response body
+                        return response.json().then(errData => {
+                             throw new Error(errData.description || `HTTP error ${response.status}`);
+                        }).catch(() => {
+                             // Fallback if response body isn't JSON or has no description
+                             throw new Error(`HTTP error ${response.status}`);
+                        });
+                    }
+                    return response.json(); // Parse successful JSON response
+                })
+                .then(data => { // Handle successful response data
+                    if (data.success) {
+                        statusSpan.textContent = 'Saved!';
+                        statusSpan.style.color = 'green';
+                        // Update the displayed text immediately
+                        const specDisplay = td.querySelector('.spec-display');
+                        if (selectedSpecName) {
+                             specDisplay.textContent = selectedSpecName; // Show the new override
+                        } else {
+                             // If cleared, ideally show the original API spec.
+                             // This requires fetching it again or storing it.
+                             // Simple approach: Show N/A and prompt reload.
+                             specDisplay.innerHTML = '<span class="na-value">N/A (Reload for API default)</span>';
+                        }
+
+                        // Hide edit UI after a short delay
+                        setTimeout(() => {
+                            cancelEdit(saveButton); // Use cancel logic to revert UI
+                            statusSpan.textContent = ''; // Clear status message
+                        }, 1500);
+                    } else {
+                        // Handle cases where backend returns success: false
+                        throw new Error(data.message || "Unknown error saving spec.");
+                    }
+                })
+                .catch(error => { // Handle fetch errors or errors thrown above
+                    console.error('Error updating spec:', error);
+                    statusSpan.textContent = `Error: ${error.message}`;
+                    statusSpan.style.color = 'red';
+                });
+            }
+
+        }); // End DOMContentLoaded
+
+        // --- Sorting Functions ---
         function sortTable(columnIndex, sortType, ascending) {
             const tableBody = document.getElementById('rosterBody');
              if (!tableBody) return;
@@ -203,55 +379,51 @@
             const compareFunction = (rowA, rowB) => {
                 const cellA = rowA.querySelectorAll('td')[columnIndex];
                 const cellB = rowB.querySelectorAll('td')[columnIndex];
-
                 if (!cellA || !cellB) return 0;
-
                 let valueA, valueB;
 
-                // --- MODIFIED: Get value based on column index ---
-                if (columnIndex === 2) { // Role column (index 2)
+                // Get value based on column index - special handling for Role
+                if (columnIndex === 2) { // Role column
                     const iconA = cellA.querySelector('i');
                     const iconB = cellB.querySelector('i');
-                    valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A'; // Get title attribute
+                    // Use the title attribute (e.g., "Tank", "Healer", "DPS") for sorting
+                    valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                     valueB = iconB ? iconB.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                 } else { // Other columns
+                    // Check for our specific N/A span, otherwise use text content
                     valueA = cellA.querySelector('.na-value') ? 'N/A' : cellA.textContent.trim();
                     valueB = cellB.querySelector('.na-value') ? 'N/A' : cellB.textContent.trim();
                 }
-                // --- END MODIFICATION ---
 
+                // Handle N/A values - consistently place them at the bottom
                 const isValueANa = valueA === 'N/A' || valueA === 'Unknown/N/A';
                 const isValueBNa = valueB === 'N/A' || valueB === 'Unknown/N/A';
-
-                // Handle N/A: Place them at the bottom regardless of sort direction
                 if (isValueANa && isValueBNa) return 0;
-                if (isValueANa) return 1; // N/A is always "greater"
-                if (isValueBNa) return -1; // N/A is always "greater"
+                if (isValueANa) return 1; // N/A is always "greater" (sorts last)
+                if (isValueBNa) return -1; // N/A is always "greater" (sorts last)
 
-                // Parse values based on sortType
+                // Parse values for comparison
                 if (sortType === 'number') {
-                    valueA = parseFloat(valueA) || 0;
+                    valueA = parseFloat(valueA) || 0; // Default to 0 if not a number
                     valueB = parseFloat(valueB) || 0;
                 } else { // string sort (case-insensitive)
                     valueA = valueA.toLowerCase();
                     valueB = valueB.toLowerCase();
                 }
 
-                // Comparison logic
-                if (valueA < valueB) {
-                    return ascending ? -1 : 1;
-                }
-                if (valueA > valueB) {
-                    return ascending ? 1 : -1;
-                }
+                // Actual comparison
+                if (valueA < valueB) { return ascending ? -1 : 1; }
+                if (valueA > valueB) { return ascending ? 1 : -1; }
                 return 0; // Values are equal
             };
 
+            // Sort and re-append rows
             rows.sort(compareFunction);
-            rows.forEach(row => tableBody.appendChild(row)); // Re-append sorted rows
+            rows.forEach(row => tableBody.appendChild(row));
         }
 
         function updateSortArrows(headers, activeColumnIndex, ascending) {
+             // Update visual indicators on headers
              headers.forEach(header => {
                 const arrowSpan = header.querySelector('.sort-arrow');
                 if (arrowSpan) {
