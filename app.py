@@ -4,7 +4,8 @@ from flask import Flask, render_template, jsonify, request, abort
 # Import SQLAlchemy for database interaction
 from flask_sqlalchemy import SQLAlchemy
 # Import desc for descending sort order AND SQLAlchemy column types
-from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint
+# Import func for count aggregation
+from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func
 import os
 import requests # Keep for potential future use or type hints
 import time
@@ -197,9 +198,37 @@ def get_all_specs():
 # --- Routes ---
 @app.route('/')
 def home():
-    """ Route for the homepage ('/'). """
+    """ Route for the homepage ('/'). Fetches raid status counts. """
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
-    return render_template('index.html', guild_name=display_guild_name)
+    current_year = datetime.utcnow().year # Get current year for footer
+
+    # Fetch Raid Status Counts for 'Wiper' status
+    raid_status_counts = {'Tank': 0, 'Healer': 0, 'DPS': 0, 'Total': 0}
+    try:
+        with app.app_context():
+             if db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
+                results = db.session.query(
+                    Character.role, func.count(Character.id)
+                ).filter(
+                    Character.status == 'Wiper' # Filter by the specific status
+                ).group_by(
+                    Character.role
+                ).all()
+                for role, count in results:
+                    if role in raid_status_counts:
+                        raid_status_counts[role] = count
+                    raid_status_counts['Total'] += count
+             else:
+                  print("Warning: Character table not found when fetching raid status counts.")
+    except Exception as e:
+        print(f"Error fetching raid status counts: {e}")
+
+    return render_template(
+        'index.html',
+        guild_name=display_guild_name,
+        current_year=current_year,
+        raid_status_counts=raid_status_counts # Pass counts to template
+    )
 
 @app.route('/roster')
 def roster_page():
@@ -243,7 +272,6 @@ def roster_page():
                         'level': char.level,
                         'class_id': char.class_id,
                         'class': char.class_name,
-                        # 'race_name' removed
                         'spec_name': char.spec_name if char.spec_name else "N/A",
                         'main_spec_override': char.main_spec_override,
                         'role': char.role if char.role else "N/A",
@@ -317,9 +345,8 @@ def update_status():
     character_id = data.get('character_id')
     new_status = data.get('status')
     # Validate against the user-settable options
-    valid_user_statuses = ['Wiper','Wiping Alt','Member']
+    valid_user_statuses = ['Wiper', 'Member', 'Wiping Alt'] # Corrected list
 
-    # Basic validation
     if not character_id or not isinstance(character_id, int) or not new_status or new_status not in valid_user_statuses:
         print(f"Error: Invalid character_id or status in request data: {data}")
         abort(400, description="Invalid character_id or status")
