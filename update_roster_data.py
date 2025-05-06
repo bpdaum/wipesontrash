@@ -34,7 +34,6 @@ except Exception as e:
      exit(1)
 
 # --- Database Model (with class_id and override) ---
-# Defines the structure for storing character data in the database.
 class Character(Base):
     """ Defines the structure for storing character data in the database. """
     __tablename__ = 'character'
@@ -54,12 +53,8 @@ class Character(Base):
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
 
     # Define a unique constraint on name and realm_slug
-    __table_args__ = (
-        UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),
-    )
-
-    def __repr__(self):
-        return f'<Character {self.name}-{self.realm_slug}>'
+    __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
+    def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
 
 # --- Configuration Loading ---
 BLIZZARD_CLIENT_ID = os.environ.get('BLIZZARD_CLIENT_ID')
@@ -70,8 +65,7 @@ REGION = os.environ.get('REGION', 'us').lower()
 
 # --- Blizzard API Configuration ---
 VALID_REGIONS = ['us', 'eu', 'kr', 'tw']
-if REGION not in VALID_REGIONS:
-    raise ValueError(f"Invalid REGION: {REGION}. Must be one of {VALID_REGIONS}")
+if REGION not in VALID_REGIONS: raise ValueError(f"Invalid REGION: {REGION}. Must be one of {VALID_REGIONS}")
 TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
 API_BASE_URL = f"https://{REGION}.api.blizzard.com"
 
@@ -79,7 +73,7 @@ API_BASE_URL = f"https://{REGION}.api.blizzard.com"
 access_token_cache = { "token": None, "expires_at": 0 }
 CLASS_MAP = {}
 RACE_MAP = {}
-SPEC_MAP_BY_CLASS = {} # Cache for all specs {class_id: [{id: spec_id, name: spec_name}, ...]}
+SPEC_MAP_BY_CLASS = {}
 
 # --- API Helper Functions ---
 
@@ -188,13 +182,48 @@ def populate_spec_cache():
     print("Specialization map empty, attempting to fetch...")
     spec_index_data = get_static_data('/playable-specialization/index')
 
-    if not spec_index_data or 'character_specializations' not in spec_index_data:
-        print("Error: Failed to fetch or parse playable specialization index.")
-        return False
+    # --- DEBUG: Print the raw data received ---
+    if spec_index_data:
+        print("DEBUG: Raw playable specialization index data received:")
+        try:
+            print(json.dumps(spec_index_data, indent=2))
+        except Exception as e:
+            print(f"(Could not print as JSON: {e}) Raw data: {spec_index_data}")
+    else:
+        print("DEBUG: No data received from playable specialization index endpoint.")
+        return False # Cannot proceed if no data
+    # --- END DEBUG ---
+
+    # Check for the expected key before proceeding
+    spec_list = None
+    if 'character_specializations' in spec_index_data:
+        spec_list = spec_index_data.get('character_specializations', [])
+    else:
+        print("Error: 'character_specializations' key not found in the specialization index response.")
+        # Attempt fallback keys if structure might be different (e.g., 'specializations')
+        fallback_key = None
+        possible_keys = ['specializations', 'specs'] # Add other potential keys if known
+        for key in possible_keys:
+            if key in spec_index_data:
+                fallback_key = key
+                print(f"Warning: Found alternative key '{key}'. Attempting to use it.")
+                spec_list = spec_index_data.get(fallback_key, [])
+                break
+        if spec_list is None: # If neither primary nor fallbacks worked
+             print("Error: Could not find specialization list key in response.")
+             return False # Abort if expected key and fallbacks are missing
+
+    if not spec_list: # Check if the list itself is empty
+         print("Warning: Specialization list received from API is empty.")
+         # Decide if this is an error or just means no specs (unlikely)
+         # return False # Or allow proceeding with an empty map
 
     temp_spec_map = {}
-    for spec_info in spec_index_data.get('character_specializations', []):
-        class_id = spec_info.get('playable_class', {}).get('id')
+    # Structure: { "character_specializations": [ { "id": X, "playable_class": { "id": Y }, "name": "SpecName" }, ... ] }
+    for spec_info in spec_list:
+        # Use .get() for safer access to nested dictionaries
+        class_info = spec_info.get('playable_class', {})
+        class_id = class_info.get('id')
         spec_id = spec_info.get('id')
         spec_name = spec_info.get('name')
 
@@ -204,9 +233,12 @@ def populate_spec_cache():
             temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
             # Sort specs alphabetically within each class
             temp_spec_map[class_id].sort(key=lambda x: x['name'])
+        else:
+             print(f"Warning: Skipping spec entry due to missing data: {spec_info}")
+
 
     if not temp_spec_map:
-        print("Error: Could not build specialization map from fetched data.")
+        print("Error: Could not build specialization map from fetched data (map is empty after processing).")
         return False
 
     SPEC_MAP_BY_CLASS = temp_spec_map
@@ -244,7 +276,7 @@ def populate_static_caches():
             race_success = False
 
     # Populate Spec Map
-    spec_success = populate_spec_cache()
+    spec_success = populate_spec_cache() # Call the dedicated function
 
     return class_success and race_success and spec_success
 
@@ -405,7 +437,6 @@ def update_database():
     print(f"Fetched {total_members} total members from roster. Filtering by rank <= 4...")
 
     characters_to_insert = [] # List to hold Character objects for insertion
-
     api_call_count = 0
     processed_for_details = 0
 
