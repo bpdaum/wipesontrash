@@ -63,7 +63,7 @@
         .status-wiper { color: #b7791f; font-weight: 500;}
         .status-member { color: #38a169; }
         .status-wiping-alt { color: #718096; }
-        /* Add styles for user-settable statuses if desired */
+        /* Add styles for user-settable statuses if needed */
         /* .status-raid { } */
         /* .status-casual { color: #4299e1; } */
         /* .status-alt { color: #9f7aea; } */
@@ -75,7 +75,7 @@
     <nav class="text-white p-4 shadow-md" style="background-color: #6B1A51;">
         <div class="container mx-auto flex flex-wrap justify-between items-center">
             <div class="flex items-center space-x-3 mb-2 sm:mb-0">
-                 <img src="images/wot_logo.png"
+                 <img src="{{ url_for('static', filename='images/wot_logo.png') }}"
                       alt="{{ guild_name }} Logo"
                       class="h-8 w-8 rounded-full border-2 border-white">
                  <h1 class="text-xl font-semibold">{{ guild_name }} Portal</h1>
@@ -116,7 +116,7 @@
                             <th class="sortable" data-column-index="3" data-sort-type="string">Spec <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="4" data-sort-type="string">Class <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="5" data-sort-type="number">Item Level <span class="sort-arrow"></span></th>
-                            <th class="sortable" data-column-index="6" data-sort-type="string">Status <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="6" data-sort-type="string">Status <span class="sort-arrow"></span></th> {# Status Header #}
                             <th class="sortable" data-column-index="7" data-sort-type="string">Progression <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="8" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
                         </tr>
@@ -139,7 +139,7 @@
                                 {% elif role_lower == 'tank' %} <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
                                 {% else %} <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {% endif %}
                             </td>
-                            <td>
+                            <td> {# Spec Column #}
                                 <span class="spec-display display-value">
                                     {# Display override if set, otherwise API spec #}
                                     {% if member.main_spec_override %}
@@ -164,6 +164,7 @@
                              <td>
                                 {% if member.item_level == "N/A" or member.item_level is none %} <span class="na-value">N/A</span> {% else %} {{ member.item_level }} {% endif %}
                             </td>
+                            {# --- Status Column with Edit --- #}
                             <td>
                                 <span class="status-display display-value">
                                      {# Apply styling based on status #}
@@ -172,7 +173,7 @@
                                          {% if status_lower == 'wiper' %} status-wiper
                                          {% elif status_lower == 'member' %} status-member
                                          {% elif status_lower == 'wiping alt' %} status-wiping-alt
-                                         {% elif status_lower == 'raid' %} status-raid
+                                         {% elif status_lower == 'raid' %} status-raid {# Keep styles just in case #}
                                          {% elif status_lower == 'casual' %} status-casual
                                          {% elif status_lower == 'alt' %} status-alt
                                          {% endif %}">
@@ -192,6 +193,7 @@
                                 </div>
                                 <span class="update-status status-update-status"></span> {# Specific class #}
                             </td>
+                            {# --- END STATUS --- #}
                             <td>
                                 {% if member.raid_progression == "N/A" or member.raid_progression is none %} <span class="na-value">N/A</span> {% else %} {{ member.raid_progression }} {% endif %}
                             </td>
@@ -209,7 +211,7 @@
     </main>
 
     <footer class="text-center text-gray-500 mt-8 pb-4">
-        &copy; {{ guild_name }} - {{ current_year }}
+        &copy; {{ guild_name }} - {{ current_year }} {# Assuming current_year is passed from Flask #}
     </footer>
 
     <script>

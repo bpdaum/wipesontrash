@@ -52,8 +52,8 @@
         <div class="container mx-auto flex flex-wrap justify-between items-center">
             {# Wrapped title and image in a flex container #}
             <div class="flex items-center space-x-3 mb-2 sm:mb-0">
-                 {# Added image tag #}
-                 <img src="images/wot_logo.png"
+                 {# Image tag using url_for to link to static file #}
+                 <img src="{{ url_for('static', filename='images/wot_logo.png') }}"
                       alt="{{ guild_name }} Logo"
                       class="h-8 w-8 rounded-full border-2 border-white">
                  <h1 class="text-xl font-semibold">{{ guild_name }} Portal</h1>
