@@ -32,14 +32,16 @@
             font-size: 0.8em;
             margin-left: 0.3em;
             color: #a0aec0; /* gray-500 */
-            /* display: inline-block; */ /* Use absolute positioning instead */
             position: absolute;
             right: 0.5rem; /* Position arrow to the right */
             top: 50%;
             transform: translateY(-50%);
+            width: 1em; /* Give arrow some space */
+            text-align: center;
         }
-        .sort-arrow.asc::after { content: '\\25B2'; } /* Up arrow ▲ */
-        .sort-arrow.desc::after { content: '\\25BC'; } /* Down arrow ▼ */
+        /* --- FIXED: Removed extra backslash --- */
+        .sort-arrow.asc::after { content: '\25B2'; } /* Up arrow ▲ */
+        .sort-arrow.desc::after { content: '\25BC'; } /* Down arrow ▼ */
 
         td {
             padding: 0.5rem 0.75rem;
@@ -167,29 +169,28 @@
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
             const tableBody = document.getElementById('rosterBody');
-            const headers = table.querySelectorAll('th.sortable'); // Get only sortable headers
-            let currentSort = { column: -1, ascending: true }; // Track current sort state
+            // Ensure table and body exist before proceeding
+            if (!table || !tableBody) {
+                console.error("Roster table or body not found!");
+                return;
+            }
+            const headers = table.querySelectorAll('th.sortable');
+            let currentSort = { column: -1, ascending: true };
 
             headers.forEach(header => {
                 header.addEventListener('click', function() {
                     const columnIndex = parseInt(this.dataset.columnIndex);
-                    const sortType = this.dataset.sortType || 'string'; // Default to string sort
+                    const sortType = this.dataset.sortType || 'string';
 
-                    // Determine sort direction
                     let ascending = true;
                     if (currentSort.column === columnIndex) {
-                        ascending = !currentSort.ascending; // Toggle direction if same column clicked
+                        ascending = !currentSort.ascending;
                     } else {
-                        ascending = true; // Default to ascending for new column
+                        ascending = true; // Default ASC for new column
                     }
 
-                    // Update current sort state
                     currentSort = { column: columnIndex, ascending: ascending };
-
-                    // Sort the table
                     sortTable(columnIndex, sortType, ascending);
-
-                    // Update sort arrows
                     updateSortArrows(headers, columnIndex, ascending);
                 });
             });
@@ -197,27 +198,26 @@
 
         function sortTable(columnIndex, sortType, ascending) {
             const tableBody = document.getElementById('rosterBody');
-            const rows = Array.from(tableBody.querySelectorAll('tr')); // Get rows as an array
+             if (!tableBody) return; // Exit if body not found
+            const rows = Array.from(tableBody.querySelectorAll('tr'));
 
-            // Define comparison function
             const compareFunction = (rowA, rowB) => {
                 const cellA = rowA.querySelectorAll('td')[columnIndex];
                 const cellB = rowB.querySelectorAll('td')[columnIndex];
 
-                // Handle potential missing cells (shouldn't happen in valid HTML)
                 if (!cellA || !cellB) return 0;
 
-                let valueA = cellA.textContent.trim();
-                let valueB = cellB.textContent.trim();
+                // Extract text, handle potential N/A values represented by spans
+                let valueA = cellA.querySelector('.na-value') ? 'N/A' : cellA.textContent.trim();
+                let valueB = cellB.querySelector('.na-value') ? 'N/A' : cellB.textContent.trim();
 
-                // Handle "N/A" values - treat them as lowest/highest depending on sort order?
-                // For simplicity, let's treat N/A as lowest for numbers, first for strings.
                 const isValueANa = valueA === 'N/A';
                 const isValueBNa = valueB === 'N/A';
 
+                // Logic to handle N/A: place them at the bottom when ascending, top when descending
                 if (isValueANa && isValueBNa) return 0;
-                if (isValueANa) return ascending ? -1 : 1; // N/A comes first when ascending
-                if (isValueBNa) return ascending ? 1 : -1; // N/A comes first when ascending
+                if (isValueANa) return 1; // N/A is always "greater" (comes last)
+                if (isValueBNa) return -1; // N/A is always "greater" (comes last)
 
                 // Parse values based on sortType
                 if (sortType === 'number') {
@@ -238,24 +238,19 @@
                 return 0; // Values are equal
             };
 
-            // Sort the rows array
             rows.sort(compareFunction);
-
-            // Clear the current table body
-            tableBody.innerHTML = '';
-
-            // Append sorted rows back to the table body
+            // Re-append rows (no need to clear first, appendChild moves them)
             rows.forEach(row => tableBody.appendChild(row));
         }
 
         function updateSortArrows(headers, activeColumnIndex, ascending) {
              headers.forEach(header => {
                 const arrowSpan = header.querySelector('.sort-arrow');
-                if (arrowSpan) { // Ensure span exists
+                if (arrowSpan) {
                     const colIndex = parseInt(header.dataset.columnIndex);
-                    arrowSpan.classList.remove('asc', 'desc'); // Remove existing direction classes
+                    arrowSpan.classList.remove('asc', 'desc');
                     if (colIndex === activeColumnIndex) {
-                        arrowSpan.classList.add(ascending ? 'asc' : 'desc'); // Add the correct direction class
+                        arrowSpan.classList.add(ascending ? 'asc' : 'desc');
                     }
                 }
              });
@@ -264,4 +259,3 @@
 
 </body>
 </html>
-
