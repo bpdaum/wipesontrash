@@ -40,6 +40,9 @@
         .role-dps { color: #c53030; } /* red-700 */
         .role-healer { color: #2f855a; } /* green-700 */
         .role-tank { color: #2b6cb0; } /* blue-700 */
+        /* Progression icon colors */
+        .prog-heroic { color: #a0aec0; } /* gray-500 */
+        .prog-mythic { color: #9f7aea; } /* purple-500 */
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -87,15 +90,23 @@
 
         <div class="bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-2xl font-bold mb-6 text-gray-900">Raid Status (Wipers)</h2>
-            {# Grid layout for KPI cards, responsive columns #}
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
+            {# Grid layout for 5 KPI cards #}
+            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-4">
 
-                {# Total Card #}
+                {# Max Heroic Kills Card #}
                  <div class="kpi-card">
-                     <div class="kpi-icon text-gray-500"><i class="fas fa-users"></i></div>
-                     {# Display total count from Flask variable #}
-                     <div class="kpi-value">{{ raid_status_counts.Total | default(0) }}</div>
-                     <div class="kpi-label">Total Wipers</div>
+                     <div class="kpi-icon prog-heroic"><i class="fas fa-trophy"></i></div>
+                     {# Display max kills / total bosses #}
+                     <div class="kpi-value">{{ max_heroic_kills | default(0) }}/{{ heroic_total_bosses | default('?') }}</div>
+                     <div class="kpi-label">Max Heroic Kills</div>
+                 </div>
+
+                 {# Max Mythic Kills Card #}
+                 <div class="kpi-card">
+                     <div class="kpi-icon prog-mythic"><i class="fas fa-skull-crossbones"></i></div>
+                     {# Display max kills / total bosses #}
+                     <div class="kpi-value">{{ max_mythic_kills | default(0) }}/{{ mythic_total_bosses | default('?') }}</div>
+                     <div class="kpi-label">Max Mythic Kills</div>
                  </div>
 
                  {# Tank Card #}

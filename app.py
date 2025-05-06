@@ -11,6 +11,7 @@ import requests # Keep for potential future use or type hints
 import time
 from datetime import datetime # Needed for Character model timestamp
 import json # For parsing request body
+import re # Import regex for parsing progression string
 
 # --- Configuration Loading ---
 # Basic app config (can be expanded)
@@ -195,39 +196,62 @@ def get_all_specs():
         print(f"Error fetching/processing all specs: {e}")
         return ALL_SPECS_CACHE
 
+
 # --- Routes ---
 @app.route('/')
 def home():
-    """ Route for the homepage ('/'). Fetches raid status counts. """
+    """ Route for the homepage ('/'). Fetches raid status counts and max progression. """
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
-    current_year = datetime.utcnow().year # Get current year for footer
+    current_year = datetime.utcnow().year
 
-    # Fetch Raid Status Counts for 'Wiper' status
     raid_status_counts = {'Tank': 0, 'Healer': 0, 'DPS': 0, 'Total': 0}
+    max_heroic_kills = 0
+    max_mythic_kills = 0
+    heroic_total_bosses = 8 # Default assumption
+    mythic_total_bosses = 8 # Default assumption
+    target_raid_short_name = "Undermine" # Match the prefix used in summarize_raid_progression
+
     try:
         with app.app_context():
              if db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
-                results = db.session.query(
-                    Character.role, func.count(Character.id)
-                ).filter(
-                    Character.status == 'Wiper' # Filter by the specific status
-                ).group_by(
-                    Character.role
-                ).all()
-                for role, count in results:
-                    if role in raid_status_counts:
-                        raid_status_counts[role] = count
-                    raid_status_counts['Total'] += count
+                # Query all 'Wiper' characters
+                wipers = Character.query.filter(Character.status == 'Wiper').all()
+                raid_status_counts['Total'] = len(wipers)
+
+                for wiper in wipers:
+                    # Count roles
+                    if wiper.role in raid_status_counts:
+                        raid_status_counts[wiper.role] += 1
+
+                    # Parse progression string for max kills
+                    prog_str = wiper.raid_progression
+                    if prog_str and prog_str.startswith(target_raid_short_name + ":"):
+                        heroic_match = re.search(r'(\d+)/(\d+)H', prog_str)
+                        mythic_match = re.search(r'(\d+)/(\d+)M', prog_str)
+                        if heroic_match:
+                            kills = int(heroic_match.group(1))
+                            total = int(heroic_match.group(2))
+                            max_heroic_kills = max(max_heroic_kills, kills)
+                            heroic_total_bosses = total
+                        if mythic_match:
+                            kills = int(mythic_match.group(1))
+                            total = int(mythic_match.group(2))
+                            max_mythic_kills = max(max_mythic_kills, kills)
+                            mythic_total_bosses = total
              else:
                   print("Warning: Character table not found when fetching raid status counts.")
     except Exception as e:
-        print(f"Error fetching raid status counts: {e}")
+        print(f"Error fetching raid status counts/progression: {e}")
 
     return render_template(
         'index.html',
         guild_name=display_guild_name,
         current_year=current_year,
-        raid_status_counts=raid_status_counts # Pass counts to template
+        raid_status_counts=raid_status_counts,
+        max_heroic_kills=max_heroic_kills,
+        heroic_total_bosses=heroic_total_bosses,
+        max_mythic_kills=max_mythic_kills,
+        mythic_total_bosses=mythic_total_bosses
     )
 
 @app.route('/roster')
