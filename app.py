@@ -3,8 +3,8 @@
 from flask import Flask, render_template, jsonify, request, abort
 # Import SQLAlchemy for database interaction
 from flask_sqlalchemy import SQLAlchemy
-# Import desc for descending sort order
-from sqlalchemy import desc
+# Import desc for descending sort order AND SQLAlchemy column types
+from sqlalchemy import desc, Integer, String, DateTime
 import os
 import requests # Keep for potential future use or type hints
 import time
