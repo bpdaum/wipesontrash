@@ -8,37 +8,39 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
         body { font-family: 'Inter', sans-serif; }
         th {
             text-align: left;
-            padding: 0.5rem 0.75rem; /* Padding for headers */
+            padding: 0.5rem 0.75rem;
             background-color: #f7fafc; /* gray-100 */
             border-bottom: 2px solid #e2e8f0; /* gray-300 */
             font-weight: 600; /* Semibold */
-            white-space: nowrap; /* Prevent headers from wrapping */
+            white-space: nowrap;
         }
         td {
-            padding: 0.5rem 0.75rem; /* Padding for cells */
+            padding: 0.5rem 0.75rem;
             border-bottom: 1px solid #e2e8f0; /* gray-300 */
-            vertical-align: middle; /* Align cell content vertically */
+            vertical-align: middle;
         }
-        tr:last-child td { border-bottom: none; } /* Remove border from last row */
-        /* Style for N/A values */
+        tr:last-child td { border-bottom: none; }
         .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
-        /* Style for Armory links */
-        .armory-link {
-            color: #2b6cb0; /* blue-700 */
-            text-decoration: none;
+        .armory-link { color: #2b6cb0; /* blue-700 */ text-decoration: none; }
+        .armory-link:hover { color: #2c5282; /* blue-800 */ text-decoration: underline; }
+        /* Icon styling (optional) */
+        .role-icon {
+            font-size: 1.1rem; /* Slightly larger icon */
+            width: 1.5em; /* Ensure consistent width for alignment */
+            text-align: center;
+            display: inline-block; /* Allows text-align to work */
         }
-        .armory-link:hover {
-            color: #2c5282; /* blue-800 */
-            text-decoration: underline;
-        }
-        /* Role-based text colors (optional) */
+        /* Specific icon colors (optional, can remove if default color is preferred) */
         .role-dps { color: #c53030; } /* red-700 */
         .role-healer { color: #2f855a; } /* green-700 */
         .role-tank { color: #2b6cb0; } /* blue-700 */
+        .role-unknown { color: #a0aec0; } /* gray-500 */
+
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -78,9 +80,12 @@
                         <tr>
                             <th>Name</th>
                             <th>Level</th>
-                            <th>Role</th> <th>Spec</th> <th>Class</th>
-                            <th>Item Level</th> <th>Race</th>
-                            <th>Progression</th> <th>Rank</th>
+                            <th>Role</th> <th>Spec</th>
+                            <th>Class</th>
+                            <th>Item Level</th>
+                            <th>Race</th>
+                            <th>Progression</th>
+                            <th>Rank</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -93,19 +98,16 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                             <td>
-                                {# Apply styling based on role #}
+                             <td class="text-center"> {# Center align the icon #}
                                 {% set role_lower = member.role | lower if member.role else '' %}
-                                {% if role_lower == "n/a" or member.role is none %}
-                                    <span class="na-value">N/A</span>
-                                {% elif role_lower == 'dps' %}
-                                    <span class="role-dps font-semibold">{{ member.role }}</span>
+                                {% if role_lower == 'dps' %}
+                                    <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i> {# Crossed swords icon #}
                                 {% elif role_lower == 'healer' %}
-                                     <span class="role-healer font-semibold">{{ member.role }}</span>
+                                     <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i> {# Medical bag icon #}
                                 {% elif role_lower == 'tank' %}
-                                     <span class="role-tank font-semibold">{{ member.role }}</span>
+                                     <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i> {# Shield icon #}
                                 {% else %}
-                                     {{ member.role }} {# Fallback if role is unexpected #}
+                                     <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {# Question mark for N/A #}
                                 {% endif %}
                             </td>
                             <td>
