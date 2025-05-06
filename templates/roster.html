@@ -10,57 +10,46 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
-        /* Base styles */
         body { font-family: 'Inter', sans-serif; }
         th {
-            text-align: left; padding: 0.5rem 0.75rem; background-color: #f7fafc; /* gray-100 */
-            border-bottom: 2px solid #e2e8f0; /* gray-300 */ font-weight: 600; /* Semibold */
-            white-space: nowrap;
+            text-align: left; padding: 0.5rem 0.75rem; background-color: #f7fafc;
+            border-bottom: 2px solid #e2e8f0; font-weight: 600; white-space: nowrap;
         }
-        /* Clickable sortable headers */
         th.sortable { cursor: pointer; position: relative; }
-        th.sortable:hover { background-color: #edf2f7; /* gray-200 */ }
-        /* Sort arrows */
+        th.sortable:hover { background-color: #edf2f7; }
         .sort-arrow {
-            font-size: 0.8em; margin-left: 0.3em; color: #a0aec0; /* gray-500 */ position: absolute;
+            font-size: 0.8em; margin-left: 0.3em; color: #a0aec0; position: absolute;
             right: 0.5rem; top: 50%; transform: translateY(-50%); width: 1em; text-align: center;
         }
-        .sort-arrow.asc::after { content: '\25B2'; } /* Up arrow ▲ */
-        .sort-arrow.desc::after { content: '\25BC'; } /* Down arrow ▼ */
-        /* Table cell styles */
-        td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; /* gray-300 */ vertical-align: middle; }
+        .sort-arrow.asc::after { content: '\25B2'; }
+        .sort-arrow.desc::after { content: '\25BC'; }
+        td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
-        /* Utility styles */
-        .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
-        .armory-link { color: #2b6cb0; /* blue-700 */ text-decoration: none; }
-        .armory-link:hover { color: #2c5282; /* blue-800 */ text-decoration: underline; }
+        .na-value { color: #a0aec0; font-style: italic; }
+        .armory-link { color: #2b6cb0; text-decoration: none; }
+        .armory-link:hover { color: #2c5282; text-decoration: underline; }
         .role-icon { font-size: 1.1rem; width: 1.5em; text-align: center; display: inline-block; }
-        .role-dps { color: #c53030; } /* red-700 */
-        .role-healer { color: #2f855a; } /* green-700 */
-        .role-tank { color: #2b6cb0; } /* blue-700 */
-        .role-unknown { color: #a0aec0; } /* gray-500 */
+        .role-dps { color: #c53030; } .role-healer { color: #2f855a; } .role-tank { color: #2b6cb0; } .role-unknown { color: #a0aec0; }
 
         /* Styles for Spec Editing */
         .spec-display { display: inline-block; margin-right: 5px;}
         .edit-spec-btn {
-            cursor: pointer; color: #a0aec0; /* gray-500 */ font-size: 0.8em; vertical-align: middle; display: inline-block;
+            cursor: pointer; color: #a0aec0; font-size: 0.8em; vertical-align: middle; display: inline-block;
             padding: 1px 3px; border-radius: 3px; margin-left: 4px;
         }
         .edit-spec-btn:hover { color: #4a5568; background-color: #e2e8f0;}
         .spec-select {
-            display: none; /* Hidden by default */
-            padding: 2px 4px; border: 1px solid #cbd5e0; border-radius: 4px;
-            font-size: 0.9em; vertical-align: middle; margin-left: 5px; max-width: 150px; /* Limit width */
+            display: none; padding: 2px 4px; border: 1px solid #cbd5e0; border-radius: 4px;
+            font-size: 0.9em; vertical-align: middle; margin-left: 5px; max-width: 150px;
         }
-        .spec-select-container { display: inline-block; } /* Container for select and save/cancel */
+        .spec-select-container { display: inline-block; }
         .spec-save-btn, .spec-cancel-btn {
-            display: none; /* Hidden by default */
-            margin-left: 5px; padding: 1px 4px; font-size: 0.8em; border-radius: 3px; cursor: pointer;
+            display: none; margin-left: 5px; padding: 1px 4px; font-size: 0.8em; border-radius: 3px; cursor: pointer;
             vertical-align: middle; border: 1px solid transparent;
         }
-        .spec-save-btn { background-color: #38a169; color: white; border-color: #2f855a;} /* green */
+        .spec-save-btn { background-color: #38a169; color: white; border-color: #2f855a;}
         .spec-save-btn:hover { background-color: #2f855a; }
-        .spec-cancel-btn { background-color: #e53e3e; color: white; border-color: #c53030;} /* red */
+        .spec-cancel-btn { background-color: #e53e3e; color: white; border-color: #c53030;}
         .spec-cancel-btn:hover { background-color: #c53030; }
         .update-status { font-size: 0.8em; margin-left: 5px; font-style: italic; color: #4a5568; }
 
@@ -115,7 +104,7 @@
                     <tbody id="rosterBody">
                         {% for member in members %}
                         {# Add character and class IDs to the row for JavaScript access #}
-                        <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}">
+                        <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}" data-api-spec="{{ member.spec_name }}"> {# Store API spec #}
                             <td>
                                 <a href="https://worldofwarcraft.blizzard.com/{{ wow_locale }}/character/{{ wow_region }}/{{ member.realm_slug }}/{{ member.name | urlencode }}"
                                    target="_blank" rel="noopener noreferrer" class="armory-link">
@@ -123,17 +112,12 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                             <td class="text-center"> {# Center align the icon #}
-                                {% set role_lower = member.role | lower if member.role else '' %}
-                                {% if role_lower == 'dps' %}
-                                    <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i> {# Crossed swords icon #}
-                                {% elif role_lower == 'healer' %}
-                                     <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i> {# Medical bag icon #}
-                                {% elif role_lower == 'tank' %}
-                                     <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i> {# Shield icon #}
-                                {% else %}
-                                     <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {# Question mark for N/A #}
-                                {% endif %}
+                             <td class="text-center role-cell"> {# Added class for easier selection #}
+                                {% set initial_role = member.role | lower if member.role else '' %}
+                                {% if initial_role == 'dps' %} <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i>
+                                {% elif initial_role == 'healer' %} <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
+                                {% elif initial_role == 'tank' %} <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
+                                {% else %} <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {% endif %}
                             </td>
                             <td>
                                 <span class="spec-display">
@@ -158,19 +142,11 @@
                             </td>
                             <td>{{ member.class }}</td>
                              <td>
-                                {% if member.item_level == "N/A" or member.item_level is none %}
-                                    <span class="na-value">N/A</span>
-                                {% else %}
-                                    {{ member.item_level }}
-                                {% endif %}
+                                {% if member.item_level == "N/A" or member.item_level is none %} <span class="na-value">N/A</span> {% else %} {{ member.item_level }} {% endif %}
                             </td>
                             <td>{{ member.race }}</td>
                             <td>
-                                {% if member.raid_progression == "N/A" or member.raid_progression is none %}
-                                     <span class="na-value">N/A</span>
-                                {% else %}
-                                     {{ member.raid_progression }}
-                                {% endif %}
+                                {% if member.raid_progression == "N/A" or member.raid_progression is none %} <span class="na-value">N/A</span> {% else %} {{ member.raid_progression }} {% endif %}
                             </td>
                             <td>{{ member.rank }}</td>
                         </tr>
@@ -191,55 +167,80 @@
 
     <script>
         // Parse the spec data passed from Flask
-        // Use '|| {}' as a fallback in case the variable is missing or invalid JSON
         const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
+
+        // --- NEW: Spec to Role Mapping ---
+        // Define known Tank and Healer specs (all others default to DPS)
+        const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
+        const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
+
+        function getRoleFromSpec(specName) {
+            if (!specName || specName === 'N/A') return 'Unknown'; // Handle missing spec
+            if (tankSpecs.includes(specName)) return 'Tank';
+            if (healerSpecs.includes(specName)) return 'Healer';
+            return 'DPS'; // Default to DPS
+        }
+
+        // --- NEW: Function to update role icon ---
+        function updateRoleIcon(tableRow, newRole) {
+            const roleCell = tableRow.querySelector('.role-cell'); // Use the added class
+            if (!roleCell) return;
+            const icon = roleCell.querySelector('i');
+            if (!icon) return;
+
+            // Remove existing role classes
+            icon.classList.remove('fa-khanda', 'fa-briefcase-medical', 'fa-shield-halved', 'fa-question');
+            icon.classList.remove('role-dps', 'role-healer', 'role-tank', 'role-unknown');
+
+            // Add new classes based on role
+            let iconClass = 'fa-question'; // Default
+            let colorClass = 'role-unknown';
+            let title = 'Unknown/N/A';
+
+            if (newRole === 'DPS') {
+                iconClass = 'fa-khanda';
+                colorClass = 'role-dps';
+                title = 'DPS';
+            } else if (newRole === 'Healer') {
+                iconClass = 'fa-briefcase-medical';
+                colorClass = 'role-healer';
+                title = 'Healer';
+            } else if (newRole === 'Tank') {
+                iconClass = 'fa-shield-halved';
+                colorClass = 'role-tank';
+                title = 'Tank';
+            }
+
+            icon.classList.add('fa-solid', iconClass, colorClass);
+            icon.setAttribute('title', title);
+        }
+
 
         // Wait for the DOM to be fully loaded
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
             const tableBody = document.getElementById('rosterBody');
-            // Ensure table and body exist before proceeding
-            if (!table || !tableBody) {
-                console.error("Roster table or body not found!");
-                return;
-            }
+            if (!table || !tableBody) { console.error("Roster table or body not found!"); return; }
             const headers = table.querySelectorAll('th.sortable');
-            let currentSort = { column: -1, ascending: true }; // Track current sort state
+            let currentSort = { column: -1, ascending: true };
 
             // --- Sorting Event Listeners ---
             headers.forEach(header => {
                 header.addEventListener('click', function() {
                     const columnIndex = parseInt(this.dataset.columnIndex);
-                    const sortType = this.dataset.sortType || 'string'; // Default to string sort
-
-                    // Determine sort direction (toggle if same column, default asc if new)
+                    const sortType = this.dataset.sortType || 'string';
                     let ascending = (currentSort.column === columnIndex) ? !currentSort.ascending : true;
-
-                    // Update current sort state
                     currentSort = { column: columnIndex, ascending: ascending };
-
-                    // Sort the table
                     sortTable(columnIndex, sortType, ascending);
-
-                    // Update sort arrows in headers
                     updateSortArrows(headers, columnIndex, ascending);
                 });
             });
 
             // --- Spec Editing Event Listeners (using event delegation on tbody) ---
             tableBody.addEventListener('click', function(event) {
-                // Handle Edit Button Click
-                if (event.target.classList.contains('edit-spec-btn')) {
-                    startEdit(event.target);
-                }
-                // Handle Save Button Click
-                else if (event.target.classList.contains('spec-save-btn')) {
-                    saveSpec(event.target);
-                }
-                // Handle Cancel Button Click
-                else if (event.target.classList.contains('spec-cancel-btn')) {
-                    cancelEdit(event.target);
-                }
+                if (event.target.classList.contains('edit-spec-btn')) { startEdit(event.target); }
+                else if (event.target.classList.contains('spec-save-btn')) { saveSpec(event.target); }
+                else if (event.target.classList.contains('spec-cancel-btn')) { cancelEdit(event.target); }
             });
 
             // --- Spec Editing Functions ---
@@ -253,42 +254,39 @@
                 const cancelBtn = selectContainer.querySelector('.spec-cancel-btn');
                 const statusSpan = td.querySelector('.update-status');
 
-                const classId = tr.dataset.classId; // Get class ID from row data attribute
-                const currentDisplayedSpec = specDisplay.textContent.trim(); // Get currently shown spec name
-                const specsForClass = allSpecsByClass[classId] || []; // Get specs for this class from cached data
+                const classId = tr.dataset.classId;
+                const currentDisplayedSpec = specDisplay.textContent.trim();
+                const specsForClass = allSpecsByClass[classId] || [];
 
-                // Populate dropdown options
-                select.innerHTML = '<option value="">-- Clear Override --</option>'; // Option to remove override
+                // Populate dropdown
+                select.innerHTML = '<option value="">-- Use API Spec --</option>'; // Changed text
                 specsForClass.forEach(spec => {
                     const option = document.createElement('option');
-                    option.value = spec.name; // Use spec name as value
+                    option.value = spec.name;
                     option.textContent = spec.name;
-                    // Pre-select the option matching the currently displayed spec
                     if (currentDisplayedSpec === spec.name) {
                         option.selected = true;
                     }
                     select.appendChild(option);
                 });
 
-                // Show editing UI elements and hide display elements
+                // Show editing UI
                 specDisplay.style.display = 'none';
                 editButton.style.display = 'none';
-                selectContainer.style.display = 'inline-block'; // Show container
+                selectContainer.style.display = 'inline-block';
                 select.style.display = 'inline-block';
                 saveBtn.style.display = 'inline-block';
                 cancelBtn.style.display = 'inline-block';
-                statusSpan.textContent = ''; // Clear any previous status message
+                statusSpan.textContent = '';
             }
 
             function cancelEdit(cancelButton) {
-                 // Find relevant elements within the same table cell
                  const td = cancelButton.closest('td');
                  const specDisplay = td.querySelector('.spec-display');
                  const editButton = td.querySelector('.edit-spec-btn');
                  const selectContainer = td.querySelector('.spec-select-container');
 
-                 // Hide editing UI, show display elements
-                 selectContainer.style.display = 'none'; // Hide container holding select/buttons
+                 selectContainer.style.display = 'none';
                  specDisplay.style.display = 'inline-block';
                  editButton.style.display = 'inline-block';
             }
@@ -298,70 +296,70 @@
                 const tr = saveButton.closest('tr');
                 const select = td.querySelector('.spec-select');
                 const statusSpan = td.querySelector('.update-status');
-                const characterId = tr.dataset.characterId; // Get character ID from row
-                const selectedSpecName = select.value; // Get selected value ("" if clear override)
+                const characterId = tr.dataset.characterId;
+                const selectedSpecName = select.value; // Empty string if "-- Use API Spec --" selected
+                const apiSpecName = tr.dataset.apiSpec; // Get original API spec from data attribute
 
-                if (!characterId) {
-                    console.error("Could not find character ID for row.");
-                    statusSpan.textContent = 'Error: ID missing.';
-                    statusSpan.style.color = 'red';
-                    return;
-                }
+                if (!characterId) { /* ... error handling ... */ return; }
 
                 statusSpan.textContent = 'Saving...';
-                statusSpan.style.color = '#4a5568'; // Default text color
+                statusSpan.style.color = '#4a5568';
 
-                // Send data to backend endpoint using Fetch API
                 fetch('/update_spec', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                        // TODO: Add CSRF token header if using Flask-WTF/CSRFProtect
-                    },
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({
-                        character_id: parseInt(characterId), // Ensure ID is sent as integer
-                        spec_name: selectedSpecName // Send selected spec name (or empty string)
+                        character_id: parseInt(characterId),
+                        spec_name: selectedSpecName // Send selected override (or "" to clear)
                     })
                 })
-                .then(response => { // Check if response is successful
+                .then(response => {
                     if (!response.ok) {
-                        // Try to parse error message from response body
-                        return response.json().then(errData => {
-                             throw new Error(errData.description || `HTTP error ${response.status}`);
-                        }).catch(() => {
-                             // Fallback if response body isn't JSON or has no description
-                             throw new Error(`HTTP error ${response.status}`);
-                        });
+                         return response.json().then(errData => { throw new Error(errData.description || `HTTP error ${response.status}`); })
+                                           .catch(() => { throw new Error(`HTTP error ${response.status}`); });
                     }
-                    return response.json(); // Parse successful JSON response
+                    return response.json();
                 })
-                .then(data => { // Handle successful response data
+                .then(data => {
                     if (data.success) {
                         statusSpan.textContent = 'Saved!';
                         statusSpan.style.color = 'green';
-                        // Update the displayed text immediately
                         const specDisplay = td.querySelector('.spec-display');
+
+                        // --- MODIFIED: Update display and role icon ---
+                        let finalSpecName;
                         if (selectedSpecName) {
-                             specDisplay.textContent = selectedSpecName; // Show the new override
+                            finalSpecName = selectedSpecName; // Use the override
+                            specDisplay.textContent = finalSpecName;
+                            // Remove na-value class if it was there
+                            const naSpan = specDisplay.querySelector('.na-value');
+                            if (naSpan) specDisplay.innerHTML = finalSpecName;
                         } else {
-                             // If cleared, ideally show the original API spec.
-                             // This requires fetching it again or storing it.
-                             // Simple approach: Show N/A and prompt reload.
-                             specDisplay.innerHTML = '<span class="na-value">N/A (Reload for API default)</span>';
+                            finalSpecName = apiSpecName; // Use the stored API spec name
+                             // Display API spec or N/A
+                            if (finalSpecName && finalSpecName !== "N/A") {
+                                 specDisplay.textContent = finalSpecName;
+                                 const naSpan = specDisplay.querySelector('.na-value');
+                                 if (naSpan) specDisplay.innerHTML = finalSpecName;
+                            } else {
+                                 specDisplay.innerHTML = '<span class="na-value">N/A</span>';
+                            }
                         }
 
-                        // Hide edit UI after a short delay
+                        // Update the role icon based on the final displayed spec
+                        const newRole = getRoleFromSpec(finalSpecName);
+                        updateRoleIcon(tr, newRole);
+                        // --- END MODIFICATION ---
+
                         setTimeout(() => {
-                            cancelEdit(saveButton); // Use cancel logic to revert UI
-                            statusSpan.textContent = ''; // Clear status message
+                            cancelEdit(saveButton);
+                            statusSpan.textContent = '';
                         }, 1500);
                     } else {
-                        // Handle cases where backend returns success: false
                         throw new Error(data.message || "Unknown error saving spec.");
                     }
                 })
-                .catch(error => { // Handle fetch errors or errors thrown above
+                .catch(error => {
                     console.error('Error updating spec:', error);
                     statusSpan.textContent = `Error: ${error.message}`;
                     statusSpan.style.color = 'red';
@@ -370,7 +368,7 @@
 
         }); // End DOMContentLoaded
 
-        // --- Sorting Functions ---
+        // --- Sorting Functions (Unchanged) ---
         function sortTable(columnIndex, sortType, ascending) {
             const tableBody = document.getElementById('rosterBody');
              if (!tableBody) return;
@@ -382,48 +380,40 @@
                 if (!cellA || !cellB) return 0;
                 let valueA, valueB;
 
-                // Get value based on column index - special handling for Role
                 if (columnIndex === 2) { // Role column
                     const iconA = cellA.querySelector('i');
                     const iconB = cellB.querySelector('i');
-                    // Use the title attribute (e.g., "Tank", "Healer", "DPS") for sorting
                     valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                     valueB = iconB ? iconB.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                 } else { // Other columns
-                    // Check for our specific N/A span, otherwise use text content
                     valueA = cellA.querySelector('.na-value') ? 'N/A' : cellA.textContent.trim();
                     valueB = cellB.querySelector('.na-value') ? 'N/A' : cellB.textContent.trim();
                 }
 
-                // Handle N/A values - consistently place them at the bottom
                 const isValueANa = valueA === 'N/A' || valueA === 'Unknown/N/A';
                 const isValueBNa = valueB === 'N/A' || valueB === 'Unknown/N/A';
-                if (isValueANa && isValueBNa) return 0;
-                if (isValueANa) return 1; // N/A is always "greater" (sorts last)
-                if (isValueBNa) return -1; // N/A is always "greater" (sorts last)
 
-                // Parse values for comparison
+                if (isValueANa && isValueBNa) return 0;
+                if (isValueANa) return 1;
+                if (isValueBNa) return -1;
+
                 if (sortType === 'number') {
-                    valueA = parseFloat(valueA) || 0; // Default to 0 if not a number
+                    valueA = parseFloat(valueA) || 0;
                     valueB = parseFloat(valueB) || 0;
-                } else { // string sort (case-insensitive)
+                } else {
                     valueA = valueA.toLowerCase();
                     valueB = valueB.toLowerCase();
                 }
 
-                // Actual comparison
                 if (valueA < valueB) { return ascending ? -1 : 1; }
                 if (valueA > valueB) { return ascending ? 1 : -1; }
-                return 0; // Values are equal
+                return 0;
             };
-
-            // Sort and re-append rows
             rows.sort(compareFunction);
             rows.forEach(row => tableBody.appendChild(row));
         }
 
         function updateSortArrows(headers, activeColumnIndex, ascending) {
-             // Update visual indicators on headers
              headers.forEach(header => {
                 const arrowSpan = header.querySelector('.sort-arrow');
                 if (arrowSpan) {
