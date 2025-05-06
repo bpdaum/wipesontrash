@@ -60,12 +60,12 @@
         .update-status { font-size: 0.8em; margin-left: 5px; font-style: italic; color: #4a5568; }
 
         /* Status Text Styling */
-        .status-wiper { color: #b7791f; font-weight: 500;} /* yellow-700 */
-        .status-member { color: #38a169; } /* green-600 */
-        .status-wiping-alt { color: #718096; } /* gray-600 */
+        .status-wiper { color: #b7791f; font-weight: 500;}
+        .status-member { color: #38a169; }
+        .status-wiping-alt { color: #718096; }
         .status-raid { /* Default style? */ }
-        .status-casual { color: #4299e1; } /* blue-500 */
-        .status-alt { color: #9f7aea; } /* purple-500 */
+        .status-casual { color: #4299e1; }
+        .status-alt { color: #9f7aea; }
 
     </style>
 </head>
@@ -135,17 +135,24 @@
                             </td>
                             <td>
                                 <span class="spec-display display-value">
-                                    {% if member.main_spec_override %} {{ member.main_spec_override }}
-                                    {% elif member.spec_name == "N/A" or member.spec_name is none %} <span class="na-value">N/A</span>
-                                    {% else %} {{ member.spec_name }} {% endif %}
+                                    {# Display override if set, otherwise API spec #}
+                                    {% if member.main_spec_override %}
+                                        {{ member.main_spec_override }}
+                                    {% elif member.spec_name == "N/A" or member.spec_name is none %}
+                                        <span class="na-value">N/A</span>
+                                    {% else %}
+                                        {{ member.spec_name }} {# Display API spec if no override #}
+                                    {% endif %}
                                 </span>
-                                <i class="fas fa-pencil-alt edit-btn edit-spec-btn" title="Set Main Spec"></i>
-                                <div class="edit-container spec-edit-container">
-                                    <select class="edit-control spec-select"> </select>
+                                <i class="fas fa-pencil-alt edit-btn edit-spec-btn" title="Set Main Spec"></i> {# Edit Icon #}
+                                <div class="edit-container spec-edit-container"> {# Container #}
+                                    <select class="edit-control spec-select">
+                                        {# Options will be populated by JavaScript based on class_id #}
+                                    </select>
                                     <button class="save-btn spec-save-btn">Save</button>
                                     <button class="cancel-btn spec-cancel-btn">Cancel</button>
                                 </div>
-                                <span class="update-status spec-update-status"></span>
+                                <span class="update-status spec-update-status"></span> {# Specific class #}
                             </td>
                             <td>{{ member.class }}</td>
                              <td>
@@ -173,6 +180,10 @@
                                         <option value="Raid">Raid</option>
                                         <option value="Casual">Casual</option>
                                         <option value="Alt">Alt</option>
+                                        {# Include calculated statuses as options #}
+                                        <option value="Wiper">Wiper</option>
+                                        <option value="Member">Member</option>
+                                        <option value="Wiping Alt">Wiping Alt</option>
                                     </select>
                                     <button class="save-btn status-save-btn">Save</button>
                                     <button class="cancel-btn status-cancel-btn">Cancel</button>
@@ -229,10 +240,10 @@
         }
 
         function updateStatusDisplay(displaySpan, newStatus) {
-             const innerSpan = displaySpan.querySelector('span'); // Target the inner span for styling
-             if (!innerSpan) return; // Should exist, but check just in case
+             const innerSpan = displaySpan.querySelector('span');
+             if (!innerSpan) return;
              // Remove existing status classes
-             innerSpan.classList.remove('status-wiper', 'status-member', 'status-wiping-alt', 'status-raid', 'status-casual', 'status-alt');
+             innerSpan.className = ''; // Clear all classes first
              // Add new class based on the status value
              if (newStatus) {
                  const statusClass = 'status-' + newStatus.toLowerCase().replace(' ', '-');
@@ -241,13 +252,14 @@
              innerSpan.textContent = newStatus || 'Unknown'; // Update text
         }
 
+
         // --- Main Script Logic ---
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
             const tableBody = document.getElementById('rosterBody');
             if (!table || !tableBody) { console.error("Roster table or body not found!"); return; }
             const headers = table.querySelectorAll('th.sortable');
-            let currentSort = { column: -1, ascending: true };
+            let currentSort = { column: -1, ascending: true }; // Track current sort state
 
             // --- Sorting Event Listeners ---
             headers.forEach(header => {
@@ -353,10 +365,15 @@
                 })
                 .then(response => {
                     if (!response.ok) {
-                         return response.json().then(errData => { throw new Error(errData.description || `HTTP error ${response.status}`); })
-                                           .catch(() => { throw new Error(`HTTP error ${response.status}`); });
+                         // Try to parse error message from response body
+                         return response.json().then(errData => {
+                             throw new Error(errData.description || `HTTP error ${response.status}`);
+                         }).catch(() => {
+                             // Fallback if response body isn't JSON or has no description
+                             throw new Error(`HTTP error ${response.status}`);
+                         });
                     }
-                    return response.json();
+                    return response.json(); // Parse successful JSON response
                 })
                 .then(data => {
                     if (data.success) {

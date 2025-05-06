@@ -4,7 +4,7 @@ from flask import Flask, render_template, jsonify, request, abort
 # Import SQLAlchemy for database interaction
 from flask_sqlalchemy import SQLAlchemy
 # Import desc for descending sort order AND SQLAlchemy column types
-from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint # Added UniqueConstraint
+from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint
 import os
 import requests # Keep for potential future use or type hints
 import time
@@ -54,7 +54,7 @@ class Character(db.Model):
     spec_name = db.Column(String(50)) # API Active Spec
     main_spec_override = db.Column(String(50), nullable=True) # User override
     role = db.Column(String(10))      # Role (Tank, Healer, DPS)
-    status = db.Column(String(15), nullable=False, index=True) # Status field (editable by user)
+    status = db.Column(String(15), nullable=False, index=True) # Calculated/User Status field
     item_level = db.Column(Integer, index=True) # Index item_level for filtering/sorting
     raid_progression = db.Column(String(200)) # Store summary string
     rank = db.Column(Integer, index=True) # Index rank for faster filtering
@@ -143,7 +143,7 @@ def get_all_specs():
     access_token = get_web_app_token()
     if not access_token:
         print("Error: Cannot fetch specs without Blizzard API access token for web app.")
-        return ALL_SPECS_CACHE
+        return ALL_SPECS_CACHE # Return old cache if fetch fails
 
     spec_index_url = f"{API_BASE_URL}/data/wow/playable-specialization/index"
     headers = {"Authorization": f"Bearer {access_token}"}
@@ -243,7 +243,7 @@ def roster_page():
                         'level': char.level,
                         'class_id': char.class_id,
                         'class': char.class_name,
-                        # 'race': char.race_name, # REMOVED
+                        # 'race_name' removed
                         'spec_name': char.spec_name if char.spec_name else "N/A",
                         'main_spec_override': char.main_spec_override,
                         'role': char.role if char.role else "N/A",
@@ -316,7 +316,7 @@ def update_status():
     data = request.get_json()
     character_id = data.get('character_id')
     new_status = data.get('status')
-    # Define only the user-settable statuses here for validation
+    # Validate against the user-settable options
     valid_user_statuses = ['Raid', 'Casual', 'Alt']
 
     # Basic validation
