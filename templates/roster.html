@@ -63,9 +63,6 @@
         .status-wiper { color: #b7791f; font-weight: 500;}
         .status-member { color: #38a169; }
         .status-wiping-alt { color: #718096; }
-        .status-raid { /* Default style? */ }
-        .status-casual { color: #4299e1; }
-        .status-alt { color: #9f7aea; }
 
     </style>
 </head>
@@ -166,9 +163,6 @@
                                          {% if status_lower == 'wiper' %} status-wiper
                                          {% elif status_lower == 'member' %} status-member
                                          {% elif status_lower == 'wiping alt' %} status-wiping-alt
-                                         {% elif status_lower == 'raid' %} status-raid
-                                         {% elif status_lower == 'casual' %} status-casual
-                                         {% elif status_lower == 'alt' %} status-alt
                                          {% endif %}">
                                          {{ member.status | default('Unknown') }} {# Display current status #}
                                      </span>
@@ -176,11 +170,6 @@
                                 <i class="fas fa-pencil-alt edit-btn edit-status-btn" title="Set Status"></i> {# Edit Icon #}
                                 <div class="edit-container status-edit-container"> {# Container #}
                                     <select class="edit-control status-select">
-                                        {# User-settable options #}
-                                        <option value="Raid">Raid</option>
-                                        <option value="Casual">Casual</option>
-                                        <option value="Alt">Alt</option>
-                                        {# Include calculated statuses as options #}
                                         <option value="Wiper">Wiper</option>
                                         <option value="Member">Member</option>
                                         <option value="Wiping Alt">Wiping Alt</option>

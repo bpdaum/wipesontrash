@@ -317,7 +317,7 @@ def update_status():
     character_id = data.get('character_id')
     new_status = data.get('status')
     # Validate against the user-settable options
-    valid_user_statuses = ['Raid', 'Casual', 'Alt']
+    valid_user_statuses = ['Wiper','Wiping Alt','Member']
 
     # Basic validation
     if not character_id or not isinstance(character_id, int) or not new_status or new_status not in valid_user_statuses:
