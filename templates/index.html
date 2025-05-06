@@ -100,14 +100,16 @@
                      <div class="kpi-card">
                          <div class="kpi-icon prog-heroic"><i class="fas fa-trophy"></i></div>
                          <div class="kpi-value">{{ max_heroic_kills | default(0) }}/{{ heroic_total_bosses | default('?') }}</div>
-                         <div class="kpi-label">Max Heroic Kills</div>
+                         {# UPDATED LABEL #}
+                         <div class="kpi-label">LoU Heroic</div>
                      </div>
 
                      {# Max Mythic Kills Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon prog-mythic"><i class="fas fa-skull-crossbones"></i></div>
                          <div class="kpi-value">{{ max_mythic_kills | default(0) }}/{{ mythic_total_bosses | default('?') }}</div>
-                         <div class="kpi-label">Max Mythic Kills</div>
+                         {# UPDATED LABEL #}
+                         <div class="kpi-label">LoU Mythic</div>
                      </div>
                 </div>
             </div>
