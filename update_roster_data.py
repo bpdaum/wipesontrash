@@ -52,7 +52,6 @@ class Character(Base):
     rank = Column(Integer, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
 
-    # Define a unique constraint on name and realm_slug
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
     def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
 
@@ -81,45 +80,33 @@ def get_blizzard_access_token():
     """ Retrieves Blizzard access token, uses cache. """
     global access_token_cache
     current_time = time.time()
-    # Check cache first, allowing a 60-second buffer before expiry
     if access_token_cache["token"] and access_token_cache["expires_at"] > current_time + 60:
         return access_token_cache["token"]
-
-    # Check for credentials
     if not BLIZZARD_CLIENT_ID or not BLIZZARD_CLIENT_SECRET:
         print("Error: BLIZZARD_CLIENT_ID or BLIZZARD_CLIENT_SECRET not set.")
         return None
-
-    # Request new token
     try:
         response = requests.post(
             TOKEN_URL, auth=(BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET),
             data={'grant_type': 'client_credentials'}
         )
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        response.raise_for_status()
         token_data = response.json()
         access_token = token_data.get('access_token')
         expires_in = token_data.get('expires_in', 0)
-
         if not access_token:
             print(f"Error: Could not retrieve access token. Response: {token_data}")
             return None
-
-        # Update cache
         access_token_cache["token"] = access_token
         access_token_cache["expires_at"] = current_time + expires_in
         print(f"New Blizzard access token obtained.")
         return access_token
-
     except requests.exceptions.RequestException as e:
         print(f"Error getting Blizzard access token: {e}")
-        # Log response details if available
         if e.response is not None:
             print(f"Response Status: {e.response.status_code}")
-            try:
-                print(f"Response Body: {e.response.json()}")
-            except requests.exceptions.JSONDecodeError:
-                print(f"Response Body: {e.response.text}")
+            try: print(f"Response Body: {e.response.json()}")
+            except: print(f"Response Body: {e.response.text}")
         return None
     except Exception as e:
         print(f"An unexpected error during token retrieval: {e}")
@@ -128,21 +115,18 @@ def get_blizzard_access_token():
 def make_api_request(api_url, params, headers):
     """ Helper function to make API GET requests and handle common errors """
     try:
-        response = requests.get(api_url, params=params, headers=headers, timeout=30) # Added timeout
-        # Handle 404 gracefully for character data, as it might just mean character not found/inactive
+        response = requests.get(api_url, params=params, headers=headers, timeout=30)
         if response.status_code == 404:
              print(f"Warning: 404 Not Found for URL: {response.url}")
              return None
-        response.raise_for_status() # Raise for other errors (401, 403, 5xx)
+        response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as e:
         print(f"HTTP Error during API request: {e}")
         print(f"URL attempted: {e.request.url}")
         print(f"Response Status: {e.response.status_code}")
-        try:
-            print(f"Response Body: {e.response.json()}")
-        except requests.exceptions.JSONDecodeError:
-            print(f"Response Body: {e.response.text}")
+        try: print(f"Response Body: {e.response.json()}")
+        except: print(f"Response Body: {e.response.text}")
         return None
     except requests.exceptions.Timeout:
         print(f"Timeout error during API request to {api_url}")
@@ -155,91 +139,119 @@ def make_api_request(api_url, params, headers):
         return None
 
 
-def get_static_data(endpoint):
-    """ Fetches static data (classes, races, specs). """
+def get_static_data(endpoint, use_base_url=True):
+    """
+    Fetches static data (classes, races, specs).
+    Can fetch from a full URL if use_base_url is False.
+    """
     access_token = get_blizzard_access_token()
     if not access_token: return None
-    # Ensure endpoint starts with '/'
-    api_url = f"{API_BASE_URL}/data/wow{endpoint if endpoint.startswith('/') else '/' + endpoint}"
+
+    if use_base_url:
+        # Ensure endpoint starts with '/'
+        api_url = f"{API_BASE_URL}/data/wow{endpoint if endpoint.startswith('/') else '/' + endpoint}"
+    else:
+        # Use the provided endpoint as the full URL
+        api_url = endpoint
+
     headers = {"Authorization": f"Bearer {access_token}"}
     # Static data typically uses the 'static-{REGION}' namespace
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
     print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}")
     data = make_api_request(api_url, params, headers)
-    if data:
-        print(f"Successfully fetched static data from {endpoint}.")
-    else:
-        print(f"Failed to fetch static data from {endpoint}.") # Log failure
+    # No need to print success here as it's called many times for specs
+    # if data and use_base_url:
+    #     print(f"Successfully fetched static data from {endpoint}.")
+    # elif not data:
+    #      print(f"Failed to fetch static data from {endpoint or api_url}.")
     return data
 
 
+# --- MODIFIED: populate_spec_cache ---
 def populate_spec_cache():
-    """ Populates the SPEC_MAP_BY_CLASS cache if empty. """
+    """
+    Populates the SPEC_MAP_BY_CLASS cache if empty.
+    Fetches spec index, then fetches details for each spec to get class ID.
+    """
     global SPEC_MAP_BY_CLASS
-    if SPEC_MAP_BY_CLASS: # Don't refetch if already populated
+    if SPEC_MAP_BY_CLASS:
         return True
 
-    print("Specialization map empty, attempting to fetch...")
+    print("Specialization map empty, attempting to fetch index...")
     spec_index_data = get_static_data('/playable-specialization/index')
 
-    # --- DEBUG: Print the raw data received ---
-    if spec_index_data:
-        print("DEBUG: Raw playable specialization index data received:")
-        try:
-            print(json.dumps(spec_index_data, indent=2))
-        except Exception as e:
-            print(f"(Could not print as JSON: {e}) Raw data: {spec_index_data}")
-    else:
-        print("DEBUG: No data received from playable specialization index endpoint.")
-        return False # Cannot proceed if no data
-    # --- END DEBUG ---
+    if not spec_index_data:
+        print("Error: Failed to fetch playable specialization index.")
+        return False
 
-    # Check for the expected key before proceeding
-    spec_list = None
-    if 'character_specializations' in spec_index_data:
-        spec_list = spec_index_data.get('character_specializations', [])
-    else:
-        print("Error: 'character_specializations' key not found in the specialization index response.")
-        # Attempt fallback keys if structure might be different (e.g., 'specializations')
-        fallback_key = None
-        possible_keys = ['specializations', 'specs'] # Add other potential keys if known
-        for key in possible_keys:
-            if key in spec_index_data:
-                fallback_key = key
-                print(f"Warning: Found alternative key '{key}'. Attempting to use it.")
-                spec_list = spec_index_data.get(fallback_key, [])
-                break
-        if spec_list is None: # If neither primary nor fallbacks worked
-             print("Error: Could not find specialization list key in response.")
-             return False # Abort if expected key and fallbacks are missing
+    # Check for the expected key
+    spec_list_key = 'character_specializations'
+    if spec_list_key not in spec_index_data:
+        print(f"Error: '{spec_list_key}' key not found in the specialization index response.")
+        # Optional: Add fallback key checks here if needed
+        return False
 
-    if not spec_list: # Check if the list itself is empty
-         print("Warning: Specialization list received from API is empty.")
-         # Decide if this is an error or just means no specs (unlikely)
-         # return False # Or allow proceeding with an empty map
+    spec_list = spec_index_data.get(spec_list_key, [])
+    if not spec_list:
+        print("Warning: Specialization list received from API is empty.")
+        return False # Treat empty list as failure for now
+
+    print(f"Fetched {len(spec_list)} specializations from index. Fetching details...")
 
     temp_spec_map = {}
-    # Structure: { "character_specializations": [ { "id": X, "playable_class": { "id": Y }, "name": "SpecName" }, ... ] }
-    for spec_info in spec_list:
-        # Use .get() for safer access to nested dictionaries
-        class_info = spec_info.get('playable_class', {})
+    processed_count = 0
+    fetch_errors = 0
+
+    for spec_info_from_index in spec_list:
+        spec_id = spec_info_from_index.get('id')
+        spec_name = spec_info_from_index.get('name')
+        detail_href = spec_info_from_index.get('key', {}).get('href')
+
+        if not spec_id or not spec_name or not detail_href:
+            print(f"Warning: Skipping spec entry in index due to missing data: {spec_info_from_index}")
+            continue
+
+        # Fetch detail data for this specific spec using its href
+        # Use use_base_url=False as href is a full URL
+        print(f"Fetching details for spec ID {spec_id} ({spec_name})...")
+        spec_detail_data = get_static_data(detail_href, use_base_url=False)
+        processed_count += 1
+
+        if not spec_detail_data:
+            print(f"Warning: Failed to fetch details for spec ID {spec_id} ({spec_name}). Skipping.")
+            fetch_errors += 1
+            continue # Skip if detail fetch fails
+
+        # Extract class ID from the detail data
+        class_info = spec_detail_data.get('playable_class', {})
         class_id = class_info.get('id')
-        spec_id = spec_info.get('id')
-        spec_name = spec_info.get('name')
 
-        if class_id and spec_id and spec_name:
-            if class_id not in temp_spec_map:
-                temp_spec_map[class_id] = []
-            temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
-            # Sort specs alphabetically within each class
-            temp_spec_map[class_id].sort(key=lambda x: x['name'])
-        else:
-             print(f"Warning: Skipping spec entry due to missing data: {spec_info}")
+        if not class_id:
+            print(f"Warning: Skipping spec {spec_name} because class ID was missing in detail response: {spec_detail_data}")
+            fetch_errors += 1
+            continue
 
+        # Add to map
+        if class_id not in temp_spec_map:
+            temp_spec_map[class_id] = []
+        temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
+        # Sort specs alphabetically within each class after adding all
+        # temp_spec_map[class_id].sort(key=lambda x: x['name']) # Sort later
+
+        # Avoid overwhelming logs, maybe log every 5 specs
+        if processed_count % 5 == 0:
+             print(f"Processed details for {processed_count}/{len(spec_list)} specs...")
+        time.sleep(0.05) # Small delay to avoid hitting rate limits too quickly
+
+    # Sort specs within each class list now
+    for cid in temp_spec_map:
+        temp_spec_map[cid].sort(key=lambda x: x['name'])
 
     if not temp_spec_map:
-        print("Error: Could not build specialization map from fetched data (map is empty after processing).")
+        print("Error: Could not build specialization map (map is empty after processing details).")
         return False
+    if fetch_errors > 0:
+        print(f"Warning: Encountered {fetch_errors} errors fetching spec details.")
 
     SPEC_MAP_BY_CLASS = temp_spec_map
     print(f"Specialization map populated for {len(SPEC_MAP_BY_CLASS)} classes.")
@@ -248,10 +260,9 @@ def populate_spec_cache():
 
 def populate_static_caches():
     """ Populates CLASS_MAP, RACE_MAP, and SPEC_MAP_BY_CLASS if empty. """
-    global CLASS_MAP, RACE_MAP # Spec map is handled by populate_spec_cache
+    global CLASS_MAP, RACE_MAP
     class_success = True
     race_success = True
-    spec_success = True
 
     # Populate Class Map
     if not CLASS_MAP:
@@ -275,127 +286,10 @@ def populate_static_caches():
             print("Failed to fetch or parse playable race data.")
             race_success = False
 
-    # Populate Spec Map
-    spec_success = populate_spec_cache() # Call the dedicated function
+    # Populate Spec Map (will now make many calls if cache empty)
+    spec_success = populate_spec_cache()
 
     return class_success and race_success and spec_success
-
-
-def get_guild_roster():
-    """ Fetches the guild roster. """
-    if not GUILD_NAME or not REALM_SLUG:
-        print("Error: Guild Name or Realm Slug not configured.")
-        return None
-    access_token = get_blizzard_access_token()
-    if not access_token: return None
-    realm_slug_lower = REALM_SLUG.lower()
-    guild_name_segment = GUILD_NAME.lower().replace(' ', '-') # Format for URL
-    api_url = f"{API_BASE_URL}/data/wow/guild/{realm_slug_lower}/{guild_name_segment}/roster"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    print(f"Attempting Guild Roster URL: {api_url}")
-    data = make_api_request(api_url, params, headers)
-    if data:
-        print("Successfully fetched guild roster.")
-    else:
-        print("Failed to fetch guild roster.") # Log failure
-    return data
-
-def get_character_summary(realm_slug, character_name):
-    """ Fetches character profile summary (for item level, spec, role). """
-    access_token = get_blizzard_access_token()
-    if not access_token: return None
-    realm_slug = realm_slug.lower()
-    character_name = character_name.lower() # API expects lowercase name in URL
-    api_url = f"{API_BASE_URL}/profile/wow/character/{realm_slug}/{character_name}"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    # print(f"Attempting Character Summary URL: {api_url}") # Optional debug
-    data = make_api_request(api_url, params, headers)
-    return data
-
-
-def get_character_raid_progression(realm_slug, character_name):
-    """ Fetches character raid encounters. """
-    access_token = get_blizzard_access_token()
-    if not access_token: return None
-    realm_slug = realm_slug.lower()
-    character_name = character_name.lower() # API expects lowercase name in URL
-    api_url = f"{API_BASE_URL}/profile/wow/character/{realm_slug}/{character_name}/encounters/raids"
-    headers = {"Authorization": f"Bearer {access_token}"}
-    params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    print(f"DEBUG: Fetching raid progression for {character_name} from {api_url}")
-    data = make_api_request(api_url, params, headers)
-    if not data:
-        print(f"DEBUG: No raid data received for {character_name} (API returned None or error).")
-    return data
-
-
-def summarize_raid_progression(raid_data):
-    """
-    Summarizes raid progression specifically for 'The War Within' expansion
-    and 'Liberation of Undermine' raid, focusing on Heroic and Mythic kills.
-    Returns a string like "Undermine: 8/8H 3/8M" or indicates if not found/no progress.
-    """
-    target_expansion_name = "The War Within" # Update if needed when TWW launches
-    target_raid_name = "Liberation of Undermine" # Update if needed when TWW launches
-    short_raid_name = "Undermine" # Name used in the output string
-
-    if not raid_data or 'expansions' not in raid_data:
-        print(f"DEBUG ({short_raid_name}): Summarize returning 'Not Found' (no raid_data or expansions key)")
-        return f"{short_raid_name}: Not Found"
-
-    heroic_kills = 0
-    heroic_total = 0
-    mythic_kills = 0
-    mythic_total = 0
-    raid_found = False
-
-    # Find the target expansion
-    for expansion in raid_data.get('expansions', []):
-        exp_details = expansion.get('expansion', {})
-        if exp_details.get('name') == target_expansion_name:
-            # Find the target raid instance within the expansion
-            for instance in expansion.get('instances', []):
-                instance_details = instance.get('instance', {})
-                if instance_details.get('name') == target_raid_name:
-                    raid_found = True
-                    print(f"DEBUG ({short_raid_name}): Found raid '{target_raid_name}'. Processing modes.")
-                    # Process modes for Heroic and Mythic
-                    for mode in instance.get('modes', []):
-                        difficulty = mode.get('difficulty', {})
-                        progress = mode.get('progress', {})
-                        difficulty_type = difficulty.get('type')
-
-                        if difficulty_type == "HEROIC":
-                            heroic_kills = progress.get('completed_count', 0)
-                            heroic_total = progress.get('total_count', 0)
-                            print(f"DEBUG ({short_raid_name}): Found Heroic: {heroic_kills}/{heroic_total}")
-                        elif difficulty_type == "MYTHIC":
-                            mythic_kills = progress.get('completed_count', 0)
-                            mythic_total = progress.get('total_count', 0)
-                            print(f"DEBUG ({short_raid_name}): Found Mythic: {mythic_kills}/{mythic_total}")
-                    break # Stop searching instances once the target raid is found
-            break # Stop searching expansions once the target expansion is found
-
-    if not raid_found:
-        print(f"DEBUG ({short_raid_name}): Target raid '{target_raid_name}' not found in expansion '{target_expansion_name}'.")
-        return f"{short_raid_name}: Not Found"
-
-    # Format the output string
-    summary_parts = []
-    if heroic_total > 0: summary_parts.append(f"{heroic_kills}/{heroic_total}H")
-    if mythic_total > 0: summary_parts.append(f"{mythic_kills}/{mythic_total}M")
-
-    if not summary_parts:
-        summary_output = f"{short_raid_name}: No H/M Data"
-    else:
-        summary_output = f"{short_raid_name}: {' '.join(summary_parts)}"
-
-    print(f"DEBUG ({short_raid_name}): Summarize returning: {summary_output}")
-    return summary_output
-
-# --- END API Helper Functions ---
 
 
 # --- Database Update Logic ---
@@ -407,19 +301,18 @@ def update_database():
     # --- Drop and Recreate Table ---
     try:
         print(f"Attempting to drop table '{Character.__tablename__}' if it exists...")
-        Base.metadata.bind = engine # Bind metadata to engine
-        Character.__table__.drop(engine, checkfirst=True) # Drop if exists
+        Base.metadata.bind = engine
+        Character.__table__.drop(engine, checkfirst=True)
         print(f"Table '{Character.__tablename__}' dropped (or did not exist).")
-
         print(f"Creating table '{Character.__tablename__}'...")
-        Base.metadata.create_all(bind=engine) # Recreate table based on current model
+        Base.metadata.create_all(bind=engine)
         print("Table created successfully.")
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.")
          return
     except Exception as e:
         print(f"Error during table drop/create: {e}")
-        return # Cannot proceed without table
+        return
     # --- END Drop and Recreate ---
 
     # Populate static caches first (now includes specs)
@@ -577,4 +470,3 @@ if __name__ == "__main__":
     else:
         print("All required environment variables found.")
         update_database()
-
