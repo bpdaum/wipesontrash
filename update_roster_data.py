@@ -484,43 +484,36 @@ def fetch_wcl_guild_reports(limit=30):
 
 # --- MODIFIED: fetch_wcl_report_details ---
 def fetch_wcl_report_details(report_code):
-    """Fetches player details for a specific WCL report using the table view."""
+    """Fetches player details for a specific WCL report using the masterData actors field."""
     if not report_code: return None
     access_token = get_wcl_access_token()
     if not access_token: return None
 
-    # GraphQL query to get player details from the summary table
-    query = """
-    query ReportPlayers($reportCode: String!) {
-      reportData {
-        report(code: $reportCode) {
-          table(dataType: Summary) { # Request the summary table
-            data {
-              playerDetails { # This nested structure usually contains player lists
-                data {
-                  actors {
-                    id # WCL actor ID
-                    name
-                    server
-                    # type # e.g., "Player", "NPC", "Pet"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+    # GraphQL query to get the list of player actors from masterData
+    query = f"""
+    query ReportPlayers($reportCode: String!) {{
+      reportData {{
+        report(code: $reportCode) {{
+          masterData {{
+            actors(type: "Player") {{ # Filter for actual players
+              id # WCL actor ID
+              name
+              server
+            }}
+          }}
+        }}
+      }}
+    }}
     """
     graphql_variables = {"reportCode": report_code}
     headers = {"Authorization": f"Bearer {access_token}"}
     # print(f"Attempting WCL Report Details for: {report_code}") # Reduce logging
-    data = make_api_request(WCL_API_ENDPOINT, params=graphql_variables, headers=headers, is_wcl=True, wcl_query=query)
+    data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables) # Pass variables
 
     # Parse the response to extract the list of actors (players)
-    if data and data.get('data', {}).get('reportData', {}).get('report', {}).get('table', {}).get('data', {}).get('playerDetails', {}).get('data', {}).get('actors'):
+    if data and data.get('data', {}).get('reportData', {}).get('report', {}).get('masterData', {}).get('actors'):
         # print(f"Successfully fetched details for WCL report {report_code}.")
-        return data['data']['reportData']['report']['table']['data']['playerDetails']['data']['actors']
+        return data['data']['reportData']['report']['masterData']['actors']
     else:
         print(f"Failed to fetch or parse player details from WCL report {report_code}.")
         if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}")
@@ -687,7 +680,7 @@ def update_database():
             if wcl_reports_in_db:
                 print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...")
                 db_session.add_all(wcl_reports_in_db)
-                db_session.commit()
+                db_session.commit() # Commit reports before attendance due to FK
                 print("WCL reports inserted.")
             if wcl_attendances_to_insert:
                 print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...")
