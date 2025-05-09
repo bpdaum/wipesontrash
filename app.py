@@ -5,8 +5,7 @@ from flask import Flask, render_template, jsonify, request, abort
 from flask_sqlalchemy import SQLAlchemy
 # Import desc for descending sort order AND SQLAlchemy column types
 # Import func for count aggregation
-from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func, Float # Added Float
-from sqlalchemy.orm import relationship # Ensure relationship is imported for model definitions
+from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func, Float # Added Float, UniqueConstraint
 import os
 import requests # Keep for potential future use or type hints
 import time
@@ -41,14 +40,14 @@ app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Disable modification tracking
 db = SQLAlchemy(app) # Initialize SQLAlchemy with the Flask app
 
-# --- Database Model ---
+# --- Database Models ---
 # Forward declaration for relationships if models are in the same file and order matters
 # Base = db.Model # Not needed if all models inherit db.Model directly
 
 class PlayableClass(db.Model):
     __tablename__ = 'playable_class'
-    id = db.Column(Integer, primary_key=True)
-    name = db.Column(String(50), unique=True, nullable=False)
+    id = db.Column(db.Integer, primary_key=True) # Blizzard Class ID
+    name = db.Column(db.String(50), unique=True, nullable=False)
     # Relationship to PlayableSpec
     specs = db.relationship("PlayableSpec", back_populates="playable_class")
     # Relationship to Character
@@ -58,46 +57,51 @@ class PlayableClass(db.Model):
 
 class PlayableSpec(db.Model):
     __tablename__ = 'playable_spec'
-    id = db.Column(Integer, primary_key=True)
-    name = db.Column(String(50), nullable=False)
-    class_id = db.Column(Integer, db.ForeignKey('playable_class.id'), nullable=False)
+    id = db.Column(db.Integer, primary_key=True) # Blizzard Spec ID
+    name = db.Column(db.String(50), nullable=False)
+    class_id = db.Column(db.Integer, db.ForeignKey('playable_class.id'), nullable=False)
     # Relationship to PlayableClass
     playable_class = db.relationship("PlayableClass", back_populates="specs")
 
     def __repr__(self): return f'<PlayableSpec {self.name} (Class ID: {self.class_id})>'
 
 class Character(db.Model):
-    __tablename__ = 'character'
-    id = db.Column(Integer, primary_key=True)
+    __tablename__ = 'character' # Explicit table name recommended
+    # Use imported types (Integer, String, DateTime)
+    id = db.Column(Integer, primary_key=True) # Use Blizzard's character ID
     name = db.Column(String(100), nullable=False)
-    realm_slug = db.Column(String(100), nullable=False)
+    realm_slug = db.Column(String(100), nullable=False) # Needed for Armory link
     level = db.Column(Integer)
-    class_id = db.Column(Integer, db.ForeignKey('playable_class.id'))
+    class_id = db.Column(Integer, db.ForeignKey('playable_class.id')) # Foreign key to PlayableClass
     class_name = db.Column(String(50))
-    spec_name = db.Column(String(50))
-    main_spec_override = db.Column(String(50), nullable=True)
-    role = db.Column(String(10))
-    status = db.Column(String(15), nullable=False, index=True)
-    item_level = db.Column(Integer, index=True)
-    raid_progression = db.Column(String(200))
-    rank = db.Column(Integer, index=True)
-    last_updated = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # race_name removed
+    spec_name = db.Column(String(50)) # API Active Spec
+    main_spec_override = db.Column(String(50), nullable=True) # User override
+    role = db.Column(String(10))      # Role (Tank, Healer, DPS)
+    status = db.Column(String(15), nullable=False, index=True) # Calculated/User Status field
+    item_level = db.Column(Integer, index=True) # Index item_level for filtering/sorting
+    raid_progression = db.Column(String(200)) # Store summary string
+    rank = db.Column(Integer, index=True) # Index rank for faster filtering
+    last_updated = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
+    # WCL Data
     raid_attendance_percentage = db.Column(Float, default=0.0, nullable=True)
     avg_wcl_performance = db.Column(Float, nullable=True)
 
-    # ** ADDED/CORRECTED RELATIONSHIP **
-    playable_class = db.relationship("PlayableClass", back_populates="characters")
-    # attendances = db.relationship("WCLAttendance", back_populates="character") # Assuming WCLAttendance model exists
-
+    # Define a unique constraint on name and realm_slug
     __table_args__ = (db.UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
+    playable_class = db.relationship("PlayableClass", back_populates="characters") # Relationship
 
     def __repr__(self):
         return f'<Character {self.name}-{self.realm_slug}>'
 
+
 # --- Data Caching & API Config (for Specs) ---
-ALL_SPECS_CACHE = {}
+# Simple in-memory cache for all specs, populated on first roster load
+ALL_SPECS_CACHE = {} # Structure: {class_id: [{id: spec_id, name: spec_name}, ...]}
 ALL_SPECS_LAST_FETCHED = 0
-CACHE_TTL = 3600 * 6
+CACHE_TTL = 3600 * 6 # Cache specs for 6 hours (adjust as needed)
+
+# Separate token cache for the spec fetching within the web app context
 WEB_APP_ACCESS_TOKEN_CACHE = {"token": None, "expires_at": 0}
 API_BASE_URL = f"https://{REGION}.api.blizzard.com"
 TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
@@ -107,11 +111,13 @@ TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
 
 def get_web_app_token():
     """ Gets/refreshes token specifically for web app needs (like spec fetching). """
-    global WEB_APP_ACCESS_TOKEN_CACHE
+    global WEB_APP_ACCESS_TOKEN_CACHE # Use the dedicated cache
     now = time.time()
+    # Check cache first
     if WEB_APP_ACCESS_TOKEN_CACHE["token"] and WEB_APP_ACCESS_TOKEN_CACHE["expires_at"] > now + 60:
         return WEB_APP_ACCESS_TOKEN_CACHE["token"]
 
+    # Fetch new token if needed (requires API keys set for web dyno)
     client_id = BLIZZARD_CLIENT_ID
     client_secret = BLIZZARD_CLIENT_SECRET
     if not client_id or not client_secret:
@@ -158,6 +164,7 @@ def get_all_specs():
     global ALL_SPECS_CACHE, ALL_SPECS_LAST_FETCHED
     current_time = time.time()
 
+    # Check in-memory cache first
     if ALL_SPECS_CACHE and (current_time - ALL_SPECS_LAST_FETCHED < CACHE_TTL):
         print("Using in-memory cached specs.")
         return ALL_SPECS_CACHE
@@ -165,62 +172,34 @@ def get_all_specs():
     print("Fetching specs from database...")
     temp_spec_map = {}
     try:
-        with app.app_context():
-            # Ensure PlayableSpec table exists
+        with app.app_context(): # Ensure we are in app context for DB query
+            # Check if PlayableSpec table exists
             if not db.engine.dialect.has_table(db.engine.connect(), PlayableSpec.__tablename__):
-                print("PlayableSpec table does not exist. Attempting API fallback for specs.")
-                # Fallback to API if DB table is missing (should be created by update_roster_data.py)
-                # This section is a simplified API call for specs, assuming it might be needed if DB is not ready
-                access_token = get_web_app_token()
-                if not access_token:
-                    print("Error: Cannot fetch specs from API without token (DB table missing).")
-                    return {}
+                print("PlayableSpec table does not exist. Cannot load specs from DB.")
+                # Fallback or error handling if table doesn't exist
+                # For now, returning empty and relying on API fallback if needed by UI
+                return {} # Or potentially trigger the API fetch if critical
 
-                spec_index_url = f"{API_BASE_URL}/data/wow/playable-specialization/index"
-                headers = {"Authorization": f"Bearer {access_token}"}
-                params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-                spec_index_data = make_web_api_request(spec_index_url, params, headers)
+            all_db_specs = PlayableSpec.query.all()
+            if all_db_specs:
+                for spec in all_db_specs:
+                    if spec.class_id not in temp_spec_map:
+                        temp_spec_map[spec.class_id] = []
+                    temp_spec_map[spec.class_id].append({"id": spec.id, "name": spec.name})
+                for cid in temp_spec_map: # Sort them
+                    temp_spec_map[cid].sort(key=lambda x: x['name'])
 
-                if not spec_index_data or 'character_specializations' not in spec_index_data:
-                    print("Error: Failed to parse playable specialization index from API (DB table missing).")
-                    return {}
-
-                print(f"Fetching details for {len(spec_index_data['character_specializations'])} specs from API (DB table missing)...")
-                for spec_summary in spec_index_data['character_specializations']:
-                    detail_href = spec_summary.get('key', {}).get('href')
-                    if not detail_href: continue
-                    spec_detail = make_web_api_request(detail_href, params, headers)
-                    if spec_detail:
-                        class_id = spec_detail.get('playable_class', {}).get('id')
-                        spec_id = spec_detail.get('id')
-                        spec_name = spec_detail.get('name')
-                        if class_id and spec_id and spec_name:
-                            if class_id not in temp_spec_map: temp_spec_map[class_id] = []
-                            temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
-                            temp_spec_map[class_id].sort(key=lambda x: x['name'])
-                    time.sleep(0.05)
-            else: # Table exists, query it
-                all_db_specs = PlayableSpec.query.all()
-                if all_db_specs:
-                    for spec in all_db_specs:
-                        if spec.class_id not in temp_spec_map:
-                            temp_spec_map[spec.class_id] = []
-                        temp_spec_map[spec.class_id].append({"id": spec.id, "name": spec.name})
-                    for cid in temp_spec_map:
-                        temp_spec_map[cid].sort(key=lambda x: x['name'])
-                else:
-                    print("PlayableSpec table is empty in the database. No specs to load.")
-
-
-            ALL_SPECS_CACHE = temp_spec_map
-            ALL_SPECS_LAST_FETCHED = current_time
-            if temp_spec_map:
+                ALL_SPECS_CACHE = temp_spec_map
+                ALL_SPECS_LAST_FETCHED = current_time
                 print(f"Specs populated from database for {len(ALL_SPECS_CACHE)} classes.")
-            return ALL_SPECS_CACHE
+                return ALL_SPECS_CACHE
+            else:
+                print("PlayableSpec table is empty in the database.")
+                return {} # Return empty if table exists but no data
 
     except Exception as e:
         print(f"Error fetching specs from database: {e}")
-        return {}
+        return {} # Return empty on error
 
 # --- Routes ---
 @app.route('/')
@@ -294,7 +273,7 @@ def roster_page():
     elif REGION == "kr": locale = "ko-kr"
     elif REGION == "tw": locale = "zh-tw"
 
-    all_specs_by_class = get_all_specs() # This now reads from DB (or API as fallback)
+    all_specs_by_class = get_all_specs() # This now reads from DB
     if not all_specs_by_class:
          print("Warning: Could not load specialization data for dropdowns.")
 

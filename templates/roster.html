@@ -10,40 +10,50 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
+        /* Base styles */
         body { font-family: 'Inter', sans-serif; background-color: #f7fafc; /* gray-100 */ }
         th {
             text-align: left; padding: 0.5rem 0.75rem; background-color: #f7fafc; /* gray-100 */
             border-bottom: 2px solid #e2e8f0; /* gray-300 */ font-weight: 600; /* Semibold */
             white-space: nowrap;
         }
+        /* Clickable sortable headers */
         th.sortable { cursor: pointer; position: relative; }
         th.sortable:hover { background-color: #edf2f7; /* gray-200 */ }
+        /* Sort arrows */
         .sort-arrow {
             font-size: 0.8em; margin-left: 0.3em; color: #a0aec0; /* gray-500 */ position: absolute;
             right: 0.5rem; top: 50%; transform: translateY(-50%); width: 1em; text-align: center;
         }
         .sort-arrow.asc::after { content: '\25B2'; } /* Up arrow ▲ */
         .sort-arrow.desc::after { content: '\25BC'; } /* Down arrow ▼ */
+        /* Table cell styles */
         td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; /* gray-300 */ vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
+        /* Utility styles */
         .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
         .armory-link { color: #2b6cb0; /* blue-700 */ text-decoration: none; }
         .armory-link:hover { color: #2c5282; /* blue-800 */ text-decoration: underline; }
         .role-icon { font-size: 1.1rem; width: 1.5em; text-align: center; display: inline-block; }
-        .role-dps { color: #c53030; } .role-healer { color: #2f855a; } .role-tank { color: #2b6cb0; } .role-unknown { color: #a0aec0; }
+        .role-dps { color: #c53030; } /* Original DPS color for fallback */
+        .role-melee-dps { color: #dc2626; } /* red-600 for Melee */
+        .role-ranged-dps { color: #f59e0b; } /* amber-500 for Ranged */
+        .role-healer { color: #2f855a; } /* green-700 */
+        .role-tank { color: #2b6cb0; } /* blue-700 */
+        .role-unknown { color: #a0aec0; } /* gray-500 */
 
-        /* Styles for Editing */
+        /* Styles for Editing (shared for spec and status) */
         .display-value { display: inline-block; margin-right: 5px;}
         .edit-btn {
             cursor: pointer; color: #a0aec0; font-size: 0.8em; vertical-align: middle; display: inline-block;
             padding: 1px 3px; border-radius: 3px; margin-left: 4px;
         }
         .edit-btn:hover { color: #4a5568; background-color: #e2e8f0;}
-        .edit-control {
+        .edit-control { /* Common class for selects */
             display: none; padding: 2px 4px; border: 1px solid #cbd5e0; border-radius: 4px;
             font-size: 0.9em; vertical-align: middle; margin-left: 5px; max-width: 150px;
         }
-        .edit-container { display: inline-block; }
+        .edit-container { display: inline-block; } /* Container for select and save/cancel */
         .save-btn, .cancel-btn {
             display: none; margin-left: 5px; padding: 1px 4px; font-size: 0.8em; border-radius: 3px; cursor: pointer;
             vertical-align: middle; border: 1px solid transparent;
@@ -59,39 +69,6 @@
         .status-member { color: #38a169; }
         .status-wiping-alt { color: #718096; }
 
-        /* Filter Toggle Styling */
-        .filter-toggle-label {
-            display: flex;
-            align-items: center;
-            cursor: pointer;
-            font-size: 0.875rem; /* text-sm */
-            color: #4a5563; /* gray-700 */
-        }
-        .filter-toggle-label input[type="checkbox"] {
-            appearance: none;
-            -webkit-appearance: none;
-            height: 1.25rem; /* h-5 */
-            width: 1.25rem; /* w-5 */
-            border: 2px solid #cbd5e0; /* border-gray-300 */
-            border-radius: 0.25rem; /* rounded */
-            margin-right: 0.5rem; /* mr-2 */
-            position: relative;
-            outline: none;
-            transition: background-color 0.2s ease, border-color 0.2s ease;
-        }
-        .filter-toggle-label input[type="checkbox"]:checked {
-            background-color: #6B1A51; /* Custom purple */
-            border-color: #6B1A51;
-        }
-        .filter-toggle-label input[type="checkbox"]:checked::after {
-            content: '\u2713'; /* Checkmark */
-            font-size: 0.875rem;
-            color: white;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -154,7 +131,7 @@
                     </thead>
                     <tbody id="rosterBody">
                         {% for member in members %}
-                        {# Added data-status attribute to the row #}
+                        {# Add character and class IDs to the row for JavaScript access #}
                         <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}" data-api-spec="{{ member.spec_name }}" data-status="{{ member.status }}">
                             <td>
                                 <a href="https://worldofwarcraft.blizzard.com/{{ wow_locale }}/character/{{ wow_region }}/{{ member.realm_slug }}/{{ member.name | urlencode }}"
@@ -163,11 +140,13 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                             <td class="text-center role-cell">
+                             <td class="text-center role-cell"> {# Center align the icon #}
                                 {% set role_lower = member.role | lower if member.role else '' %}
-                                {% if role_lower == 'dps' %} <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i>
+                                {% if role_lower == 'melee dps' %} <i class="fa-solid fa-swords role-icon role-melee-dps" title="Melee DPS"></i>
+                                {% elif role_lower == 'ranged dps' %} <i class="fa-solid fa-wand-sparkles role-icon role-ranged-dps" title="Ranged DPS"></i>
                                 {% elif role_lower == 'healer' %} <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
                                 {% elif role_lower == 'tank' %} <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
+                                {% elif role_lower == 'dps' %} <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i> {# Fallback for generic DPS #}
                                 {% else %} <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {% endif %}
                             </td>
                             <td> {# Spec Column #}
@@ -214,54 +193,78 @@
                             <td>
                                 {% if member.raid_progression == "N/A" or member.raid_progression is none %} <span class="na-value">N/A</span> {% else %} {{ member.raid_progression }} {% endif %}
                             </td>
+                            {# Attendance Percentage Cell #}
                             <td>
                                 {% if member.raid_attendance_percentage is none %}
                                     <span class="na-value">N/A</span>
                                 {% else %}
-                                    {{ "%.1f%%" | format(member.raid_attendance_percentage) }}
+                                    {{ "%.1f%%" | format(member.raid_attendance_percentage) }} {# Format as percentage with 1 decimal place #}
                                 {% endif %}
                             </td>
                             <td>{{ member.rank }}</td>
                         </tr>
-                        {% endfor %}
+                        {% endfor %} {# End of member loop #}
                     </tbody>
                 </table>
             </div>
             {% elif not error_message %}
+            {# Message if no members match the filter criteria #}
             <p>No members found matching rank criteria (<= 4) and item level (>= 600) in the database.</p>
-            {% endif %}
+            {% endif %} {# End of members check #}
         </div>
     </main>
 
     <footer class="text-center text-gray-500 mt-8 pb-4">
-        &copy; {{ guild_name }} - {{ current_year }}
+        &copy; {{ guild_name }} - {{ current_year }} {# Assuming current_year is passed from Flask #}
     </footer>
 
     <script>
+        // Parse the spec data passed from Flask
         const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
+
+        // --- Role Determination Logic ---
         const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
         const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
+        // Define Melee and Ranged DPS specs (expand these lists as needed)
+        const meleeDpsSpecs = [
+            "Arms", "Fury", "Retribution", "Frost DK", "Unholy", "Enhancement",
+            "Assassination", "Outlaw", "Subtlety", "Windwalker", "Havoc", "Feral", "Survival"
+        ];
+        const rangedDpsSpecs = [
+            "Arcane", "Fire", "Frost Mage", "Affliction", "Demonology", "Destruction", "Shadow",
+            "Beast Mastery", "Marksmanship", "Balance", "Elemental", "Devastation", "Augmentation"
+        ];
 
-        function getRoleFromSpec(specName) { /* ... as before ... */
-             if (!specName || specName === 'N/A') return 'Unknown';
+        function getRoleFromSpec(specName) {
+            if (!specName || specName === 'N/A') return 'Unknown';
             if (tankSpecs.includes(specName)) return 'Tank';
             if (healerSpecs.includes(specName)) return 'Healer';
-            return 'DPS';
+            if (meleeDpsSpecs.includes(specName)) return 'Melee DPS';
+            if (rangedDpsSpecs.includes(specName)) return 'Ranged DPS';
+            return 'DPS'; // Fallback for generic DPS if not specifically Melee or Ranged
         }
-        function updateRoleIcon(tableRow, newRole) { /* ... as before ... */
+
+        // --- UI Update Functions ---
+        function updateRoleIcon(tableRow, newRole) {
             const roleCell = tableRow.querySelector('.role-cell');
             if (!roleCell) return;
             const icon = roleCell.querySelector('i');
             if (!icon) return;
-            icon.className = 'role-icon fa-solid';
+            icon.className = 'role-icon fa-solid'; // Reset classes
             let iconClass = 'fa-question', colorClass = 'role-unknown', title = 'Unknown/N/A';
-            if (newRole === 'DPS') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; }
-            else if (newRole === 'Healer') { iconClass = 'fa-briefcase-medical'; colorClass = 'role-healer'; title = 'Healer'; }
-            else if (newRole === 'Tank') { iconClass = 'fa-shield-halved'; colorClass = 'role-tank'; title = 'Tank'; }
+
+            const roleLower = newRole.toLowerCase();
+            if (roleLower === 'melee dps') { iconClass = 'fa-swords'; colorClass = 'role-melee-dps'; title = 'Melee DPS'; }
+            else if (roleLower === 'ranged dps') { iconClass = 'fa-wand-sparkles'; colorClass = 'role-ranged-dps'; title = 'Ranged DPS'; }
+            else if (roleLower === 'healer') { iconClass = 'fa-briefcase-medical'; colorClass = 'role-healer'; title = 'Healer'; }
+            else if (roleLower === 'tank') { iconClass = 'fa-shield-halved'; colorClass = 'role-tank'; title = 'Tank'; }
+            else if (roleLower === 'dps') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; }
+
             icon.classList.add(iconClass, colorClass);
             icon.setAttribute('title', title);
         }
-        function updateStatusDisplay(displaySpan, newStatus) { /* ... as before ... */
+
+        function updateStatusDisplay(displaySpan, newStatus) {
              const innerSpan = displaySpan.querySelector('span');
              if (!innerSpan) return;
              innerSpan.className = '';
@@ -272,34 +275,12 @@
              innerSpan.textContent = newStatus || 'Unknown';
         }
 
-        // --- NEW: Wiper Filter Functionality ---
-        const wiperFilterCheckbox = document.getElementById('wiperFilter');
-        const rosterTableBody = document.getElementById('rosterBody');
-
-        function applyWiperFilter() {
-            if (!rosterTableBody || !wiperFilterCheckbox) return;
-            const showOnlyWipers = wiperFilterCheckbox.checked;
-            const rows = rosterTableBody.querySelectorAll('tr');
-
-            rows.forEach(row => {
-                const status = row.dataset.status; // Get status from data attribute
-                if (showOnlyWipers) {
-                    if (status === 'Wiper') {
-                        row.style.display = ''; // Show row
-                    } else {
-                        row.style.display = 'none'; // Hide row
-                    }
-                } else {
-                    row.style.display = ''; // Show all rows if filter is off
-                }
-            });
-        }
 
         // --- Main Script Logic ---
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
-            // const tableBody = document.getElementById('rosterBody'); // Already defined above
-            if (!table || !rosterTableBody) { console.error("Roster table or body not found!"); return; }
+            const tableBody = document.getElementById('rosterBody');
+            if (!table || !tableBody) { console.error("Roster table or body not found!"); return; }
             const headers = table.querySelectorAll('th.sortable');
             let currentSort = { column: -1, ascending: true };
 
@@ -316,7 +297,7 @@
             });
 
             // Editing Event Listeners
-            rosterTableBody.addEventListener('click', function(event) {
+            tableBody.addEventListener('click', function(event) {
                 if (event.target.classList.contains('edit-spec-btn')) { startEdit(event.target, 'spec'); }
                 else if (event.target.classList.contains('spec-save-btn')) { saveEdit(event.target, 'spec'); }
                 else if (event.target.classList.contains('spec-cancel-btn')) { cancelEdit(event.target, 'spec'); }
@@ -325,12 +306,13 @@
                 else if (event.target.classList.contains('status-cancel-btn')) { cancelEdit(event.target, 'status'); }
             });
 
-            // --- NEW: Wiper Filter Initial Apply and Event Listener ---
+            // Wiper Filter Initial Apply and Event Listener
+            const wiperFilterCheckbox = document.getElementById('wiperFilter');
             if (wiperFilterCheckbox) {
-                applyWiperFilter(); // Apply filter on page load (default is checked)
+                applyWiperFilter();
                 wiperFilterCheckbox.addEventListener('change', applyWiperFilter);
             }
-            // --- END NEW ---
+
 
             // Generic Editing Functions
             function startEdit(editButton, type) {
@@ -414,8 +396,8 @@
                             updateRoleIcon(tr, newRole);
                         } else if (type === 'status') {
                              updateStatusDisplay(displaySpan, selectedValue);
-                             tr.dataset.status = selectedValue; // Update data attribute for filter
-                             applyWiperFilter(); // Re-apply filter after status change
+                             tr.dataset.status = selectedValue;
+                             applyWiperFilter();
                         }
                         setTimeout(() => { cancelEdit(saveButton, type); statusSpan.textContent = ''; }, 1500);
                     } else { throw new Error(data.message || "Unknown error saving data."); }
@@ -444,7 +426,7 @@
                     valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                     valueB = iconB ? iconB.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                 } else { // Other columns
-                    const innerSpanA = cellA.querySelector('.display-value span'); // Check for styled status span
+                    const innerSpanA = cellA.querySelector('.display-value span');
                     const innerSpanB = cellB.querySelector('.display-value span');
                     valueA = innerSpanA ? innerSpanA.textContent.trim() : (cellA.querySelector('.na-value') ? 'N/A' : cellA.textContent.trim());
                     valueB = innerSpanB ? innerSpanB.textContent.trim() : (cellB.querySelector('.na-value') ? 'N/A' : cellB.textContent.trim());
@@ -476,6 +458,27 @@
                     if (colIndex === activeColumnIndex) { arrowSpan.classList.add(ascending ? 'asc' : 'desc'); }
                 }
              });
+        }
+        // --- Wiper Filter Function ---
+        function applyWiperFilter() {
+            const wiperFilterCheckbox = document.getElementById('wiperFilter');
+            const rosterTableBody = document.getElementById('rosterBody');
+            if (!rosterTableBody || !wiperFilterCheckbox) return;
+            const showOnlyWipers = wiperFilterCheckbox.checked;
+            const rows = rosterTableBody.querySelectorAll('tr');
+
+            rows.forEach(row => {
+                const status = row.dataset.status;
+                if (showOnlyWipers) {
+                    if (status === 'Wiper') {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                } else {
+                    row.style.display = '';
+                }
+            });
         }
     </script>
 
