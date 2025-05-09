@@ -17,7 +17,6 @@ if not DATABASE_URI:
     print("WARNING: DATABASE_URL environment variable not found. Defaulting to local sqlite:///guild_data.db")
     DATABASE_URI = 'sqlite:///guild_data.db'
 else:
-    # Heroku Postgres URLs start with 'postgres://', SQLAlchemy prefers 'postgresql://'
     if DATABASE_URI.startswith("postgres://"):
         DATABASE_URI = DATABASE_URI.replace("postgres://", "postgresql://", 1)
 
@@ -27,34 +26,29 @@ try:
     Base = declarative_base()
     metadata = MetaData()
 except ImportError as e:
-     print(f"Error: Database driver likely missing. Did you 'pip install psycopg2-binary' (for Postgres) or ensure SQLAlchemy is installed? Details: {e}")
+     print(f"Error: Database driver likely missing. {e}")
      exit(1)
 except Exception as e:
      print(f"Error creating database engine: {e}")
      exit(1)
 
 # --- Database Model ---
-# Status column length adjusted for calculated values
 class Character(Base):
-    """ Defines the structure for storing character data in the database. """
     __tablename__ = 'character'
-    id = Column(Integer, primary_key=True) # Use Blizzard's character ID
+    id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)
     realm_slug = Column(String(100), nullable=False)
     level = Column(Integer)
-    class_id = Column(Integer) # Store the class ID
+    class_id = Column(Integer)
     class_name = Column(String(50))
-    # race_name removed
-    spec_name = Column(String(50)) # API Active Spec
-    main_spec_override = Column(String(50), nullable=True) # User override
-    role = Column(String(10))      # Role (Tank, Healer, DPS)
-    status = Column(String(15), nullable=False, index=True) # Calculated/User Status
+    spec_name = Column(String(50))
+    main_spec_override = Column(String(50), nullable=True)
+    role = Column(String(10))
+    status = Column(String(15), nullable=False, index=True)
     item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
-    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
-
-    # Define a unique constraint on name and realm_slug
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
     def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
 
@@ -65,14 +59,25 @@ GUILD_NAME = os.environ.get('GUILD_NAME')
 REALM_SLUG = os.environ.get('REALM_SLUG')
 REGION = os.environ.get('REGION', 'us').lower()
 
+# --- Warcraft Logs Configuration ---
+WCL_CLIENT_ID = os.environ.get('WCL_CLIENT_ID')
+WCL_CLIENT_SECRET = os.environ.get('WCL_CLIENT_SECRET')
+WCL_GUILD_ID = os.environ.get('WCL_GUILD_ID') # Your Warcraft Logs Guild ID
+
 # --- Blizzard API Configuration ---
 VALID_REGIONS = ['us', 'eu', 'kr', 'tw']
 if REGION not in VALID_REGIONS: raise ValueError(f"Invalid REGION: {REGION}. Must be one of {VALID_REGIONS}")
-TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
-API_BASE_URL = f"https://{REGION}.api.blizzard.com"
+BLIZZARD_TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
+BLIZZARD_API_BASE_URL = f"https://{REGION}.api.blizzard.com"
 
-# --- Caching (For API calls within this script run) ---
-access_token_cache = { "token": None, "expires_at": 0 }
+# --- Warcraft Logs API Endpoints ---
+WCL_TOKEN_URL = "https://www.warcraftlogs.com/oauth/token"
+WCL_API_ENDPOINT = "https://www.warcraftlogs.com/api/v2/client"
+
+
+# --- Caching ---
+blizzard_access_token_cache = { "token": None, "expires_at": 0 }
+wcl_access_token_cache = { "token": None, "expires_at": 0 }
 CLASS_MAP = {}
 SPEC_MAP_BY_CLASS = {}
 
@@ -80,16 +85,16 @@ SPEC_MAP_BY_CLASS = {}
 
 def get_blizzard_access_token():
     """ Retrieves Blizzard access token, uses cache. """
-    global access_token_cache
+    global blizzard_access_token_cache
     current_time = time.time()
-    if access_token_cache["token"] and access_token_cache["expires_at"] > current_time + 60:
-        return access_token_cache["token"]
+    if blizzard_access_token_cache["token"] and blizzard_access_token_cache["expires_at"] > current_time + 60:
+        return blizzard_access_token_cache["token"]
     if not BLIZZARD_CLIENT_ID or not BLIZZARD_CLIENT_SECRET:
         print("Error: BLIZZARD_CLIENT_ID or BLIZZARD_CLIENT_SECRET not set.")
         return None
     try:
         response = requests.post(
-            TOKEN_URL, auth=(BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET),
+            BLIZZARD_TOKEN_URL, auth=(BLIZZARD_CLIENT_ID, BLIZZARD_CLIENT_SECRET),
             data={'grant_type': 'client_credentials'}
         )
         response.raise_for_status()
@@ -97,10 +102,10 @@ def get_blizzard_access_token():
         access_token = token_data.get('access_token')
         expires_in = token_data.get('expires_in', 0)
         if not access_token:
-            print(f"Error: Could not retrieve access token. Response: {token_data}")
+            print(f"Error: Could not retrieve Blizzard access token. Response: {token_data}")
             return None
-        access_token_cache["token"] = access_token
-        access_token_cache["expires_at"] = current_time + expires_in
+        blizzard_access_token_cache["token"] = access_token
+        blizzard_access_token_cache["expires_at"] = current_time + expires_in
         print(f"New Blizzard access token obtained.")
         return access_token
     except requests.exceptions.RequestException as e:
@@ -111,18 +116,70 @@ def get_blizzard_access_token():
             except: print(f"Response Body: {e.response.text}")
         return None
     except Exception as e:
-        print(f"An unexpected error during token retrieval: {e}")
+        print(f"An unexpected error during Blizzard token retrieval: {e}")
         return None
 
-def make_api_request(api_url, params, headers):
-    """ Helper function to make API GET requests and handle common errors """
+def get_wcl_access_token():
+    """ Retrieves Warcraft Logs access token, uses cache. """
+    global wcl_access_token_cache
+    current_time = time.time()
+    if wcl_access_token_cache["token"] and wcl_access_token_cache["expires_at"] > current_time + 60:
+        return wcl_access_token_cache["token"]
+
+    if not WCL_CLIENT_ID or not WCL_CLIENT_SECRET:
+        print("Error: WCL_CLIENT_ID or WCL_CLIENT_SECRET not set in environment variables.")
+        return None
+
     try:
-        response = requests.get(api_url, params=params, headers=headers, timeout=30) # Added timeout
+        print(f"Attempting to get WCL token from: {WCL_TOKEN_URL}")
+        response = requests.post(
+            WCL_TOKEN_URL,
+            auth=(WCL_CLIENT_ID, WCL_CLIENT_SECRET),
+            data={'grant_type': 'client_credentials'}
+        )
+        response.raise_for_status()
+        token_data = response.json()
+        access_token = token_data.get('access_token')
+        expires_in = token_data.get('expires_in', 0)
+
+        if not access_token:
+            print(f"Error: Could not retrieve WCL access token. Response: {token_data}")
+            return None
+
+        wcl_access_token_cache["token"] = access_token
+        wcl_access_token_cache["expires_at"] = current_time + expires_in
+        print(f"New Warcraft Logs access token obtained.")
+        return access_token
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting WCL access token: {e}")
+        if e.response is not None:
+            print(f"WCL Token Response Status: {e.response.status_code}")
+            try:
+                print(f"WCL Token Response Body: {e.response.json()}")
+            except requests.exceptions.JSONDecodeError:
+                print(f"WCL Token Response Body: {e.response.text}")
+        return None
+    except Exception as e:
+        print(f"An unexpected error during WCL token retrieval: {e}")
+        return None
+
+
+def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None):
+    """ Helper function to make API GET (Blizzard) or POST (WCL GraphQL) requests and handle common errors """
+    try:
+        if is_wcl: # GraphQL POST request for WCL
+            if not wcl_query:
+                print("Error: WCL query missing for GraphQL request.")
+                return None
+            json_payload = {'query': wcl_query}
+            response = requests.post(api_url, json=json_payload, headers=headers, timeout=30)
+        else: # REST GET request for Blizzard
+            response = requests.get(api_url, params=params, headers=headers, timeout=30)
+
         if response.status_code == 404:
-             # Log 404s but don't treat as critical error for character data
-             # print(f"Warning: 404 Not Found for URL: {response.url}")
+             print(f"Warning: 404 Not Found for URL: {response.url}")
              return None
-        response.raise_for_status() # Raise for other errors (401, 403, 5xx)
+        response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as e:
         print(f"HTTP Error during API request: {e}")
@@ -143,22 +200,16 @@ def make_api_request(api_url, params, headers):
 
 
 def get_static_data(endpoint, use_base_url=True):
-    """
-    Fetches static data (classes, specs).
-    Can fetch from a full URL if use_base_url is False.
-    """
+    """ Fetches static data (classes, specs) from Blizzard API. """
     access_token = get_blizzard_access_token()
     if not access_token: return None
-
     if use_base_url:
-        api_url = f"{API_BASE_URL}/data/wow{endpoint if endpoint.startswith('/') else '/' + endpoint}"
+        api_url = f"{BLIZZARD_API_BASE_URL}/data/wow{endpoint if endpoint.startswith('/') else '/' + endpoint}"
     else:
-        api_url = endpoint # Use the provided endpoint as the full URL
-
+        api_url = endpoint
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-    # Reduce logging verbosity unless debugging needed
-    # print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}")
+    # print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}") # Reduced verbosity
     data = make_api_request(api_url, params, headers)
     # if data and use_base_url: print(f"Successfully fetched static data from {endpoint}.")
     # elif not data: print(f"Failed to fetch static data from {endpoint or api_url}.")
@@ -189,7 +240,7 @@ def populate_spec_cache():
     spec_list = spec_index_data.get(spec_list_key, [])
     if not spec_list:
         print("Warning: Specialization list received from API is empty.")
-        return False # Treat empty list as failure for now
+        return False
 
     print(f"Fetched {len(spec_list)} specializations from index. Fetching details...")
 
@@ -267,7 +318,7 @@ def populate_static_caches():
 
 
 def get_guild_roster():
-    """ Fetches the guild roster. """
+    """ Fetches the guild roster from Blizzard API. """
     if not GUILD_NAME or not REALM_SLUG:
         print("Error: Guild Name or Realm Slug not configured.")
         return None
@@ -275,24 +326,22 @@ def get_guild_roster():
     if not access_token: return None
     realm_slug_lower = REALM_SLUG.lower()
     guild_name_segment = GUILD_NAME.lower().replace(' ', '-')
-    api_url = f"{API_BASE_URL}/data/wow/guild/{realm_slug_lower}/{guild_name_segment}/roster"
+    api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/guild/{realm_slug_lower}/{guild_name_segment}/roster"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    print(f"Attempting Guild Roster URL: {api_url}")
+    print(f"Attempting Blizzard Guild Roster URL: {api_url}")
     data = make_api_request(api_url, params, headers)
-    if data:
-        print("Successfully fetched guild roster.")
-    else:
-        print("Failed to fetch guild roster.")
+    if data: print("Successfully fetched Blizzard guild roster.")
+    else: print("Failed to fetch Blizzard guild roster.")
     return data
 
 def get_character_summary(realm_slug, character_name):
-    """ Fetches character profile summary (for item level, spec, role). """
+    """ Fetches character profile summary from Blizzard API. """
     access_token = get_blizzard_access_token()
     if not access_token: return None
     realm_slug = realm_slug.lower()
     character_name = character_name.lower()
-    api_url = f"{API_BASE_URL}/profile/wow/character/{realm_slug}/{character_name}"
+    api_url = f"{BLIZZARD_API_BASE_URL}/profile/wow/character/{realm_slug}/{character_name}"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
     data = make_api_request(api_url, params, headers)
@@ -300,86 +349,95 @@ def get_character_summary(realm_slug, character_name):
 
 
 def get_character_raid_progression(realm_slug, character_name):
-    """ Fetches character raid encounters. """
+    """ Fetches character raid encounters from Blizzard API. """
     access_token = get_blizzard_access_token()
     if not access_token: return None
     realm_slug = realm_slug.lower()
     character_name = character_name.lower()
-    api_url = f"{API_BASE_URL}/profile/wow/character/{realm_slug}/{character_name}/encounters/raids"
+    api_url = f"{BLIZZARD_API_BASE_URL}/profile/wow/character/{realm_slug}/{character_name}/encounters/raids"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    # print(f"DEBUG: Fetching raid progression for {character_name} from {api_url}") # Reduce logging
     data = make_api_request(api_url, params, headers)
-    if not data:
-        print(f"DEBUG: No raid data received for {character_name} (API returned None or error).")
     return data
 
 
 def summarize_raid_progression(raid_data):
-    """
-    Summarizes raid progression specifically for 'The War Within' expansion
-    and 'Liberation of Undermine' raid, focusing on Heroic and Mythic kills.
-    Returns a tuple: (summary_string, heroic_kills_count)
-    Returns (None, -1) if raid/expansion not found or error.
-    """
-    target_expansion_name = "The War Within" # Update if needed when TWW launches
-    target_raid_name = "Liberation of Undermine" # Update if needed when TWW launches
-    short_raid_name = "Undermine" # Name used in the output string
-
-    if not raid_data or 'expansions' not in raid_data:
-        # print(f"DEBUG ({short_raid_name}): Summarize returning None, -1 (no raid_data or expansions key)")
-        return None, -1 # Indicate error or not found
-
-    heroic_kills = -1 # Use -1 to indicate data not found for this difficulty
-    heroic_total = 0
-    mythic_kills = -1
-    mythic_total = 0
-    raid_found = False
-
-    # Find the target expansion
+    """ Summarizes raid progression for 'Liberation of Undermine'. """
+    target_expansion_name = "The War Within"
+    target_raid_name = "Liberation of Undermine"
+    short_raid_name = "Undermine"
+    if not raid_data or 'expansions' not in raid_data: return None, -1
+    heroic_kills = -1; heroic_total = 0; mythic_kills = -1; mythic_total = 0; raid_found = False
     for expansion in raid_data.get('expansions', []):
         exp_details = expansion.get('expansion', {})
         if exp_details.get('name') == target_expansion_name:
-            # Find the target raid instance within the expansion
             for instance in expansion.get('instances', []):
                 instance_details = instance.get('instance', {})
                 if instance_details.get('name') == target_raid_name:
                     raid_found = True
-                    # print(f"DEBUG ({short_raid_name}): Found raid '{target_raid_name}'. Processing modes.")
-                    # Process modes for Heroic and Mythic
                     for mode in instance.get('modes', []):
-                        difficulty = mode.get('difficulty', {})
-                        progress = mode.get('progress', {})
+                        difficulty = mode.get('difficulty', {}); progress = mode.get('progress', {})
                         difficulty_type = difficulty.get('type')
                         if difficulty_type == "HEROIC":
-                            heroic_kills = progress.get('completed_count', 0) # Get kills, default 0 if missing
+                            heroic_kills = progress.get('completed_count', 0)
                             heroic_total = progress.get('total_count', 0)
-                            # print(f"DEBUG ({short_raid_name}): Found Heroic: {heroic_kills}/{heroic_total}")
                         elif difficulty_type == "MYTHIC":
                             mythic_kills = progress.get('completed_count', 0)
                             mythic_total = progress.get('total_count', 0)
-                            # print(f"DEBUG ({short_raid_name}): Found Mythic: {mythic_kills}/{mythic_total}")
-                    break # Stop searching instances once the target raid is found
-            break # Stop searching expansions once the target expansion is found
-
-    if not raid_found:
-        # print(f"DEBUG ({short_raid_name}): Target raid '{target_raid_name}' not found.")
-        return f"{short_raid_name}: Not Found", -1 # Return specific string and -1 kills
-
-    # Format the output string
+                    break
+            break
+    if not raid_found: return f"{short_raid_name}: Not Found", -1
     summary_parts = []
     if heroic_kills != -1 and heroic_total > 0: summary_parts.append(f"{heroic_kills}/{heroic_total}H")
     if mythic_kills != -1 and mythic_total > 0: summary_parts.append(f"{mythic_kills}/{mythic_total}M")
-
-    if not summary_parts:
-        summary_output = f"{short_raid_name}: No H/M Data"
-        hc_kills_return = 0 if heroic_kills == -1 else heroic_kills
-    else:
-        summary_output = f"{short_raid_name}: {' '.join(summary_parts)}"
-        hc_kills_return = heroic_kills if heroic_kills != -1 else 0
-
-    # print(f"DEBUG ({short_raid_name}): Summarize returning: ('{summary_output}', {hc_kills_return})")
+    if not summary_parts: summary_output = f"{short_raid_name}: No H/M Data"
+    else: summary_output = f"{short_raid_name}: {' '.join(summary_parts)}"
+    hc_kills_return = 0 if heroic_kills == -1 else heroic_kills
     return summary_output, hc_kills_return
+
+# --- Fetch WCL Guild Reports ---
+def fetch_wcl_guild_reports():
+    """Fetches recent raid reports for the guild from Warcraft Logs API."""
+    if not WCL_GUILD_ID:
+        print("Error: WCL_GUILD_ID not set in environment variables.")
+        return None
+    try:
+        guild_id_int = int(WCL_GUILD_ID)
+    except ValueError:
+        print(f"Error: WCL_GUILD_ID '{WCL_GUILD_ID}' is not a valid integer.")
+        return None
+
+    access_token = get_wcl_access_token()
+    if not access_token:
+        print("Error: Cannot fetch WCL reports without a WCL access token.")
+        return None
+
+    query = f"""
+    {{
+        reportData {{
+            reports(guildID: {guild_id_int}, limit: 10) {{
+                data {{
+                    code
+                    title
+                    startTime
+                    endTime
+                    owner {{ name }}
+                }}
+            }}
+        }}
+    }}
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+    print(f"Attempting WCL Guild Reports from: {WCL_API_ENDPOINT}")
+    data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query)
+
+    if data and data.get('data', {}).get('reportData', {}).get('reports', {}).get('data'):
+        print(f"Successfully fetched {len(data['data']['reportData']['reports']['data'])} WCL reports.")
+        return data['data']['reportData']['reports']['data']
+    else:
+        print("Failed to fetch or parse WCL guild reports.")
+        if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}")
+        return None
 
 # --- END API Helper Functions ---
 
@@ -397,7 +455,7 @@ def update_database():
         Character.__table__.drop(engine, checkfirst=True)
         print(f"Table '{Character.__tablename__}' dropped (or did not exist).")
         print(f"Creating table '{Character.__tablename__}'...")
-        Base.metadata.create_all(bind=engine) # Recreates with new schema
+        Base.metadata.create_all(bind=engine)
         print("Table created successfully.")
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.")
@@ -483,11 +541,11 @@ def update_database():
         calculated_status = "Member" # Default
         if item_level is None or item_level < 650:
             calculated_status = "Wiping Alt"
-        elif heroic_kills > 6:
+        elif heroic_kills > 6 :
              calculated_status = "Wiper"
         elif heroic_kills >= 0 and heroic_kills <= 6:
              calculated_status = "Member"
-        print(f"DEBUG: For {char_name}: iLvl={item_level}, HKills={heroic_kills} -> Initial Status='{calculated_status}'")
+        # print(f"DEBUG: For {char_name}: iLvl={item_level}, HKills={heroic_kills} -> Initial Status='{calculated_status}'")
 
         # print(f"DEBUG: For {char_name}: Preparing Item Level = {item_level}, Raid Progression = '{raid_progression_summary}', Spec = '{spec_name}', Role = '{role}', ClassID = {class_id}, Status = '{calculated_status}'")
 
@@ -520,30 +578,39 @@ def update_database():
     finally:
         db_session.close()
 
+    # --- Fetch and Print WCL Reports ---
+    print("\n--- Fetching Warcraft Logs Reports ---")
+    wcl_reports = fetch_wcl_guild_reports()
+    if wcl_reports:
+        print(f"Found {len(wcl_reports)} recent WCL reports:")
+        for report in wcl_reports:
+            start_time_ms = report.get('startTime', 0)
+            start_date = datetime.fromtimestamp(start_time_ms / 1000).strftime('%Y-%m-%d %H:%M')
+            print(f"  - Title: {report.get('title')}, Code: {report.get('code')}, Start: {start_date}, Owner: {report.get('owner',{}).get('name')}")
+    else:
+        print("No WCL reports found or an error occurred.")
+    # --- END: Fetch WCL Reports ---
+
     end_time = time.time()
-    print(f"Update process finished in {round(end_time - start_time, 2)} seconds.")
+    print(f"\nUpdate process finished in {round(end_time - start_time, 2)} seconds.")
 
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    # Check environment variables before running
-    required_vars = ['BLIZZARD_CLIENT_ID', 'BLIZZARD_CLIENT_SECRET', 'GUILD_NAME', 'REALM_SLUG', 'REGION', 'DATABASE_URL']
+    required_vars = ['BLIZZARD_CLIENT_ID', 'BLIZZARD_CLIENT_SECRET', 'GUILD_NAME', 'REALM_SLUG', 'REGION', 'DATABASE_URL', 'WCL_CLIENT_ID', 'WCL_CLIENT_SECRET', 'WCL_GUILD_ID']
     print(f"Checking environment variables...")
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     if missing_vars:
         print(f"Error: Missing required environment variables: {', '.join(missing_vars)}")
-        # Allow fallback to SQLite only if DATABASE_URL is the *only* missing var
         if missing_vars == ['DATABASE_URL'] and DATABASE_URI.startswith('sqlite:///'):
              print("Attempting to use default local SQLite DB: guild_data.db")
-             # Check if API keys are still present for the fetch
-             api_keys_missing = [var for var in required_vars[:-1] if not os.environ.get(var)]
+             api_keys_missing = [var for var in required_vars if not os.environ.get(var) and var != 'DATABASE_URL']
              if api_keys_missing:
                   print(f"Error: Missing API environment variables needed for fetch: {', '.join(api_keys_missing)}")
                   exit(1)
              else:
-                  update_database() # Try running with default SQLite
+                  update_database()
         else:
-             # Exit if API keys or non-default DB URL are missing
              exit(1)
     else:
         print("All required environment variables found.")
