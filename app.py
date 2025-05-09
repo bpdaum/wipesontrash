@@ -196,7 +196,6 @@ def get_all_specs():
         print(f"Error fetching/processing all specs: {e}")
         return ALL_SPECS_CACHE
 
-
 # --- Routes ---
 @app.route('/')
 def home():

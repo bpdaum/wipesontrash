@@ -2,12 +2,14 @@
 import os
 import requests
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
+import pytz # For timezone handling
+import re
 
 # --- Standalone SQLAlchemy setup ---
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index, ForeignKey, Float
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.exc import OperationalError
 
@@ -32,25 +34,57 @@ except Exception as e:
      print(f"Error creating database engine: {e}")
      exit(1)
 
-# --- Database Model ---
+# --- Database Models ---
 class Character(Base):
     __tablename__ = 'character'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Character ID
     name = Column(String(100), nullable=False)
     realm_slug = Column(String(100), nullable=False)
     level = Column(Integer)
-    class_id = Column(Integer)
+    class_id = Column(Integer) # Store the class ID
     class_name = Column(String(50))
-    spec_name = Column(String(50))
-    main_spec_override = Column(String(50), nullable=True)
-    role = Column(String(10))
-    status = Column(String(15), nullable=False, index=True)
+    spec_name = Column(String(50)) # API Active Spec
+    main_spec_override = Column(String(50), nullable=True) # User override
+    role = Column(String(10))      # Role (Tank, Healer, DPS)
+    status = Column(String(15), nullable=False, index=True) # Calculated/User Status field
     item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Aggregated WCL Data
+    raid_attendance_count = Column(Integer, default=0)
+    avg_wcl_performance = Column(Float, nullable=True) # For future use
+
+    attendances = relationship("WCLAttendance", back_populates="character") # Relationship
+
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
     def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
+
+class WCLReport(Base):
+    __tablename__ = 'wcl_report'
+    code = Column(String(50), primary_key=True) # WCL Report Code
+    title = Column(String(200))
+    start_time = Column(DateTime, index=True) # Store as UTC DateTime
+    end_time = Column(DateTime)
+    owner_name = Column(String(100))
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+
+    attendances = relationship("WCLAttendance", back_populates="report") # Relationship
+
+    def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
+
+class WCLAttendance(Base):
+    __tablename__ = 'wcl_attendance'
+    id = Column(Integer, primary_key=True) # Simple primary key
+    report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True) # Link to Blizzard Character ID
+
+    report = relationship("WCLReport", back_populates="attendances")
+    character = relationship("Character", back_populates="attendances")
+
+    __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
+    def __repr__(self): return f'<WCLAttendance Report={self.report_code} CharacterID={self.character_id}>'
+
 
 # --- Configuration Loading ---
 BLIZZARD_CLIENT_ID = os.environ.get('BLIZZARD_CLIENT_ID')
@@ -58,28 +92,26 @@ BLIZZARD_CLIENT_SECRET = os.environ.get('BLIZZARD_CLIENT_SECRET')
 GUILD_NAME = os.environ.get('GUILD_NAME')
 REALM_SLUG = os.environ.get('REALM_SLUG')
 REGION = os.environ.get('REGION', 'us').lower()
-
-# --- Warcraft Logs Configuration ---
 WCL_CLIENT_ID = os.environ.get('WCL_CLIENT_ID')
 WCL_CLIENT_SECRET = os.environ.get('WCL_CLIENT_SECRET')
-WCL_GUILD_ID = os.environ.get('WCL_GUILD_ID') # Your Warcraft Logs Guild ID
+WCL_GUILD_ID = os.environ.get('WCL_GUILD_ID')
 
-# --- Blizzard API Configuration ---
+# --- API Configuration ---
 VALID_REGIONS = ['us', 'eu', 'kr', 'tw']
 if REGION not in VALID_REGIONS: raise ValueError(f"Invalid REGION: {REGION}. Must be one of {VALID_REGIONS}")
 BLIZZARD_TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
 BLIZZARD_API_BASE_URL = f"https://{REGION}.api.blizzard.com"
-
-# --- Warcraft Logs API Endpoints ---
 WCL_TOKEN_URL = "https://www.warcraftlogs.com/oauth/token"
 WCL_API_ENDPOINT = "https://www.warcraftlogs.com/api/v2/client"
-
 
 # --- Caching ---
 blizzard_access_token_cache = { "token": None, "expires_at": 0 }
 wcl_access_token_cache = { "token": None, "expires_at": 0 }
 CLASS_MAP = {}
 SPEC_MAP_BY_CLASS = {}
+
+# --- Timezone ---
+CENTRAL_TZ = pytz.timezone('America/Chicago')
 
 # --- API Helper Functions ---
 
@@ -177,7 +209,7 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None):
             response = requests.get(api_url, params=params, headers=headers, timeout=30)
 
         if response.status_code == 404:
-             print(f"Warning: 404 Not Found for URL: {response.url}")
+             # print(f"Warning: 404 Not Found for URL: {response.url}") # Reduce verbosity
              return None
         response.raise_for_status()
         return response.json()
@@ -200,16 +232,21 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None):
 
 
 def get_static_data(endpoint, use_base_url=True):
-    """ Fetches static data (classes, specs) from Blizzard API. """
+    """
+    Fetches static data (classes, specs) from Blizzard API.
+    Can fetch from a full URL if use_base_url is False.
+    """
     access_token = get_blizzard_access_token()
     if not access_token: return None
+
     if use_base_url:
         api_url = f"{BLIZZARD_API_BASE_URL}/data/wow{endpoint if endpoint.startswith('/') else '/' + endpoint}"
     else:
-        api_url = endpoint
+        api_url = endpoint # Use the provided endpoint as the full URL
+
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-    # print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}") # Reduced verbosity
+    # print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}") # Reduce verbosity
     data = make_api_request(api_url, params, headers)
     # if data and use_base_url: print(f"Successfully fetched static data from {endpoint}.")
     # elif not data: print(f"Failed to fetch static data from {endpoint or api_url}.")
@@ -254,14 +291,14 @@ def populate_spec_cache():
         detail_href = spec_info_from_index.get('key', {}).get('href')
 
         if not spec_id or not spec_name or not detail_href:
-            print(f"Warning: Skipping spec entry in index due to missing data: {spec_info_from_index}")
+            # print(f"Warning: Skipping spec entry in index due to missing data: {spec_info_from_index}")
             continue
 
         spec_detail_data = get_static_data(detail_href, use_base_url=False)
         processed_count += 1
 
         if not spec_detail_data:
-            print(f"Warning: Failed to fetch details for spec ID {spec_id} ({spec_name}). Skipping.")
+            # print(f"Warning: Failed to fetch details for spec ID {spec_id} ({spec_name}). Skipping.")
             fetch_errors += 1
             continue
 
@@ -269,7 +306,7 @@ def populate_spec_cache():
         class_id = class_info.get('id')
 
         if not class_id:
-            print(f"Warning: Skipping spec {spec_name} because class ID was missing in detail response: {spec_detail_data}")
+            # print(f"Warning: Skipping spec {spec_name} because class ID was missing in detail response: {spec_detail_data}")
             fetch_errors += 1
             continue
 
@@ -277,9 +314,9 @@ def populate_spec_cache():
             temp_spec_map[class_id] = []
         temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
 
-        if processed_count % 10 == 0:
+        if processed_count % 20 == 0: # Log progress less frequently
              print(f"Processed details for {processed_count}/{len(spec_list)} specs...")
-        time.sleep(0.05) # Small delay
+        time.sleep(0.02) # Slightly smaller delay
 
     # Sort specs within each class list now
     for cid in temp_spec_map:
@@ -329,10 +366,10 @@ def get_guild_roster():
     api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/guild/{realm_slug_lower}/{guild_name_segment}/roster"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    print(f"Attempting Blizzard Guild Roster URL: {api_url}")
+    # print(f"Attempting Blizzard Guild Roster URL: {api_url}") # Reduce logging
     data = make_api_request(api_url, params, headers)
-    if data: print("Successfully fetched Blizzard guild roster.")
-    else: print("Failed to fetch Blizzard guild roster.")
+    # if data: print("Successfully fetched Blizzard guild roster.")
+    # else: print("Failed to fetch Blizzard guild roster.")
     return data
 
 def get_character_summary(realm_slug, character_name):
@@ -395,27 +432,27 @@ def summarize_raid_progression(raid_data):
     hc_kills_return = 0 if heroic_kills == -1 else heroic_kills
     return summary_output, hc_kills_return
 
-# --- Fetch WCL Guild Reports ---
-def fetch_wcl_guild_reports():
-    """Fetches recent raid reports for the guild from Warcraft Logs API."""
+def fetch_wcl_guild_reports(limit=30):
+    """
+    Fetches recent raid reports for the guild from WCL API,
+    filters for the last 8 raid nights on Wed/Fri in Central Time.
+    """
     if not WCL_GUILD_ID:
-        print("Error: WCL_GUILD_ID not set in environment variables.")
+        print("Error: WCL_GUILD_ID not set.")
         return None
     try:
         guild_id_int = int(WCL_GUILD_ID)
     except ValueError:
-        print(f"Error: WCL_GUILD_ID '{WCL_GUILD_ID}' is not a valid integer.")
+        print(f"Error: WCL_GUILD_ID '{WCL_GUILD_ID}' is not valid.")
         return None
 
     access_token = get_wcl_access_token()
-    if not access_token:
-        print("Error: Cannot fetch WCL reports without a WCL access token.")
-        return None
+    if not access_token: return None
 
     query = f"""
     {{
         reportData {{
-            reports(guildID: {guild_id_int}, limit: 10) {{
+            reports(guildID: {guild_id_int}, limit: {limit}) {{
                 data {{
                     code
                     title
@@ -428,14 +465,71 @@ def fetch_wcl_guild_reports():
     }}
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    print(f"Attempting WCL Guild Reports from: {WCL_API_ENDPOINT}")
+    print(f"Attempting WCL Guild Reports (limit {limit}) from: {WCL_API_ENDPOINT}")
     data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query)
 
-    if data and data.get('data', {}).get('reportData', {}).get('reports', {}).get('data'):
-        print(f"Successfully fetched {len(data['data']['reportData']['reports']['data'])} WCL reports.")
-        return data['data']['reportData']['reports']['data']
-    else:
+    if not data or not data.get('data', {}).get('reportData', {}).get('reports', {}).get('data'):
         print("Failed to fetch or parse WCL guild reports.")
+        if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}")
+        return None
+
+    all_reports = data['data']['reportData']['reports']['data']
+    print(f"Fetched {len(all_reports)} total WCL reports. Filtering for Wed/Fri...")
+
+    filtered_reports = []
+    all_reports.sort(key=lambda r: r.get('startTime', 0), reverse=True)
+
+    for report in all_reports:
+        start_time_ms = report.get('startTime')
+        if not start_time_ms: continue
+        utc_dt = datetime.fromtimestamp(start_time_ms / 1000, tz=pytz.utc)
+        ct_dt = utc_dt.astimezone(CENTRAL_TZ)
+        if ct_dt.weekday() == 2 or ct_dt.weekday() == 4: # Wednesday or Friday
+             report['start_time_dt'] = utc_dt
+             report['end_time_dt'] = datetime.fromtimestamp(report.get('endTime', 0) / 1000, tz=pytz.utc) if report.get('endTime') else None
+             filtered_reports.append(report)
+             # print(f"  -> Keeping Report: {report['code']} (Started {ct_dt.strftime('%Y-%m-%d %H:%M %Z')})")
+             if len(filtered_reports) == 8: break
+    print(f"Filtered down to {len(filtered_reports)} Wed/Fri WCL reports.")
+    return filtered_reports
+
+def fetch_wcl_report_details(report_code):
+    """Fetches player attendance for a specific WCL report."""
+    if not report_code: return None
+    access_token = get_wcl_access_token()
+    if not access_token: return None
+    query = f"""
+    {{
+        reportData {{
+            report(code: "{report_code}") {{
+                friendlies(dataType: حضور) {{ # dataType: Attendance might be more accurate
+                    id
+                    name
+                    server
+                    # type # Not always reliable for filtering players vs pets
+                }}
+                # Optional: Fetch rankings if needed later
+                # rankings(playerMetric: dps, encounterID: <ENCOUNTER_ID_HERE>) {{
+                #     data {{
+                #         name
+                #         class
+                #         spec
+                #         rankPercent
+                #     }}
+                # }}
+            }}
+        }}
+    }}
+    """
+    headers = {"Authorization": f"Bearer {access_token}"}
+    # print(f"Attempting WCL Report Details for: {report_code}") # Reduce logging
+    data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query)
+
+    if data and data.get('data', {}).get('reportData', {}).get('report', {}).get('friendlies'):
+        # print(f"Successfully fetched details for WCL report {report_code}.")
+        return data['data']['reportData']['report']['friendlies']
+    else:
+        print(f"Failed to fetch or parse details for WCL report {report_code}.")
         if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}")
         return None
 
@@ -450,13 +544,15 @@ def update_database():
 
     # --- Drop and Recreate Table ---
     try:
-        print(f"Attempting to drop table '{Character.__tablename__}' if it exists...")
+        print(f"Attempting to drop existing tables (WCLAttendance, WCLReport, Character)...")
         Base.metadata.bind = engine
+        WCLAttendance.__table__.drop(engine, checkfirst=True)
+        WCLReport.__table__.drop(engine, checkfirst=True)
         Character.__table__.drop(engine, checkfirst=True)
-        print(f"Table '{Character.__tablename__}' dropped (or did not exist).")
-        print(f"Creating table '{Character.__tablename__}'...")
+        print("Tables dropped (or did not exist).")
+        print("Creating tables...")
         Base.metadata.create_all(bind=engine)
-        print("Table created successfully.")
+        print("Tables created successfully.")
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.")
          return
@@ -475,9 +571,10 @@ def update_database():
         return
 
     total_members = len(roster_data['members'])
-    print(f"Fetched {total_members} total members from roster. Filtering by rank <= 4...")
+    print(f"Fetched {total_members} total members from Blizzard roster. Processing rank <= 4...")
 
     characters_to_insert = []
+    blizz_id_to_char_map = {}
     api_call_count = 0
     processed_for_details = 0
 
@@ -493,17 +590,12 @@ def update_database():
 
         processed_for_details += 1
         if processed_for_details % 10 == 1 or processed_for_details == total_members:
-             print(f"\nProcessing details for {char_name}-{char_realm_slug} (Rank {rank})... ({processed_for_details}/{total_members} checked)")
+             print(f"\nProcessing Blizzard details for {char_name}-{char_realm_slug} (Rank {rank})...")
 
         class_id = character_info.get('playable_class', {}).get('id')
         class_name = CLASS_MAP.get(class_id, f"ID: {class_id}" if class_id else "N/A")
 
-        item_level = None
-        raid_progression_summary = None
-        spec_name = None
-        role = None
-        main_spec_override = None
-        heroic_kills = -1
+        item_level = None; raid_progression_summary = None; spec_name = None; role = None; main_spec_override = None; heroic_kills = -1
 
         summary_data = get_character_summary(char_realm_slug, char_name)
         api_call_count += 1
@@ -513,19 +605,18 @@ def update_database():
             active_spec_data = summary_data.get('active_spec')
             if active_spec_data and isinstance(active_spec_data, dict):
                 spec_name = active_spec_data.get('name')
-                try: # Determine role
+                try:
                     spec_type = None
                     if 'type' in active_spec_data: spec_type = active_spec_data.get('type', '').upper()
                     elif 'media' in active_spec_data and isinstance(active_spec_data['media'], dict): spec_type = active_spec_data['media'].get('type', '').upper()
                     if spec_type == 'HEALING': role = 'Healer'
                     elif spec_type == 'TANK': role = 'Tank'
                     elif spec_type == 'DAMAGE': role = 'DPS'
-                    else: # Fallback
+                    else:
                         if spec_name in ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]: role = "Tank"
                         elif spec_name in ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]: role = "Healer"
                         elif spec_name: role = "DPS"
                 except Exception as spec_err: print(f"Warning: Could not determine role for {char_name}: {spec_err}")
-            # print(f"DEBUG: For {char_name}: API Spec='{spec_name}', Role='{role}'")
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
@@ -537,59 +628,93 @@ def update_database():
             raid_progression_summary = None
             heroic_kills = -1
 
-        # Calculate Initial Status
-        calculated_status = "Member" # Default
-        if item_level is None or item_level < 650:
-            calculated_status = "Wiping Alt"
-        elif heroic_kills > 6 :
-             calculated_status = "Wiper"
-        elif heroic_kills >= 0 and heroic_kills <= 6:
-             calculated_status = "Member"
+        calculated_status = "Member"
+        if item_level is None or item_level < 650: calculated_status = "Wiping Alt"
+        elif heroic_kills > 6 : calculated_status = "Wiper"
+        elif heroic_kills >= 0 and heroic_kills <= 6: calculated_status = "Member"
         # print(f"DEBUG: For {char_name}: iLvl={item_level}, HKills={heroic_kills} -> Initial Status='{calculated_status}'")
 
-        # print(f"DEBUG: For {char_name}: Preparing Item Level = {item_level}, Raid Progression = '{raid_progression_summary}', Spec = '{spec_name}', Role = '{role}', ClassID = {class_id}, Status = '{calculated_status}'")
-
-        characters_to_insert.append(Character(
+        new_char = Character(
             id=char_id, name=char_name, realm_slug=char_realm_slug, level=character_info.get('level'),
             class_id=class_id, class_name=class_name,
             spec_name=spec_name, main_spec_override=None, role=role,
-            status=calculated_status, # Use calculated status as initial value
-            item_level=item_level, raid_progression=raid_progression_summary, rank=rank
-        ))
+            status=calculated_status, item_level=item_level,
+            raid_progression=raid_progression_summary, rank=rank,
+            raid_attendance_count=0, avg_wcl_performance=None
+        )
+        characters_to_insert.append(new_char)
+        blizz_id_to_char_map[char_id] = new_char
 
-    print(f"\nFetched details for {len(characters_to_insert)} members (Rank <= 4). Made {api_call_count} API calls.")
+    print(f"\nProcessed Blizzard details for {len(characters_to_insert)} members (Rank <= 4). Made {api_call_count} API calls.")
 
-    # --- Insert Data ---
     db_session = SessionLocal()
     try:
         print(f"Inserting {len(characters_to_insert)} characters into the database...")
         if characters_to_insert:
              db_session.add_all(characters_to_insert)
              db_session.commit()
-             print(f"Database insert complete: {len(characters_to_insert)} inserted.")
+             print(f"Character insert complete.")
         else:
              print("No characters met the criteria to be inserted.")
-    except OperationalError as e:
-        print(f"Database connection error during insert: {e}. Check DATABASE_URL and network.")
-        db_session.rollback()
     except Exception as e:
-        print(f"Error during database insert: {e}")
-        db_session.rollback()
-    finally:
-        db_session.close()
+        print(f"Error during character insert: {e}")
+        db_session.rollback(); db_session.close(); return
 
-    # --- Fetch and Print WCL Reports ---
-    print("\n--- Fetching Warcraft Logs Reports ---")
-    wcl_reports = fetch_wcl_guild_reports()
-    if wcl_reports:
-        print(f"Found {len(wcl_reports)} recent WCL reports:")
-        for report in wcl_reports:
-            start_time_ms = report.get('startTime', 0)
-            start_date = datetime.fromtimestamp(start_time_ms / 1000).strftime('%Y-%m-%d %H:%M')
-            print(f"  - Title: {report.get('title')}, Code: {report.get('code')}, Start: {start_date}, Owner: {report.get('owner',{}).get('name')}")
+    print("\n--- Fetching and Processing Warcraft Logs Data ---")
+    wcl_reports_to_process = fetch_wcl_guild_reports()
+    wcl_reports_in_db = []
+    wcl_attendances_to_insert = []
+    character_attendance = {}
+
+    if wcl_reports_to_process:
+        print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance...")
+        for report_data in wcl_reports_to_process:
+            report_code = report_data.get('code')
+            if not report_code: continue
+            new_report = WCLReport(
+                code=report_code, title=report_data.get('title'),
+                start_time=report_data.get('start_time_dt'), end_time=report_data.get('end_time_dt'),
+                owner_name=report_data.get('owner', {}).get('name')
+            )
+            wcl_reports_in_db.append(new_report)
+            friendlies = fetch_wcl_report_details(report_code)
+            if friendlies:
+                player_names_in_log = {friendly.get('name') for friendly in friendlies if friendly.get('name')}
+                print(f"  Report {report_code}: Found {len(player_names_in_log)} unique player names in log.")
+                for char_id, character_obj in blizz_id_to_char_map.items():
+                    if character_obj.name.lower() in (name.lower() for name in player_names_in_log):
+                        wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=char_id))
+                        character_attendance[char_id] = character_attendance.get(char_id, 0) + 1
+            time.sleep(0.1)
+        try:
+            if wcl_reports_in_db:
+                print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...")
+                db_session.add_all(wcl_reports_in_db)
+                db_session.commit()
+                print("WCL reports inserted.")
+            if wcl_attendances_to_insert:
+                print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...")
+                db_session.add_all(wcl_attendances_to_insert)
+                db_session.commit()
+                print("WCL attendance inserted.")
+            if character_attendance:
+                print("Updating character attendance counts...")
+                update_count = 0
+                for char_id, count in character_attendance.items():
+                    char_to_update = db_session.query(Character).get(char_id)
+                    if char_to_update:
+                        char_to_update.raid_attendance_count = count
+                        update_count += 1
+                db_session.commit()
+                print(f"Updated attendance count for {update_count} characters.")
+        except Exception as e:
+            print(f"Error during WCL data insert/update: {e}")
+            db_session.rollback()
+        finally:
+            db_session.close()
     else:
-        print("No WCL reports found or an error occurred.")
-    # --- END: Fetch WCL Reports ---
+        print("Skipping WCL processing as no reports were fetched.")
+        db_session.close()
 
     end_time = time.time()
     print(f"\nUpdate process finished in {round(end_time - start_time, 2)} seconds.")
@@ -615,3 +740,4 @@ if __name__ == "__main__":
     else:
         print("All required environment variables found.")
         update_database()
+
