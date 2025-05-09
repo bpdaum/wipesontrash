@@ -19,6 +19,7 @@ if not DATABASE_URI:
     print("WARNING: DATABASE_URL environment variable not found. Defaulting to local sqlite:///guild_data.db")
     DATABASE_URI = 'sqlite:///guild_data.db'
 else:
+    # Heroku Postgres URLs start with 'postgres://', SQLAlchemy prefers 'postgresql://'
     if DATABASE_URI.startswith("postgres://"):
         DATABASE_URI = DATABASE_URI.replace("postgres://", "postgresql://", 1)
 
@@ -26,10 +27,10 @@ try:
     engine = create_engine(DATABASE_URI)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
-    metadata = MetaData()
+    metadata = MetaData() # Use MetaData for table existence check
 except ImportError as e:
-     print(f"Error: Database driver likely missing. {e}")
-     exit(1)
+     print(f"Error: Database driver likely missing. Did you 'pip install psycopg2-binary' (for Postgres) or ensure SQLAlchemy is installed? Details: {e}")
+     exit(1) # Exit if driver is missing
 except Exception as e:
      print(f"Error creating database engine: {e}")
      exit(1)
@@ -41,7 +42,7 @@ class Character(Base):
     name = Column(String(100), nullable=False)
     realm_slug = Column(String(100), nullable=False)
     level = Column(Integer)
-    class_id = Column(Integer) # Store the class ID
+    class_id = Column(Integer, ForeignKey('playable_class.id')) # Foreign key to PlayableClass
     class_name = Column(String(50))
     spec_name = Column(String(50)) # API Active Spec
     main_spec_override = Column(String(50), nullable=True) # User override
@@ -56,6 +57,7 @@ class Character(Base):
     avg_wcl_performance = Column(Float, nullable=True) # For future use
 
     attendances = relationship("WCLAttendance", back_populates="character") # Relationship
+    playable_class = relationship("PlayableClass") # Relationship to PlayableClass
 
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
     def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
@@ -85,6 +87,23 @@ class WCLAttendance(Base):
     __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
     def __repr__(self): return f'<WCLAttendance Report={self.report_code} CharacterID={self.character_id}>'
 
+# NEW: Playable Class Model
+class PlayableClass(Base):
+    __tablename__ = 'playable_class'
+    id = Column(Integer, primary_key=True) # Blizzard Class ID
+    name = Column(String(50), unique=True, nullable=False)
+    specs = relationship("PlayableSpec", back_populates="playable_class")
+    def __repr__(self): return f'<PlayableClass {self.name}>'
+
+# NEW: Playable Specialization Model
+class PlayableSpec(Base):
+    __tablename__ = 'playable_spec'
+    id = Column(Integer, primary_key=True) # Blizzard Spec ID
+    name = Column(String(50), nullable=False)
+    class_id = Column(Integer, ForeignKey('playable_class.id'), nullable=False)
+    playable_class = relationship("PlayableClass", back_populates="specs")
+    def __repr__(self): return f'<PlayableSpec {self.name} (Class ID: {self.class_id})>'
+
 
 # --- Configuration Loading ---
 BLIZZARD_CLIENT_ID = os.environ.get('BLIZZARD_CLIENT_ID')
@@ -107,8 +126,8 @@ WCL_API_ENDPOINT = "https://www.warcraftlogs.com/api/v2/client"
 # --- Caching ---
 blizzard_access_token_cache = { "token": None, "expires_at": 0 }
 wcl_access_token_cache = { "token": None, "expires_at": 0 }
-CLASS_MAP = {}
-SPEC_MAP_BY_CLASS = {}
+CLASS_MAP = {} # Will be populated by update_static_tables from DB
+SPEC_MAP_BY_CLASS = {} # Will be populated by update_static_tables from DB
 
 # --- Timezone ---
 CENTRAL_TZ = pytz.timezone('America/Chicago')
@@ -251,7 +270,7 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl
 
 def get_static_data(endpoint, use_base_url=True):
     """
-    Fetches static data (classes, specs) from Blizzard API.
+    Fetches static data (like class/spec indexes) from Blizzard API.
     Can fetch from a full URL if use_base_url is False.
     """
     access_token = get_blizzard_access_token()
@@ -271,112 +290,82 @@ def get_static_data(endpoint, use_base_url=True):
     return data
 
 
-def populate_spec_cache():
-    """
-    Populates the SPEC_MAP_BY_CLASS cache if empty.
-    Fetches spec index, then fetches details for each spec to get class ID.
-    """
-    global SPEC_MAP_BY_CLASS
-    if SPEC_MAP_BY_CLASS:
-        return True
+def update_static_tables(db_session):
+    """ Fetches and updates PlayableClass and PlayableSpec tables. """
+    print("Updating static PlayableClass and PlayableSpec tables...")
+    class_success = False
+    spec_success = False
 
-    print("Specialization map empty, attempting to fetch index...")
-    spec_index_data = get_static_data('/playable-specialization/index')
-
-    if not spec_index_data:
-        print("Error: Failed to fetch playable specialization index.")
-        return False
-
-    spec_list_key = 'character_specializations'
-    if spec_list_key not in spec_index_data:
-        print(f"Error: '{spec_list_key}' key not found in the specialization index response.")
-        return False
-
-    spec_list = spec_index_data.get(spec_list_key, [])
-    if not spec_list:
-        print("Warning: Specialization list received from API is empty.")
-        return False
-
-    print(f"Fetched {len(spec_list)} specializations from index. Fetching details...")
-
-    temp_spec_map = {}
-    processed_count = 0
-    fetch_errors = 0
-
-    for spec_info_from_index in spec_list:
-        spec_id = spec_info_from_index.get('id')
-        spec_name = spec_info_from_index.get('name')
-        detail_href = spec_info_from_index.get('key', {}).get('href')
-
-        if not spec_id or not spec_name or not detail_href:
-            # print(f"Warning: Skipping spec entry in index due to missing data: {spec_info_from_index}")
-            continue
-
-        spec_detail_data = get_static_data(detail_href, use_base_url=False)
-        processed_count += 1
-
-        if not spec_detail_data:
-            # print(f"Warning: Failed to fetch details for spec ID {spec_id} ({spec_name}). Skipping.")
-            fetch_errors += 1
-            continue
-
-        class_info = spec_detail_data.get('playable_class', {})
-        class_id = class_info.get('id')
-
-        if not class_id:
-            # print(f"Warning: Skipping spec {spec_name} because class ID was missing in detail response: {spec_detail_data}")
-            fetch_errors += 1
-            continue
-
-        if class_id not in temp_spec_map:
-            temp_spec_map[class_id] = []
-        temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
-
-        if processed_count % 20 == 0: # Log progress less frequently
-             print(f"Processed details for {processed_count}/{len(spec_list)} specs...")
-        time.sleep(0.02) # Slightly smaller delay
-
-    # Sort specs within each class list now
-    for cid in temp_spec_map:
-        temp_spec_map[cid].sort(key=lambda x: x['name'])
-
-    if not temp_spec_map:
-        print("Error: Could not build specialization map (map is empty after processing details).")
-        return False
-    if fetch_errors > 0:
-        print(f"Warning: Encountered {fetch_errors} errors fetching spec details.")
-
-    SPEC_MAP_BY_CLASS = temp_spec_map
-    print(f"Specialization map populated for {len(SPEC_MAP_BY_CLASS)} classes.")
-    return True
-
-
-def populate_static_caches():
-    """ Populates CLASS_MAP and SPEC_MAP_BY_CLASS if empty. """
-    global CLASS_MAP
-    class_success = True
-    spec_success = True
-
-    if not CLASS_MAP:
-        print("Class map empty, attempting to fetch...")
-        class_data = get_static_data('/playable-class/index')
-        if class_data and 'classes' in class_data:
-            CLASS_MAP = {cls['id']: cls['name'] for cls in class_data['classes']}
-            print(f"Class map populated with {len(CLASS_MAP)} entries.")
+    # 1. Update Playable Classes
+    print("Fetching playable class index...")
+    class_index_data = get_static_data('/playable-class/index')
+    if class_index_data and 'classes' in class_index_data:
+        # db_session.query(PlayableClass).delete() # Already dropped
+        classes_to_add = []
+        for class_info in class_index_data['classes']:
+            if class_info.get('id') and class_info.get('name'):
+                classes_to_add.append(PlayableClass(id=class_info['id'], name=class_info['name']))
+        if classes_to_add:
+            db_session.add_all(classes_to_add)
+            # db_session.commit() # Commit later with specs
+            print(f"PlayableClass table prepared with {len(classes_to_add)} entries.")
+            class_success = True
         else:
-            print("Failed to fetch or parse playable class data.")
-            class_success = False
+            print("No class data to add.")
+    else:
+        print("Error: Failed to fetch or parse playable class index.")
 
-    spec_success = populate_spec_cache()
+    # 2. Update Playable Specializations
+    print("Fetching playable specialization index...")
+    spec_index_data = get_static_data('/playable-specialization/index')
+    if spec_index_data and 'character_specializations' in spec_index_data:
+        # db_session.query(PlayableSpec).delete() # Already dropped
+        specs_to_add = []
+        fetch_errors = 0
+        processed_count = 0
+        spec_list = spec_index_data['character_specializations']
+        print(f"Fetched {len(spec_list)} specializations from index. Fetching details for class IDs...")
+
+        for spec_info_from_index in spec_list:
+            spec_id = spec_info_from_index.get('id')
+            spec_name = spec_info_from_index.get('name')
+            detail_href = spec_info_from_index.get('key', {}).get('href')
+
+            if not spec_id or not spec_name or not detail_href: continue
+
+            spec_detail_data = get_static_data(detail_href, use_base_url=False)
+            processed_count +=1
+            if spec_detail_data:
+                class_info = spec_detail_data.get('playable_class', {})
+                class_id = class_info.get('id')
+                if class_id:
+                    specs_to_add.append(PlayableSpec(id=spec_id, name=spec_name, class_id=class_id))
+                else:
+                    print(f"Warning: No class_id for spec {spec_name} (ID: {spec_id})")
+                    fetch_errors +=1
+            else:
+                print(f"Warning: Failed to fetch details for spec {spec_name} (ID: {spec_id})")
+                fetch_errors +=1
+            if processed_count % 10 == 0: print(f"Processed details for {processed_count}/{len(spec_list)} specs...")
+            time.sleep(0.05)
+
+        if specs_to_add:
+            db_session.add_all(specs_to_add)
+            print(f"PlayableSpec table prepared with {len(specs_to_add)} entries.")
+            spec_success = True
+        else:
+            print("No spec data to add.")
+        if fetch_errors > 0:
+            print(f"Warning: Encountered {fetch_errors} errors while fetching spec details.")
+    else:
+        print("Error: Failed to fetch or parse playable specialization index.")
 
     return class_success and spec_success
 
 
 def get_guild_roster():
     """ Fetches the guild roster from Blizzard API. """
-    if not GUILD_NAME or not REALM_SLUG:
-        print("Error: Guild Name or Realm Slug not configured.")
-        return None
+    if not GUILD_NAME or not REALM_SLUG: return None
     access_token = get_blizzard_access_token()
     if not access_token: return None
     realm_slug_lower = REALM_SLUG.lower()
@@ -384,10 +373,7 @@ def get_guild_roster():
     api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/guild/{realm_slug_lower}/{guild_name_segment}/roster"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    # print(f"Attempting Blizzard Guild Roster URL: {api_url}") # Reduce logging
     data = make_api_request(api_url, params, headers)
-    # if data: print("Successfully fetched Blizzard guild roster.")
-    # else: print("Failed to fetch Blizzard guild roster.")
     return data
 
 def get_character_summary(realm_slug, character_name):
@@ -518,7 +504,6 @@ def fetch_wcl_report_details(report_code):
     access_token = get_wcl_access_token()
     if not access_token: return None
 
-    # Corrected GraphQL query to get player actors from masterData
     query = f"""
     query ReportPlayers($reportCode: String!) {{
       reportData {{
@@ -553,42 +538,66 @@ def update_database():
     """ Fetches all data from Blizzard API and updates the database. """
     print("Starting database update process...")
     start_time = time.time()
+    db_session = SessionLocal() # Create session at the beginning
 
     # --- Drop and Recreate Table ---
     try:
-        print(f"Attempting to drop existing tables (WCLAttendance, WCLReport, Character)...")
+        print(f"Attempting to drop existing tables (WCLAttendance, WCLReport, Character, PlayableSpec, PlayableClass)...")
         Base.metadata.bind = engine
+        # Drop tables in reverse order of dependency
         WCLAttendance.__table__.drop(engine, checkfirst=True)
         WCLReport.__table__.drop(engine, checkfirst=True)
         Character.__table__.drop(engine, checkfirst=True)
+        PlayableSpec.__table__.drop(engine, checkfirst=True)
+        PlayableClass.__table__.drop(engine, checkfirst=True)
         print("Tables dropped (or did not exist).")
+
         print("Creating tables...")
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=engine) # Recreates all tables defined in Base
         print("Tables created successfully.")
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.")
+         db_session.close()
          return
     except Exception as e:
         print(f"Error during table drop/create: {e}")
+        db_session.close()
         return
     # --- END Drop and Recreate ---
 
-    if not populate_static_caches():
-        print("Error: Failed to populate static caches. Aborting update.")
+    # Populate static class/spec tables first
+    if not update_static_tables(db_session): # Pass session
+        print("Error: Failed to update static class/spec tables. Aborting update.")
+        db_session.close()
+        return
+    # Commit changes from static tables before proceeding
+    try:
+        db_session.commit()
+        print("Static tables (Class/Spec) committed.")
+    except Exception as e:
+        print(f"Error committing static table data: {e}")
+        db_session.rollback()
+        db_session.close()
         return
 
+    # Fetch the main guild roster
     roster_data = get_guild_roster()
     if not roster_data or 'members' not in roster_data:
         print("Error: Failed to fetch guild roster. Aborting update.")
+        db_session.close()
         return
 
     total_members = len(roster_data['members'])
     print(f"Fetched {total_members} total members from Blizzard roster. Processing rank <= 4...")
 
     characters_to_insert = []
-    blizz_id_to_char_map = {}
+    blizz_id_to_char_map = {} # Map Blizzard ID to Character object for later WCL linking
     api_call_count = 0
     processed_for_details = 0
+
+    # Fetch Class Map from DB for use here
+    local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
+
 
     for member_entry in roster_data['members']:
         character_info = member_entry.get('character', {})
@@ -605,7 +614,7 @@ def update_database():
              print(f"\nProcessing Blizzard details for {char_name}-{char_realm_slug} (Rank {rank})...")
 
         class_id = character_info.get('playable_class', {}).get('id')
-        class_name = CLASS_MAP.get(class_id, f"ID: {class_id}" if class_id else "N/A")
+        class_name = local_class_map.get(class_id, f"ID: {class_id}" if class_id else "N/A") # Use DB map
 
         item_level = None; raid_progression_summary = None; spec_name = None; role = None; main_spec_override = None; heroic_kills = -1
 
@@ -660,7 +669,6 @@ def update_database():
 
     print(f"\nProcessed Blizzard details for {len(characters_to_insert)} members (Rank <= 4). Made {api_call_count} API calls.")
 
-    db_session = SessionLocal()
     try:
         print(f"Inserting {len(characters_to_insert)} characters into the database...")
         if characters_to_insert:
@@ -708,7 +716,7 @@ def update_database():
             if wcl_reports_in_db:
                 print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...")
                 db_session.add_all(wcl_reports_in_db)
-                db_session.commit()
+                db_session.commit() # Commit reports before attendance due to FK
                 print("WCL reports inserted.")
             if wcl_attendances_to_insert:
                 print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...")
@@ -730,7 +738,6 @@ def update_database():
                     print(f"Updated attendance percentage for {update_count} characters based on {successfully_processed_wcl_reports} successfully processed reports.")
                 else:
                     print("No WCL reports were successfully processed for details; cannot calculate attendance percentage.")
-
         except Exception as e:
             print(f"Error during WCL data insert/update: {e}")
             db_session.rollback()
