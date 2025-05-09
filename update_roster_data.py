@@ -196,42 +196,57 @@ def get_wcl_access_token():
         return None
 
 
-def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl_variables=None):
-    """ Helper function to make API GET (Blizzard) or POST (WCL GraphQL) requests and handle common errors """
-    try:
-        if is_wcl: # GraphQL POST request for WCL
-            if not wcl_query:
-                print("Error: WCL query missing for GraphQL request.")
-                return None
-            json_payload = {'query': wcl_query}
-            if wcl_variables:
-                json_payload['variables'] = wcl_variables
-            # print(f"DEBUG WCL Payload: {json_payload}") # For debugging WCL requests
-            response = requests.post(api_url, json=json_payload, headers=headers, timeout=30)
-        else: # REST GET request for Blizzard
-            response = requests.get(api_url, params=params, headers=headers, timeout=30)
+def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl_variables=None, max_retries=3, retry_delay=5):
+    """ Helper function to make API requests with retries for transient errors. """
+    for attempt in range(max_retries):
+        try:
+            if is_wcl:
+                if not wcl_query:
+                    print("Error: WCL query missing for GraphQL request.")
+                    return None
+                json_payload = {'query': wcl_query}
+                if wcl_variables:
+                    json_payload['variables'] = wcl_variables
+                response = requests.post(api_url, json=json_payload, headers=headers, timeout=30)
+            else:
+                response = requests.get(api_url, params=params, headers=headers, timeout=30)
 
-        if response.status_code == 404:
-             # print(f"Warning: 404 Not Found for URL: {response.url}") # Reduce verbosity
-             return None
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error during API request: {e}")
-        print(f"URL attempted: {e.request.url}")
-        print(f"Response Status: {e.response.status_code}")
-        try: print(f"Response Body: {e.response.json()}")
-        except: print(f"Response Body: {e.response.text}")
-        return None
-    except requests.exceptions.Timeout:
-        print(f"Timeout error during API request to {api_url}")
-        return None
-    except requests.exceptions.RequestException as e:
-        print(f"Network error during API request: {e}")
-        return None
-    except Exception as e:
-        print(f"An unexpected error occurred during API request: {e}")
-        return None
+            if response.status_code == 404:
+                # print(f"Warning: 404 Not Found for URL: {response.url}") # Reduce verbosity
+                return None # 404 is not typically a transient error to retry
+            response.raise_for_status() # Raise for other HTTP errors (4xx client, 5xx server)
+            return response.json()
+
+        except requests.exceptions.Timeout:
+            print(f"Timeout error during API request to {api_url}. Attempt {attempt + 1}/{max_retries}.")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                print(f"Max retries reached for timeout at {api_url}.")
+                return None
+        except requests.exceptions.HTTPError as e:
+            # Retry only on specific server-side errors (e.g., 500, 502, 503, 504)
+            if e.response.status_code in [500, 502, 503, 504] and attempt < max_retries - 1:
+                print(f"HTTP Error {e.response.status_code} for {api_url}. Attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"HTTP Error during API request: {e}")
+                print(f"URL attempted: {e.request.url}")
+                print(f"Response Status: {e.response.status_code}")
+                try: print(f"Response Body: {e.response.json()}")
+                except: print(f"Response Body: {e.response.text}")
+                return None # Do not retry other HTTP errors or if max retries reached
+        except requests.exceptions.RequestException as e:
+            print(f"Network error during API request: {e}. Attempt {attempt + 1}/{max_retries}.")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                print(f"Max retries reached for network error at {api_url}.")
+                return None
+        except Exception as e:
+            print(f"An unexpected error occurred during API request: {e}")
+            return None
+    return None # Should be unreachable if loop completes
 
 
 def get_static_data(endpoint, use_base_url=True):
@@ -249,7 +264,10 @@ def get_static_data(endpoint, use_base_url=True):
 
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
+    # print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}") # Reduce verbosity
     data = make_api_request(api_url, params, headers)
+    # if data and use_base_url: print(f"Successfully fetched static data from {endpoint}.")
+    # elif not data: print(f"Failed to fetch static data from {endpoint or api_url}.")
     return data
 
 
@@ -291,12 +309,14 @@ def populate_spec_cache():
         detail_href = spec_info_from_index.get('key', {}).get('href')
 
         if not spec_id or not spec_name or not detail_href:
+            # print(f"Warning: Skipping spec entry in index due to missing data: {spec_info_from_index}")
             continue
 
         spec_detail_data = get_static_data(detail_href, use_base_url=False)
         processed_count += 1
 
         if not spec_detail_data:
+            # print(f"Warning: Failed to fetch details for spec ID {spec_id} ({spec_name}). Skipping.")
             fetch_errors += 1
             continue
 
@@ -304,6 +324,7 @@ def populate_spec_cache():
         class_id = class_info.get('id')
 
         if not class_id:
+            # print(f"Warning: Skipping spec {spec_name} because class ID was missing in detail response: {spec_detail_data}")
             fetch_errors += 1
             continue
 
@@ -311,10 +332,11 @@ def populate_spec_cache():
             temp_spec_map[class_id] = []
         temp_spec_map[class_id].append({"id": spec_id, "name": spec_name})
 
-        if processed_count % 20 == 0:
+        if processed_count % 20 == 0: # Log progress less frequently
              print(f"Processed details for {processed_count}/{len(spec_list)} specs...")
-        time.sleep(0.02)
+        time.sleep(0.02) # Slightly smaller delay
 
+    # Sort specs within each class list now
     for cid in temp_spec_map:
         temp_spec_map[cid].sort(key=lambda x: x['name'])
 
@@ -352,7 +374,9 @@ def populate_static_caches():
 
 def get_guild_roster():
     """ Fetches the guild roster from Blizzard API. """
-    if not GUILD_NAME or not REALM_SLUG: return None
+    if not GUILD_NAME or not REALM_SLUG:
+        print("Error: Guild Name or Realm Slug not configured.")
+        return None
     access_token = get_blizzard_access_token()
     if not access_token: return None
     realm_slug_lower = REALM_SLUG.lower()
@@ -360,7 +384,10 @@ def get_guild_roster():
     api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/guild/{realm_slug_lower}/{guild_name_segment}/roster"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
+    # print(f"Attempting Blizzard Guild Roster URL: {api_url}") # Reduce logging
     data = make_api_request(api_url, params, headers)
+    # if data: print("Successfully fetched Blizzard guild roster.")
+    # else: print("Failed to fetch Blizzard guild roster.")
     return data
 
 def get_character_summary(realm_slug, character_name):
@@ -390,7 +417,10 @@ def get_character_raid_progression(realm_slug, character_name):
 
 
 def summarize_raid_progression(raid_data):
-    """ Summarizes raid progression for 'Liberation of Undermine'. """
+    """
+    Summarizes raid progression for 'Liberation of Undermine'.
+    Returns a tuple: (summary_string, heroic_kills_count)
+    """
     target_expansion_name = "The War Within"
     target_raid_name = "Liberation of Undermine"
     short_raid_name = "Undermine"
@@ -482,14 +512,13 @@ def fetch_wcl_guild_reports(limit=30):
     print(f"Filtered down to {len(filtered_reports)} Wed/Fri WCL reports.")
     return filtered_reports
 
-# --- MODIFIED: fetch_wcl_report_details ---
 def fetch_wcl_report_details(report_code):
     """Fetches player details for a specific WCL report using the masterData actors field."""
     if not report_code: return None
     access_token = get_wcl_access_token()
     if not access_token: return None
 
-    # GraphQL query to get the list of player actors from masterData
+    # Corrected GraphQL query to get player actors from masterData
     query = f"""
     query ReportPlayers($reportCode: String!) {{
       reportData {{
@@ -507,12 +536,9 @@ def fetch_wcl_report_details(report_code):
     """
     graphql_variables = {"reportCode": report_code}
     headers = {"Authorization": f"Bearer {access_token}"}
-    # print(f"Attempting WCL Report Details for: {report_code}") # Reduce logging
-    data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables) # Pass variables
+    data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables)
 
-    # Parse the response to extract the list of actors (players)
     if data and data.get('data', {}).get('reportData', {}).get('report', {}).get('masterData', {}).get('actors'):
-        # print(f"Successfully fetched details for WCL report {report_code}.")
         return data['data']['reportData']['report']['masterData']['actors']
     else:
         print(f"Failed to fetch or parse player details from WCL report {report_code}.")
@@ -652,6 +678,7 @@ def update_database():
     wcl_reports_in_db = []
     wcl_attendances_to_insert = []
     character_attendance_raw_counts = {} # {blizzard_char_id: raw_attendance_count}
+    successfully_processed_wcl_reports = 0 # Count reports we get details for
 
     if wcl_reports_to_process:
         print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance...")
@@ -666,21 +693,22 @@ def update_database():
             )
             wcl_reports_in_db.append(new_report)
 
-            # Use the new term 'actors' instead of 'friendlies' from the corrected query
-            actors_data = fetch_wcl_report_details(report_code) # This now returns the list of actors
+            actors_data = fetch_wcl_report_details(report_code)
             if actors_data:
+                successfully_processed_wcl_reports += 1
                 player_names_in_log = {actor.get('name') for actor in actors_data if actor.get('name')}
-                # print(f"  Report {report_code}: Found {len(player_names_in_log)} unique player names in log.")
                 for char_id, character_obj in blizz_id_to_char_map.items():
                     if character_obj.name.lower() in (name.lower() for name in player_names_in_log):
                         wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=char_id))
                         character_attendance_raw_counts[char_id] = character_attendance_raw_counts.get(char_id, 0) + 1
-            time.sleep(0.1)
+            else:
+                print(f"Warning: Could not get player details for WCL report {report_code}. This report will not count towards attendance percentage.")
+            time.sleep(0.1) # Be respectful to WCL API
         try:
             if wcl_reports_in_db:
                 print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...")
                 db_session.add_all(wcl_reports_in_db)
-                db_session.commit() # Commit reports before attendance due to FK
+                db_session.commit()
                 print("WCL reports inserted.")
             if wcl_attendances_to_insert:
                 print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...")
@@ -691,18 +719,17 @@ def update_database():
             if character_attendance_raw_counts:
                 print("Updating character attendance percentages...")
                 update_count = 0
-                total_relevant_raids = len(wcl_reports_to_process)
-                if total_relevant_raids > 0:
+                if successfully_processed_wcl_reports > 0:
                     for char_id, raw_count in character_attendance_raw_counts.items():
                         char_to_update = db_session.query(Character).get(char_id)
                         if char_to_update:
-                            attendance_percentage = round((raw_count / total_relevant_raids) * 100, 2)
+                            attendance_percentage = round((raw_count / successfully_processed_wcl_reports) * 100, 2)
                             char_to_update.raid_attendance_percentage = attendance_percentage
                             update_count += 1
                     db_session.commit()
-                    print(f"Updated attendance percentage for {update_count} characters.")
+                    print(f"Updated attendance percentage for {update_count} characters based on {successfully_processed_wcl_reports} successfully processed reports.")
                 else:
-                    print("No relevant WCL reports found to calculate attendance percentage.")
+                    print("No WCL reports were successfully processed for details; cannot calculate attendance percentage.")
 
         except Exception as e:
             print(f"Error during WCL data insert/update: {e}")
