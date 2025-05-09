@@ -51,8 +51,8 @@ class Character(Base):
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    # Aggregated WCL Data
-    raid_attendance_count = Column(Integer, default=0)
+    # MODIFIED: Store WCL attendance as a percentage
+    raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
     avg_wcl_performance = Column(Float, nullable=True) # For future use
 
     attendances = relationship("WCLAttendance", back_populates="character") # Relationship
@@ -399,7 +399,10 @@ def get_character_raid_progression(realm_slug, character_name):
 
 
 def summarize_raid_progression(raid_data):
-    """ Summarizes raid progression for 'Liberation of Undermine'. """
+    """
+    Summarizes raid progression for 'Liberation of Undermine'.
+    Returns a tuple: (summary_string, heroic_kills_count)
+    """
     target_expansion_name = "The War Within"
     target_raid_name = "Liberation of Undermine"
     short_raid_name = "Undermine"
@@ -456,7 +459,7 @@ def fetch_wcl_guild_reports(limit=30):
                 data {{
                     code
                     title
-                    startTime
+                    startTime # UTC timestamp in milliseconds
                     endTime
                     owner {{ name }}
                 }}
@@ -465,7 +468,7 @@ def fetch_wcl_guild_reports(limit=30):
     }}
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    print(f"Attempting WCL Guild Reports (limit {limit}) from: {WCL_API_ENDPOINT}")
+    # print(f"Attempting WCL Guild Reports (limit {limit}) from: {WCL_API_ENDPOINT}") # Reduce logging
     data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query)
 
     if not data or not data.get('data', {}).get('reportData', {}).get('reports', {}).get('data'):
@@ -488,7 +491,6 @@ def fetch_wcl_guild_reports(limit=30):
              report['start_time_dt'] = utc_dt
              report['end_time_dt'] = datetime.fromtimestamp(report.get('endTime', 0) / 1000, tz=pytz.utc) if report.get('endTime') else None
              filtered_reports.append(report)
-             # print(f"  -> Keeping Report: {report['code']} (Started {ct_dt.strftime('%Y-%m-%d %H:%M %Z')})")
              if len(filtered_reports) == 8: break
     print(f"Filtered down to {len(filtered_reports)} Wed/Fri WCL reports.")
     return filtered_reports
@@ -498,25 +500,18 @@ def fetch_wcl_report_details(report_code):
     if not report_code: return None
     access_token = get_wcl_access_token()
     if not access_token: return None
+
+    # GraphQL query to get the list of players (friendlies) in the report
     query = f"""
     {{
         reportData {{
             report(code: "{report_code}") {{
-                friendlies(dataType: حضور) {{ # dataType: Attendance might be more accurate
+                friendlies {{
                     id
                     name
                     server
-                    # type # Not always reliable for filtering players vs pets
+                    # type # This field can help distinguish players from NPCs/pets
                 }}
-                # Optional: Fetch rankings if needed later
-                # rankings(playerMetric: dps, encounterID: <ENCOUNTER_ID_HERE>) {{
-                #     data {{
-                #         name
-                #         class
-                #         spec
-                #         rankPercent
-                #     }}
-                # }}
             }}
         }}
     }}
@@ -640,7 +635,8 @@ def update_database():
             spec_name=spec_name, main_spec_override=None, role=role,
             status=calculated_status, item_level=item_level,
             raid_progression=raid_progression_summary, rank=rank,
-            raid_attendance_count=0, avg_wcl_performance=None
+            raid_attendance_percentage=0.0, # Initialize new field
+            avg_wcl_performance=None
         )
         characters_to_insert.append(new_char)
         blizz_id_to_char_map[char_id] = new_char
@@ -664,7 +660,7 @@ def update_database():
     wcl_reports_to_process = fetch_wcl_guild_reports()
     wcl_reports_in_db = []
     wcl_attendances_to_insert = []
-    character_attendance = {}
+    character_attendance_raw_counts = {} # {blizzard_char_id: raw_attendance_count}
 
     if wcl_reports_to_process:
         print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance...")
@@ -680,11 +676,11 @@ def update_database():
             friendlies = fetch_wcl_report_details(report_code)
             if friendlies:
                 player_names_in_log = {friendly.get('name') for friendly in friendlies if friendly.get('name')}
-                print(f"  Report {report_code}: Found {len(player_names_in_log)} unique player names in log.")
+                # print(f"  Report {report_code}: Found {len(player_names_in_log)} unique player names in log.")
                 for char_id, character_obj in blizz_id_to_char_map.items():
                     if character_obj.name.lower() in (name.lower() for name in player_names_in_log):
                         wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=char_id))
-                        character_attendance[char_id] = character_attendance.get(char_id, 0) + 1
+                        character_attendance_raw_counts[char_id] = character_attendance_raw_counts.get(char_id, 0) + 1
             time.sleep(0.1)
         try:
             if wcl_reports_in_db:
@@ -697,24 +693,34 @@ def update_database():
                 db_session.add_all(wcl_attendances_to_insert)
                 db_session.commit()
                 print("WCL attendance inserted.")
-            if character_attendance:
-                print("Updating character attendance counts...")
+
+            # --- MODIFIED: Update Character Attendance Percentages ---
+            if character_attendance_raw_counts:
+                print("Updating character attendance percentages...")
                 update_count = 0
-                for char_id, count in character_attendance.items():
-                    char_to_update = db_session.query(Character).get(char_id)
-                    if char_to_update:
-                        char_to_update.raid_attendance_count = count
-                        update_count += 1
-                db_session.commit()
-                print(f"Updated attendance count for {update_count} characters.")
+                total_relevant_raids = len(wcl_reports_to_process) # Total raids we are considering
+                if total_relevant_raids > 0: # Avoid division by zero
+                    for char_id, raw_count in character_attendance_raw_counts.items():
+                        # Fetch the character again within the session to update
+                        char_to_update = db_session.query(Character).get(char_id)
+                        if char_to_update:
+                            attendance_percentage = round((raw_count / total_relevant_raids) * 100, 2) # Calculate percentage
+                            char_to_update.raid_attendance_percentage = attendance_percentage # Use new column name
+                            update_count += 1
+                    db_session.commit()
+                    print(f"Updated attendance percentage for {update_count} characters.")
+                else:
+                    print("No relevant WCL reports found to calculate attendance percentage.")
+            # --- END MODIFICATION ---
+
         except Exception as e:
             print(f"Error during WCL data insert/update: {e}")
             db_session.rollback()
         finally:
-            db_session.close()
+            db_session.close() # Close session after all updates
     else:
         print("Skipping WCL processing as no reports were fetched.")
-        db_session.close()
+        db_session.close() # Close session if no WCL processing needed
 
     end_time = time.time()
     print(f"\nUpdate process finished in {round(end_time - start_time, 2)} seconds.")
@@ -740,4 +746,3 @@ if __name__ == "__main__":
     else:
         print("All required environment variables found.")
         update_database()
-

@@ -5,7 +5,7 @@ from flask import Flask, render_template, jsonify, request, abort
 from flask_sqlalchemy import SQLAlchemy
 # Import desc for descending sort order AND SQLAlchemy column types
 # Import func for count aggregation
-from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func
+from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func, Float # Added Float
 import os
 import requests # Keep for potential future use or type hints
 import time
@@ -61,6 +61,10 @@ class Character(db.Model):
     raid_progression = db.Column(String(200)) # Store summary string
     rank = db.Column(Integer, index=True) # Index rank for faster filtering
     last_updated = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
+    # WCL Data
+    raid_attendance_percentage = db.Column(Float, default=0.0, nullable=True)
+    avg_wcl_performance = db.Column(Float, nullable=True)
+
 
     # Define a unique constraint on name and realm_slug
     __table_args__ = (db.UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
@@ -298,10 +302,11 @@ def roster_page():
                         'spec_name': char.spec_name if char.spec_name else "N/A",
                         'main_spec_override': char.main_spec_override,
                         'role': char.role if char.role else "N/A",
-                        'status': char.status, # Fetch status from DB
+                        'status': char.status,
                         'item_level': char.item_level if char.item_level is not None else "N/A",
                         'raid_progression': char.raid_progression if char.raid_progression else "N/A",
-                        'rank': char.rank
+                        'rank': char.rank,
+                        'raid_attendance_percentage': char.raid_attendance_percentage if char.raid_attendance_percentage is not None else 0.0
                     })
 
                 if not members and not error_message:
@@ -345,7 +350,6 @@ def update_spec():
         with app.app_context():
             character = Character.query.get(character_id)
             if not character: abort(404, description="Character not found")
-            # Optional validation skipped for brevity
             character.main_spec_override = new_spec_name if new_spec_name else None
             character.last_updated = datetime.utcnow()
             db.session.commit()
@@ -363,43 +367,32 @@ def update_status():
     """ Handles AJAX request to update a character's status. """
     if not request.is_json:
         abort(400, description="Request must be JSON")
-
     data = request.get_json()
     character_id = data.get('character_id')
     new_status = data.get('status')
-    # Validate against the user-settable options
-    valid_user_statuses = ['Wiper', 'Member', 'Wiping Alt'] # Corrected list
-
+    valid_user_statuses = ['Wiper', 'Member', 'Wiping Alt']
     if not character_id or not isinstance(character_id, int) or not new_status or new_status not in valid_user_statuses:
         print(f"Error: Invalid character_id or status in request data: {data}")
         abort(400, description="Invalid character_id or status")
-
     try:
         with app.app_context():
             character = Character.query.get(character_id)
             if not character:
                 print(f"Error: Character not found with ID: {character_id}")
-                abort(404, description="Character not found") # Not found
-
-            character.status = new_status # Update the status field directly
-            character.last_updated = datetime.utcnow() # Update timestamp
-
+                abort(404, description="Character not found")
+            character.status = new_status
+            character.last_updated = datetime.utcnow()
             db.session.commit()
             print(f"Successfully updated status for Character ID {character_id} to '{character.status}'")
             return jsonify({"success": True, "message": "Status updated successfully."})
-
     except Exception as e:
-        db.session.rollback() # Rollback on error
+        db.session.rollback()
         print(f"Error updating status for character ID {character_id}: {e}")
-        abort(500, description="Database error during update.") # Internal server error
+        abort(500, description="Database error during update.")
 
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    # Note: When running locally for the first time without DATABASE_URL,
-    # the update script should handle table creation.
-    # You might need to ensure Blizzard API keys are set locally if the spec cache is empty
-    # for the get_all_specs() function to work on the first page load.
     app.run(host='0.0.0.0', port=port, debug=False)
 

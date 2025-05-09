@@ -63,10 +63,6 @@
         .status-wiper { color: #b7791f; font-weight: 500;}
         .status-member { color: #38a169; }
         .status-wiping-alt { color: #718096; }
-        /* Add styles for user-settable statuses if needed */
-        /* .status-raid { } */
-        /* .status-casual { color: #4299e1; } */
-        /* .status-alt { color: #9f7aea; } */
 
     </style>
 </head>
@@ -118,7 +114,8 @@
                             <th class="sortable" data-column-index="5" data-sort-type="number">Item Level <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="6" data-sort-type="string">Status <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="7" data-sort-type="string">Progression <span class="sort-arrow"></span></th>
-                            <th class="sortable" data-column-index="8" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="8" data-sort-type="number">Attendance <span class="sort-arrow"></span></th> {# NEW #}
+                            <th class="sortable" data-column-index="9" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
                         </tr>
                     </thead>
                     <tbody id="rosterBody">
@@ -132,54 +129,45 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                             <td class="text-center role-cell"> {# Center align the icon #}
+                             <td class="text-center role-cell">
                                 {% set role_lower = member.role | lower if member.role else '' %}
                                 {% if role_lower == 'dps' %} <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i>
                                 {% elif role_lower == 'healer' %} <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
                                 {% elif role_lower == 'tank' %} <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
                                 {% else %} <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {% endif %}
                             </td>
-                            <td>
+                            <td> {# Spec Column #}
                                 <span class="spec-display display-value">
-                                    {# Display override if set, otherwise API spec #}
-                                    {% if member.main_spec_override %}
-                                        {{ member.main_spec_override }}
-                                    {% elif member.spec_name == "N/A" or member.spec_name is none %}
-                                        <span class="na-value">N/A</span>
-                                    {% else %}
-                                        {{ member.spec_name }} {# Display API spec if no override #}
-                                    {% endif %}
+                                    {% if member.main_spec_override %} {{ member.main_spec_override }}
+                                    {% elif member.spec_name == "N/A" or member.spec_name is none %} <span class="na-value">N/A</span>
+                                    {% else %} {{ member.spec_name }} {% endif %}
                                 </span>
-                                <i class="fas fa-pencil-alt edit-btn edit-spec-btn" title="Set Main Spec"></i> {# Edit Icon #}
-                                <div class="edit-container spec-edit-container"> {# Container #}
-                                    <select class="edit-control spec-select">
-                                        {# Options will be populated by JavaScript based on class_id #}
-                                    </select>
+                                <i class="fas fa-pencil-alt edit-btn edit-spec-btn" title="Set Main Spec"></i>
+                                <div class="edit-container spec-edit-container">
+                                    <select class="edit-control spec-select"> </select>
                                     <button class="save-btn spec-save-btn">Save</button>
                                     <button class="cancel-btn spec-cancel-btn">Cancel</button>
                                 </div>
-                                <span class="update-status spec-update-status"></span> {# Specific class #}
+                                <span class="update-status spec-update-status"></span>
                             </td>
                             <td>{{ member.class }}</td>
                              <td>
                                 {% if member.item_level == "N/A" or member.item_level is none %} <span class="na-value">N/A</span> {% else %} {{ member.item_level }} {% endif %}
                             </td>
-                            <td>
+                            <td> {# Status Column #}
                                 <span class="status-display display-value">
-                                     {# Apply styling based on status #}
                                      {% set status_lower = member.status | lower if member.status else '' %}
                                      <span class="
                                          {% if status_lower == 'wiper' %} status-wiper
                                          {% elif status_lower == 'member' %} status-member
                                          {% elif status_lower == 'wiping alt' %} status-wiping-alt
                                          {% endif %}">
-                                         {{ member.status | default('Unknown') }} {# Display current status #}
+                                         {{ member.status | default('Unknown') }}
                                      </span>
                                 </span>
-                                <i class="fas fa-pencil-alt edit-btn edit-status-btn" title="Set Status"></i> {# Edit Icon #}
-                                <div class="edit-container status-edit-container"> {# Container #}
+                                <i class="fas fa-pencil-alt edit-btn edit-status-btn" title="Set Status"></i>
+                                <div class="edit-container status-edit-container">
                                     <select class="edit-control status-select">
-                                        {# Options match desired user-settable values #}
                                         <option value="Wiper">Wiper</option>
                                         <option value="Member">Member</option>
                                         <option value="Wiping Alt">Wiping Alt</option>
@@ -187,26 +175,33 @@
                                     <button class="save-btn status-save-btn">Save</button>
                                     <button class="cancel-btn status-cancel-btn">Cancel</button>
                                 </div>
-                                <span class="update-status status-update-status"></span> {# Specific class #}
+                                <span class="update-status status-update-status"></span>
                             </td>
                             <td>
                                 {% if member.raid_progression == "N/A" or member.raid_progression is none %} <span class="na-value">N/A</span> {% else %} {{ member.raid_progression }} {% endif %}
                             </td>
+                            {# NEW: Attendance Percentage Cell #}
+                            <td>
+                                {% if member.raid_attendance_percentage is none %}
+                                    <span class="na-value">N/A</span>
+                                {% else %}
+                                    {{ "%.1f%%" | format(member.raid_attendance_percentage) }} {# Format as percentage with 1 decimal place #}
+                                {% endif %}
+                            </td>
                             <td>{{ member.rank }}</td>
                         </tr>
-                        {% endfor %} {# End of member loop #}
+                        {% endfor %}
                     </tbody>
                 </table>
             </div>
             {% elif not error_message %}
-            {# Message if no members match the filter criteria #}
             <p>No members found matching rank criteria (<= 4) and item level (>= 600) in the database.</p>
-            {% endif %} {# End of members check #}
+            {% endif %}
         </div>
     </main>
 
     <footer class="text-center text-gray-500 mt-8 pb-4">
-        &copy; {{ guild_name }} - {{ current_year }} {# Assuming current_year is passed from Flask #}
+        &copy; {{ guild_name }} - {{ current_year }}
     </footer>
 
     <script>
@@ -216,20 +211,18 @@
         // --- Role Determination Logic ---
         const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
         const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
-        function getRoleFromSpec(specName) {
-            if (!specName || specName === 'N/A') return 'Unknown';
+        function getRoleFromSpec(specName) { /* ... as before ... */
+             if (!specName || specName === 'N/A') return 'Unknown';
             if (tankSpecs.includes(specName)) return 'Tank';
             if (healerSpecs.includes(specName)) return 'Healer';
             return 'DPS';
         }
-
-        // --- UI Update Functions ---
-        function updateRoleIcon(tableRow, newRole) {
+        function updateRoleIcon(tableRow, newRole) { /* ... as before ... */
             const roleCell = tableRow.querySelector('.role-cell');
             if (!roleCell) return;
             const icon = roleCell.querySelector('i');
             if (!icon) return;
-            icon.className = 'role-icon fa-solid'; // Reset classes
+            icon.className = 'role-icon fa-solid';
             let iconClass = 'fa-question', colorClass = 'role-unknown', title = 'Unknown/N/A';
             if (newRole === 'DPS') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; }
             else if (newRole === 'Healer') { iconClass = 'fa-briefcase-medical'; colorClass = 'role-healer'; title = 'Healer'; }
@@ -238,18 +231,16 @@
             icon.setAttribute('title', title);
         }
 
+        // --- Function to update status display style ---
         function updateStatusDisplay(displaySpan, newStatus) {
-             const innerSpan = displaySpan.querySelector('span'); // Target the inner span for styling
+             const innerSpan = displaySpan.querySelector('span');
              if (!innerSpan) return;
-             // Remove existing status classes
              innerSpan.className = ''; // Clear all classes first
-             // Add new class based on the status value
              if (newStatus) {
-                 // Create class name like 'status-wiping-alt'
                  const statusClass = 'status-' + newStatus.toLowerCase().replace(' ', '-');
                  innerSpan.classList.add(statusClass);
              }
-             innerSpan.textContent = newStatus || 'Unknown'; // Update text
+             innerSpan.textContent = newStatus || 'Unknown';
         }
 
 
@@ -259,7 +250,7 @@
             const tableBody = document.getElementById('rosterBody');
             if (!table || !tableBody) { console.error("Roster table or body not found!"); return; }
             const headers = table.querySelectorAll('th.sortable');
-            let currentSort = { column: -1, ascending: true }; // Track current sort state
+            let currentSort = { column: -1, ascending: true };
 
             // --- Sorting Event Listeners ---
             headers.forEach(header => {
@@ -310,7 +301,6 @@
                     specsForClass.forEach(spec => {
                         const option = document.createElement('option');
                         option.value = spec.name; option.textContent = spec.name;
-                        // Select current value (handle N/A case)
                         if (currentDisplayedValue === spec.name && !displaySpan.querySelector('.na-value')) {
                             option.selected = true;
                         }
@@ -419,7 +409,7 @@
                     const iconA = cellA.querySelector('i'); const iconB = cellB.querySelector('i');
                     valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                     valueB = iconB ? iconB.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
-                } else { // Other columns (including Status at index 6)
+                } else { // Other columns (including Status at index 6 and Attendance at index 8)
                     // For status column, get text from the inner span if it exists
                     const innerSpanA = cellA.querySelector('.display-value span');
                     const innerSpanB = cellB.querySelector('.display-value span');
@@ -429,7 +419,16 @@
                 const isValueANa = valueA === 'N/A' || valueA === 'Unknown/N/A';
                 const isValueBNa = valueB === 'N/A' || valueB === 'Unknown/N/A';
                 if (isValueANa && isValueBNa) return 0; if (isValueANa) return 1; if (isValueBNa) return -1;
-                if (sortType === 'number') { valueA = parseFloat(valueA) || 0; valueB = parseFloat(valueB) || 0; }
+                if (sortType === 'number') {
+                    // For percentage, remove '%' and convert to float
+                    if (columnIndex === 8) { // Attendance column
+                        valueA = parseFloat(valueA.replace('%','')) || 0;
+                        valueB = parseFloat(valueB.replace('%','')) || 0;
+                    } else {
+                        valueA = parseFloat(valueA) || 0;
+                        valueB = parseFloat(valueB) || 0;
+                    }
+                }
                 else { valueA = valueA.toLowerCase(); valueB = valueB.toLowerCase(); }
                 if (valueA < valueB) { return ascending ? -1 : 1; } if (valueA > valueB) { return ascending ? 1 : -1; } return 0;
             };
