@@ -69,6 +69,39 @@
         .status-member { color: #38a169; }
         .status-wiping-alt { color: #718096; }
 
+        /* Filter Toggle Styling */
+        .filter-toggle-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-size: 0.875rem; /* text-sm */
+            color: #4a5563; /* gray-700 */
+        }
+        .filter-toggle-label input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            height: 1.25rem; /* h-5 */
+            width: 1.25rem; /* w-5 */
+            border: 2px solid #cbd5e0; /* border-gray-300 */
+            border-radius: 0.25rem; /* rounded */
+            margin-right: 0.5rem; /* mr-2 */
+            position: relative;
+            outline: none;
+            transition: background-color 0.2s ease, border-color 0.2s ease;
+        }
+        .filter-toggle-label input[type="checkbox"]:checked {
+            background-color: #6B1A51; /* Custom purple */
+            border-color: #6B1A51;
+        }
+        .filter-toggle-label input[type="checkbox"]:checked::after {
+            content: '\2713'; /* Checkmark */
+            font-size: 0.875rem;
+            color: white;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -132,7 +165,7 @@
                     <tbody id="rosterBody">
                         {% for member in members %}
                         {# Add character and class IDs to the row for JavaScript access #}
-                        <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}" data-api-spec="{{ member.spec_name }}" data-status="{{ member.status }}">
+                        <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}" data-class-name="{{ member.class }}" data-api-spec="{{ member.spec_name }}" data-status="{{ member.status }}">
                             <td>
                                 <a href="https://worldofwarcraft.blizzard.com/{{ wow_locale }}/character/{{ wow_region }}/{{ member.realm_slug }}/{{ member.name | urlencode }}"
                                    target="_blank" rel="noopener noreferrer" class="armory-link">
@@ -225,23 +258,24 @@
         // --- Role Determination Logic ---
         const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
         const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
-        // Define Melee and Ranged DPS specs (expand these lists as needed)
-        const meleeDpsSpecs = [
-            "Arms", "Fury", "Retribution", "Frost", "Unholy", "Enhancement",
-            "Assassination", "Outlaw", "Subtlety", "Windwalker", "Havoc", "Feral", "Survival"
-        ];
-        const rangedDpsSpecs = [
-            "Arcane", "Fire", "Frost", "Affliction", "Demonology", "Destruction", "Shadow",
-            "Beast Mastery", "Marksmanship", "Balance", "Elemental", "Devastation", "Augmentation"
-        ];
+        const meleeDpsSpecs = {
+            "Warrior": ["Arms", "Fury"], "Paladin": ["Retribution"], "Death Knight": ["Frost", "Unholy"],
+            "Shaman": ["Enhancement"], "Hunter": ["Survival"], "Rogue": ["Assassination", "Outlaw", "Subtlety"],
+            "Monk": ["Windwalker"], "Demon Hunter": ["Havoc"], "Druid": ["Feral"]
+        };
+        const rangedDpsSpecs = {
+            "Mage": ["Arcane", "Fire", "Frost"], "Warlock": ["Affliction", "Demonology", "Destruction"],
+            "Priest": ["Shadow"], "Hunter": ["Beast Mastery", "Marksmanship"], "Druid": ["Balance"],
+            "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
+        };
 
-        function getRoleFromSpec(specName) {
+        function getRoleFromSpec(specName, className) { // Added className parameter
             if (!specName || specName === 'N/A') return 'Unknown';
             if (tankSpecs.includes(specName)) return 'Tank';
             if (healerSpecs.includes(specName)) return 'Healer';
-            if (meleeDpsSpecs.includes(specName)) return 'Melee DPS';
-            if (rangedDpsSpecs.includes(specName)) return 'Ranged DPS';
-            return 'DPS'; // Fallback for generic DPS if not specifically Melee or Ranged
+            if (className && meleeDpsSpecs[className] && meleeDpsSpecs[className].includes(specName)) return 'Melee DPS';
+            if (className && rangedDpsSpecs[className] && rangedDpsSpecs[className].includes(specName)) return 'Ranged DPS';
+            return 'DPS'; // Fallback
         }
 
         // --- UI Update Functions ---
@@ -392,7 +426,8 @@
                             let finalSpecName = selectedValue ? selectedValue : apiSpecName;
                             displaySpan.textContent = (finalSpecName && finalSpecName !== "N/A") ? finalSpecName : '';
                             if (!displaySpan.textContent) displaySpan.innerHTML = '<span class="na-value">N/A</span>';
-                            const newRole = getRoleFromSpec(finalSpecName);
+                            const className = tr.dataset.className; // Get class name from row
+                            const newRole = getRoleFromSpec(finalSpecName, className); // Pass class name
                             updateRoleIcon(tr, newRole);
                         } else if (type === 'status') {
                              updateStatusDisplay(displaySpan, selectedValue);
@@ -435,7 +470,7 @@
                 const isValueBNa = valueB === 'N/A' || valueB === 'Unknown/N/A';
                 if (isValueANa && isValueBNa) return 0; if (isValueANa) return 1; if (isValueBNa) return -1;
                 if (sortType === 'number') {
-                    if (columnIndex === 8) { // Attendance column (index 8)
+                    if (columnIndex === 8) { // Attendance column
                         valueA = parseFloat(valueA.replace('%','')) || 0;
                         valueB = parseFloat(valueB.replace('%','')) || 0;
                     } else {

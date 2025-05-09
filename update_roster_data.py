@@ -43,8 +43,8 @@ class Character(Base):
     level = Column(Integer)
     class_id = Column(Integer, ForeignKey('playable_class.id'))
     class_name = Column(String(50))
-    spec_name = Column(String(50))
-    main_spec_override = Column(String(50), nullable=True)
+    spec_name = Column(String(50)) # API Active Spec
+    main_spec_override = Column(String(50), nullable=True) # User override
     role = Column(String(15))      # Increased length for "Ranged DPS", "Melee DPS"
     status = Column(String(15), nullable=False, index=True)
     item_level = Column(Integer, index=True)
@@ -570,11 +570,11 @@ def update_database():
         print(f"Error during table drop/create: {e}")
         db_session.close(); return
 
-    if not update_static_tables(db_session):
+    if not update_static_tables(db_session): # This populates PlayableClass and PlayableSpec
         print("Error: Failed to update static class/spec tables. Aborting update.")
         db_session.close(); return
     try:
-        db_session.commit()
+        db_session.commit() # Commit static tables before proceeding
         print("Static tables (Class/Spec) committed.")
     except Exception as e:
         print(f"Error committing static table data: {e}")
@@ -592,7 +592,9 @@ def update_database():
     blizz_id_to_char_map = {}
     api_call_count = 0
     processed_for_details = 0
+    # Load class map from DB for role determination
     local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
+
 
     for member_entry in roster_data['members']:
         character_info = member_entry.get('character', {})
@@ -621,18 +623,21 @@ def update_database():
             active_spec_data = summary_data.get('active_spec')
             if active_spec_data and isinstance(active_spec_data, dict):
                 spec_name = active_spec_data.get('name')
+                # --- REFINED Role Determination ---
                 try:
                     if spec_name in TANK_SPECS: role = "Tank"
                     elif spec_name in HEALER_SPECS: role = "Healer"
-                    elif class_name_from_roster in MELEE_DPS_SPECS and spec_name in MELEE_DPS_SPECS[class_name_from_roster]:
+                    elif class_name_from_roster in MELEE_DPS_SPECS and spec_name in MELEE_DPS_SPECS.get(class_name_from_roster, []):
                         role = "Melee DPS"
-                    elif class_name_from_roster in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS[class_name_from_roster]:
+                    elif class_name_from_roster in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS.get(class_name_from_roster, []):
                         role = "Ranged DPS"
-                    elif spec_name: role = "DPS" # Fallback for generic DPS
+                    elif spec_name: role = "DPS" # Fallback for generic DPS if spec is known
                     else: role = "Unknown"
                 except Exception as spec_err:
                     print(f"Warning: Could not determine role for {char_name} (Class: {class_name_from_roster}, Spec: {spec_name}): {spec_err}")
                     role = "Unknown"
+                # --- END REFINED Role Determination ---
+            # print(f"DEBUG: For {char_name}: API Spec='{spec_name}', Role='{role}'")
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
