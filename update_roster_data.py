@@ -19,7 +19,6 @@ if not DATABASE_URI:
     print("WARNING: DATABASE_URL environment variable not found. Defaulting to local sqlite:///guild_data.db")
     DATABASE_URI = 'sqlite:///guild_data.db'
 else:
-    # Heroku Postgres URLs start with 'postgres://', SQLAlchemy prefers 'postgresql://'
     if DATABASE_URI.startswith("postgres://"):
         DATABASE_URI = DATABASE_URI.replace("postgres://", "postgresql://", 1)
 
@@ -27,10 +26,10 @@ try:
     engine = create_engine(DATABASE_URI)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
-    metadata = MetaData() # Use MetaData for table existence check
+    metadata = MetaData()
 except ImportError as e:
-     print(f"Error: Database driver likely missing. Did you 'pip install psycopg2-binary' (for Postgres) or ensure SQLAlchemy is installed? Details: {e}")
-     exit(1) # Exit if driver is missing
+     print(f"Error: Database driver likely missing. {e}")
+     exit(1)
 except Exception as e:
      print(f"Error creating database engine: {e}")
      exit(1)
@@ -42,63 +41,57 @@ class Character(Base):
     name = Column(String(100), nullable=False)
     realm_slug = Column(String(100), nullable=False)
     level = Column(Integer)
-    class_id = Column(Integer, ForeignKey('playable_class.id')) # Foreign key to PlayableClass
+    class_id = Column(Integer, ForeignKey('playable_class.id'))
     class_name = Column(String(50))
-    spec_name = Column(String(50)) # API Active Spec
-    main_spec_override = Column(String(50), nullable=True) # User override
-    role = Column(String(10))      # Role (Tank, Healer, DPS)
-    status = Column(String(15), nullable=False, index=True) # Calculated/User Status field
+    spec_name = Column(String(50))
+    main_spec_override = Column(String(50), nullable=True)
+    role = Column(String(15))      # Increased length for "Ranged DPS", "Melee DPS"
+    status = Column(String(15), nullable=False, index=True)
     item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    # MODIFIED: Store WCL attendance as a percentage
     raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
-    avg_wcl_performance = Column(Float, nullable=True) # For future use
+    avg_wcl_performance = Column(Float, nullable=True)
 
-    attendances = relationship("WCLAttendance", back_populates="character") # Relationship
-    playable_class = relationship("PlayableClass") # Relationship to PlayableClass
+    attendances = relationship("WCLAttendance", back_populates="character")
+    playable_class = relationship("PlayableClass", back_populates="characters")
 
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
     def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
 
 class WCLReport(Base):
     __tablename__ = 'wcl_report'
-    code = Column(String(50), primary_key=True) # WCL Report Code
+    code = Column(String(50), primary_key=True)
     title = Column(String(200))
-    start_time = Column(DateTime, index=True) # Store as UTC DateTime
+    start_time = Column(DateTime, index=True)
     end_time = Column(DateTime)
     owner_name = Column(String(100))
     fetched_at = Column(DateTime, default=datetime.utcnow)
-
-    attendances = relationship("WCLAttendance", back_populates="report") # Relationship
-
+    attendances = relationship("WCLAttendance", back_populates="report")
     def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
 
 class WCLAttendance(Base):
     __tablename__ = 'wcl_attendance'
-    id = Column(Integer, primary_key=True) # Simple primary key
+    id = Column(Integer, primary_key=True)
     report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
-    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True) # Link to Blizzard Character ID
-
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
     report = relationship("WCLReport", back_populates="attendances")
     character = relationship("Character", back_populates="attendances")
-
     __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
     def __repr__(self): return f'<WCLAttendance Report={self.report_code} CharacterID={self.character_id}>'
 
-# NEW: Playable Class Model
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
-    id = Column(Integer, primary_key=True) # Blizzard Class ID
+    id = Column(Integer, primary_key=True)
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class")
+    characters = relationship("Character", back_populates="playable_class")
     def __repr__(self): return f'<PlayableClass {self.name}>'
 
-# NEW: Playable Specialization Model
 class PlayableSpec(Base):
     __tablename__ = 'playable_spec'
-    id = Column(Integer, primary_key=True) # Blizzard Spec ID
+    id = Column(Integer, primary_key=True)
     name = Column(String(50), nullable=False)
     class_id = Column(Integer, ForeignKey('playable_class.id'), nullable=False)
     playable_class = relationship("PlayableClass", back_populates="specs")
@@ -131,6 +124,31 @@ SPEC_MAP_BY_CLASS = {} # Will be populated by update_static_tables from DB
 
 # --- Timezone ---
 CENTRAL_TZ = pytz.timezone('America/Chicago')
+
+# --- Role Definitions ---
+TANK_SPECS = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]
+HEALER_SPECS = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]
+MELEE_DPS_SPECS = {
+    "Warrior": ["Arms", "Fury"],
+    "Paladin": ["Retribution"],
+    "Death Knight": ["Frost", "Unholy"],
+    "Shaman": ["Enhancement"],
+    "Hunter": ["Survival"],
+    "Rogue": ["Assassination", "Outlaw", "Subtlety"],
+    "Monk": ["Windwalker"],
+    "Demon Hunter": ["Havoc"],
+    "Druid": ["Feral"]
+}
+RANGED_DPS_SPECS = {
+    "Mage": ["Arcane", "Fire", "Frost"],
+    "Warlock": ["Affliction", "Demonology", "Destruction"],
+    "Priest": ["Shadow"],
+    "Hunter": ["Beast Mastery", "Marksmanship"],
+    "Druid": ["Balance"],
+    "Shaman": ["Elemental"],
+    "Evoker": ["Devastation", "Augmentation"]
+}
+
 
 # --- API Helper Functions ---
 
@@ -231,9 +249,8 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl
                 response = requests.get(api_url, params=params, headers=headers, timeout=30)
 
             if response.status_code == 404:
-                # print(f"Warning: 404 Not Found for URL: {response.url}") # Reduce verbosity
-                return None # 404 is not typically a transient error to retry
-            response.raise_for_status() # Raise for other HTTP errors (4xx client, 5xx server)
+                return None
+            response.raise_for_status()
             return response.json()
 
         except requests.exceptions.Timeout:
@@ -244,7 +261,6 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl
                 print(f"Max retries reached for timeout at {api_url}.")
                 return None
         except requests.exceptions.HTTPError as e:
-            # Retry only on specific server-side errors (e.g., 500, 502, 503, 504)
             if e.response.status_code in [500, 502, 503, 504] and attempt < max_retries - 1:
                 print(f"HTTP Error {e.response.status_code} for {api_url}. Attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay}s...")
                 time.sleep(retry_delay)
@@ -254,7 +270,7 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl
                 print(f"Response Status: {e.response.status_code}")
                 try: print(f"Response Body: {e.response.json()}")
                 except: print(f"Response Body: {e.response.text}")
-                return None # Do not retry other HTTP errors or if max retries reached
+                return None
         except requests.exceptions.RequestException as e:
             print(f"Network error during API request: {e}. Attempt {attempt + 1}/{max_retries}.")
             if attempt < max_retries - 1:
@@ -265,7 +281,7 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl
         except Exception as e:
             print(f"An unexpected error occurred during API request: {e}")
             return None
-    return None # Should be unreachable if loop completes
+    return None
 
 
 def get_static_data(endpoint, use_base_url=True):
@@ -279,14 +295,11 @@ def get_static_data(endpoint, use_base_url=True):
     if use_base_url:
         api_url = f"{BLIZZARD_API_BASE_URL}/data/wow{endpoint if endpoint.startswith('/') else '/' + endpoint}"
     else:
-        api_url = endpoint # Use the provided endpoint as the full URL
+        api_url = endpoint
 
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-    # print(f"Attempting Static Data URL: {api_url} with Namespace: {params['namespace']}") # Reduce verbosity
     data = make_api_request(api_url, params, headers)
-    # if data and use_base_url: print(f"Successfully fetched static data from {endpoint}.")
-    # elif not data: print(f"Failed to fetch static data from {endpoint or api_url}.")
     return data
 
 
@@ -300,14 +313,12 @@ def update_static_tables(db_session):
     print("Fetching playable class index...")
     class_index_data = get_static_data('/playable-class/index')
     if class_index_data and 'classes' in class_index_data:
-        # db_session.query(PlayableClass).delete() # Already dropped
         classes_to_add = []
         for class_info in class_index_data['classes']:
             if class_info.get('id') and class_info.get('name'):
                 classes_to_add.append(PlayableClass(id=class_info['id'], name=class_info['name']))
         if classes_to_add:
             db_session.add_all(classes_to_add)
-            # db_session.commit() # Commit later with specs
             print(f"PlayableClass table prepared with {len(classes_to_add)} entries.")
             class_success = True
         else:
@@ -319,7 +330,6 @@ def update_static_tables(db_session):
     print("Fetching playable specialization index...")
     spec_index_data = get_static_data('/playable-specialization/index')
     if spec_index_data and 'character_specializations' in spec_index_data:
-        # db_session.query(PlayableSpec).delete() # Already dropped
         specs_to_add = []
         fetch_errors = 0
         processed_count = 0
@@ -538,13 +548,11 @@ def update_database():
     """ Fetches all data from Blizzard API and updates the database. """
     print("Starting database update process...")
     start_time = time.time()
-    db_session = SessionLocal() # Create session at the beginning
+    db_session = SessionLocal()
 
-    # --- Drop and Recreate Table ---
     try:
         print(f"Attempting to drop existing tables (WCLAttendance, WCLReport, Character, PlayableSpec, PlayableClass)...")
         Base.metadata.bind = engine
-        # Drop tables in reverse order of dependency
         WCLAttendance.__table__.drop(engine, checkfirst=True)
         WCLReport.__table__.drop(engine, checkfirst=True)
         Character.__table__.drop(engine, checkfirst=True)
@@ -553,51 +561,38 @@ def update_database():
         print("Tables dropped (or did not exist).")
 
         print("Creating tables...")
-        Base.metadata.create_all(bind=engine) # Recreates all tables defined in Base
+        Base.metadata.create_all(bind=engine)
         print("Tables created successfully.")
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.")
-         db_session.close()
-         return
+         db_session.close(); return
     except Exception as e:
         print(f"Error during table drop/create: {e}")
-        db_session.close()
-        return
-    # --- END Drop and Recreate ---
+        db_session.close(); return
 
-    # Populate static class/spec tables first
-    if not update_static_tables(db_session): # Pass session
+    if not update_static_tables(db_session):
         print("Error: Failed to update static class/spec tables. Aborting update.")
-        db_session.close()
-        return
-    # Commit changes from static tables before proceeding
+        db_session.close(); return
     try:
         db_session.commit()
         print("Static tables (Class/Spec) committed.")
     except Exception as e:
         print(f"Error committing static table data: {e}")
-        db_session.rollback()
-        db_session.close()
-        return
+        db_session.rollback(); db_session.close(); return
 
-    # Fetch the main guild roster
     roster_data = get_guild_roster()
     if not roster_data or 'members' not in roster_data:
         print("Error: Failed to fetch guild roster. Aborting update.")
-        db_session.close()
-        return
+        db_session.close(); return
 
     total_members = len(roster_data['members'])
     print(f"Fetched {total_members} total members from Blizzard roster. Processing rank <= 4...")
 
     characters_to_insert = []
-    blizz_id_to_char_map = {} # Map Blizzard ID to Character object for later WCL linking
+    blizz_id_to_char_map = {}
     api_call_count = 0
     processed_for_details = 0
-
-    # Fetch Class Map from DB for use here
     local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
-
 
     for member_entry in roster_data['members']:
         character_info = member_entry.get('character', {})
@@ -614,7 +609,7 @@ def update_database():
              print(f"\nProcessing Blizzard details for {char_name}-{char_realm_slug} (Rank {rank})...")
 
         class_id = character_info.get('playable_class', {}).get('id')
-        class_name = local_class_map.get(class_id, f"ID: {class_id}" if class_id else "N/A") # Use DB map
+        class_name_from_roster = local_class_map.get(class_id, f"ID: {class_id}" if class_id else "N/A")
 
         item_level = None; raid_progression_summary = None; spec_name = None; role = None; main_spec_override = None; heroic_kills = -1
 
@@ -627,17 +622,17 @@ def update_database():
             if active_spec_data and isinstance(active_spec_data, dict):
                 spec_name = active_spec_data.get('name')
                 try:
-                    spec_type = None
-                    if 'type' in active_spec_data: spec_type = active_spec_data.get('type', '').upper()
-                    elif 'media' in active_spec_data and isinstance(active_spec_data['media'], dict): spec_type = active_spec_data['media'].get('type', '').upper()
-                    if spec_type == 'HEALING': role = 'Healer'
-                    elif spec_type == 'TANK': role = 'Tank'
-                    elif spec_type == 'DAMAGE': role = 'DPS'
-                    else:
-                        if spec_name in ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]: role = "Tank"
-                        elif spec_name in ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]: role = "Healer"
-                        elif spec_name: role = "DPS"
-                except Exception as spec_err: print(f"Warning: Could not determine role for {char_name}: {spec_err}")
+                    if spec_name in TANK_SPECS: role = "Tank"
+                    elif spec_name in HEALER_SPECS: role = "Healer"
+                    elif class_name_from_roster in MELEE_DPS_SPECS and spec_name in MELEE_DPS_SPECS[class_name_from_roster]:
+                        role = "Melee DPS"
+                    elif class_name_from_roster in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS[class_name_from_roster]:
+                        role = "Ranged DPS"
+                    elif spec_name: role = "DPS" # Fallback for generic DPS
+                    else: role = "Unknown"
+                except Exception as spec_err:
+                    print(f"Warning: Could not determine role for {char_name} (Class: {class_name_from_roster}, Spec: {spec_name}): {spec_err}")
+                    role = "Unknown"
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
@@ -646,23 +641,20 @@ def update_database():
             if raid_progression_summary is None or "Not Found" in raid_progression_summary or "No H/M Data" in raid_progression_summary:
                  raid_progression_summary = None
         else:
-            raid_progression_summary = None
-            heroic_kills = -1
+            raid_progression_summary = None; heroic_kills = -1
 
         calculated_status = "Member"
         if item_level is None or item_level < 650: calculated_status = "Wiping Alt"
         elif heroic_kills > 6 : calculated_status = "Wiper"
         elif heroic_kills >= 0 and heroic_kills <= 6: calculated_status = "Member"
-        # print(f"DEBUG: For {char_name}: iLvl={item_level}, HKills={heroic_kills} -> Initial Status='{calculated_status}'")
 
         new_char = Character(
             id=char_id, name=char_name, realm_slug=char_realm_slug, level=character_info.get('level'),
-            class_id=class_id, class_name=class_name,
+            class_id=class_id, class_name=class_name_from_roster,
             spec_name=spec_name, main_spec_override=None, role=role,
             status=calculated_status, item_level=item_level,
             raid_progression=raid_progression_summary, rank=rank,
-            raid_attendance_percentage=0.0, # Initialize new field
-            avg_wcl_performance=None
+            raid_attendance_percentage=0.0, avg_wcl_performance=None
         )
         characters_to_insert.append(new_char)
         blizz_id_to_char_map[char_id] = new_char
@@ -685,22 +677,20 @@ def update_database():
     wcl_reports_to_process = fetch_wcl_guild_reports()
     wcl_reports_in_db = []
     wcl_attendances_to_insert = []
-    character_attendance_raw_counts = {} # {blizzard_char_id: raw_attendance_count}
-    successfully_processed_wcl_reports = 0 # Count reports we get details for
+    character_attendance_raw_counts = {}
+    successfully_processed_wcl_reports = 0
 
     if wcl_reports_to_process:
         print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance...")
         for report_data in wcl_reports_to_process:
             report_code = report_data.get('code')
             if not report_code: continue
-
             new_report = WCLReport(
                 code=report_code, title=report_data.get('title'),
                 start_time=report_data.get('start_time_dt'), end_time=report_data.get('end_time_dt'),
                 owner_name=report_data.get('owner', {}).get('name')
             )
             wcl_reports_in_db.append(new_report)
-
             actors_data = fetch_wcl_report_details(report_code)
             if actors_data:
                 successfully_processed_wcl_reports += 1
@@ -711,19 +701,18 @@ def update_database():
                         character_attendance_raw_counts[char_id] = character_attendance_raw_counts.get(char_id, 0) + 1
             else:
                 print(f"Warning: Could not get player details for WCL report {report_code}. This report will not count towards attendance percentage.")
-            time.sleep(0.1) # Be respectful to WCL API
+            time.sleep(0.1)
         try:
             if wcl_reports_in_db:
                 print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...")
                 db_session.add_all(wcl_reports_in_db)
-                db_session.commit() # Commit reports before attendance due to FK
+                db_session.commit()
                 print("WCL reports inserted.")
             if wcl_attendances_to_insert:
                 print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...")
                 db_session.add_all(wcl_attendances_to_insert)
                 db_session.commit()
                 print("WCL attendance inserted.")
-
             if character_attendance_raw_counts:
                 print("Updating character attendance percentages...")
                 update_count = 0
