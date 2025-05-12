@@ -111,23 +111,20 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None, max_retries=
     api_url = full_url if full_url else f"{BLIZZARD_API_BASE_URL}{endpoint}"
     headers = {"Authorization": f"Bearer {access_token}"}
     
-    # Ensure params is a dictionary
     if params is None:
         params = {}
     
-    # Add default namespace if not a full URL request and not already present
-    # For journal and item data, we typically use the static namespace.
     if not full_url and "namespace" not in params:
          params["namespace"] = f"static-{REGION}"
     if not full_url and "locale" not in params:
         params["locale"] = "en_US"
 
-    print(f"DEBUG: Requesting URL: {api_url} with params: {params}", flush=True) # More verbose logging
+    print(f"DEBUG: Requesting URL: {api_url} with params: {params}", flush=True)
 
     for attempt in range(max_retries):
         try:
             response = requests.get(api_url, params=params, headers=headers, timeout=30)
-            print(f"DEBUG: API call to {response.url} - Status: {response.status_code}", flush=True) # Log status
+            print(f"DEBUG: API call to {response.url} - Status: {response.status_code}", flush=True)
             if response.status_code == 404:
                 print(f"Warning: 404 Not Found for API URL: {response.url}", flush=True)
                 return None
@@ -206,16 +203,29 @@ def populate_data_sources(db_session):
         print(f"Error populating DataSource table: {e}", flush=True)
     return {source.name: source.id for source in db_session.query(DataSource).all()}
 
+# --- NEW: Function to find Journal Instance ID by name ---
+def find_journal_instance_id(instance_name_to_find):
+    """Queries the Blizzard API for the journal instance index and finds the ID for a given instance name."""
+    print(f"Attempting to find Journal ID for instance: '{instance_name_to_find}'", flush=True)
+    index_data = make_blizzard_api_request("/data/wow/journal-instance/index")
+    if index_data and "instances" in index_data:
+        for instance in index_data["instances"]:
+            if instance.get("name", "").lower() == instance_name_to_find.lower():
+                instance_id = instance.get("id")
+                print(f"Found instance '{instance_name_to_find}' with ID: {instance_id}", flush=True)
+                return instance_id
+        print(f"Error: Instance '{instance_name_to_find}' not found in the journal index.", flush=True)
+        return None
+    else:
+        print("Error: Could not fetch or parse journal instance index.", flush=True)
+        if index_data: print(f"DEBUG: Journal Index Response: {json.dumps(index_data, indent=2)}", flush=True)
+        return None
 
 def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_source_id):
     """Fetches items for a given raid and stores them."""
     print(f"Fetching items for raid: {raid_name} (Journal ID: {raid_journal_id})", flush=True)
 
-    # Explicitly set params for this critical call
-    instance_params = {
-        "namespace": f"static-{REGION}",
-        "locale": "en_US"
-    }
+    instance_params = { "namespace": f"static-{REGION}", "locale": "en_US" }
     instance_data = make_blizzard_api_request(f"/data/wow/journal-instance/{raid_journal_id}", params=instance_params)
 
     if not instance_data or "encounters" not in instance_data:
@@ -241,7 +251,7 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
                 continue
             
             item_id = item_ref["id"]
-            item_detail_data = make_blizzard_api_request(f"/data/wow/item/{item_id}", params=instance_params) # Use same params
+            item_detail_data = make_blizzard_api_request(f"/data/wow/item/{item_id}", params=instance_params)
             if not item_detail_data:
                 print(f"      Warning: Could not fetch details for item ID {item_id}", flush=True)
                 time.sleep(0.05)
@@ -257,7 +267,7 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
             icon_url = None
             media_key_href = item_detail_data.get("media", {}).get("key", {}).get("href")
             if media_key_href:
-                item_media_data = make_blizzard_api_request(None, full_url=media_key_href, params=instance_params) # Pass params for consistency
+                item_media_data = make_blizzard_api_request(None, full_url=media_key_href, params=instance_params)
                 if item_media_data and "assets" in item_media_data:
                     for asset in item_media_data["assets"]:
                         if asset.get("key") == "icon":
@@ -304,13 +314,18 @@ def main():
     populate_playable_slots(db_session)
     data_sources = populate_data_sources(db_session)
 
-    liberation_of_undermine_journal_id = 15522 # Confirmed ID
-    lou_source_id = data_sources.get("Liberation of Undermine")
-
-    if lou_source_id:
-        fetch_and_store_raid_items(db_session, "Liberation of Undermine", liberation_of_undermine_journal_id, lou_source_id)
+    # --- Dynamically find Raid Journal ID ---
+    target_raid_name_for_items = "Liberation of Undermine" # Make sure this matches API name
+    liberation_of_undermine_journal_id = find_journal_instance_id(target_raid_name_for_items)
+    
+    if liberation_of_undermine_journal_id:
+        lou_source_id = data_sources.get("Liberation of Undermine")
+        if lou_source_id:
+            fetch_and_store_raid_items(db_session, "Liberation of Undermine", liberation_of_undermine_journal_id, lou_source_id)
+        else:
+            print(f"Error: Data source for '{target_raid_name_for_items}' not found in DataSource table.", flush=True)
     else:
-        print("Error: 'Liberation of Undermine' data source not found.", flush=True)
+        print(f"Could not find Journal ID for '{target_raid_name_for_items}'. Skipping item fetch for this raid.", flush=True)
 
     db_session.close()
     print("Item Database Population Script Finished.", flush=True)
