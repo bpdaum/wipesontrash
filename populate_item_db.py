@@ -9,7 +9,6 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueC
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.exc import OperationalError, IntegrityError
-# import pytz # Not strictly needed in this script if not doing timezone conversions here
 
 # --- Database Setup ---
 DATABASE_URI = os.environ.get('DATABASE_URL')
@@ -29,13 +28,12 @@ except Exception as e:
      exit(1)
 
 # --- Models ---
-
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
     id = Column(Integer, primary_key=True)
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class", cascade="all, delete-orphan")
-    characters = relationship("Character", back_populates="playable_class")
+    characters = relationship("Character", back_populates="playable_class") # Added relationship
     def __repr__(self): return f'<PlayableClass {self.name}>'
 
 class PlayableSpec(Base):
@@ -49,9 +47,10 @@ class PlayableSpec(Base):
 class PlayableSlot(Base):
     __tablename__ = 'playable_slot'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(100), nullable=False)
-    display_order = Column(Integer, default=0)
+    type = Column(String(50), unique=True, nullable=False, index=True) # Blizzard API's inventory_type.type string
+    name = Column(String(100), nullable=False) # User-friendly name
+    display_order = Column(Integer, default=0) # For ordering slots in the UI
+
     items = relationship("Item", back_populates="slot", cascade="all, delete-orphan")
     bis_selections = relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan")
     def __repr__(self): return f'<PlayableSlot Name: {self.name} Type:({self.type})>'
@@ -60,102 +59,47 @@ class DataSource(Base):
     __tablename__ = 'data_source'
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), unique=True, nullable=False)
-    type = Column(String(50))
+    type = Column(String(50)) # "Raid", "Dungeon"
     items = relationship("Item", back_populates="source", cascade="all, delete-orphan")
     def __repr__(self): return f'<DataSource {self.name}>'
 
 class Item(Base):
     __tablename__ = 'item'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Item ID
     name = Column(String(255), nullable=False, index=True)
-    quality = Column(String(20))
+    quality = Column(String(20)) # e.g., "EPIC"
     icon_url = Column(String(512), nullable=True)
     slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
     slot = relationship("PlayableSlot", back_populates="items")
     source_id = Column(Integer, ForeignKey('data_source.id'), nullable=True, index=True)
     source = relationship("DataSource", back_populates="items")
-    source_details = Column(String(255))
+    source_details = Column(String(255)) # e.g., Boss name
     bis_selections = relationship("CharacterBiS", back_populates="item", cascade="all, delete-orphan")
     def __repr__(self): return f'<Item {self.name} (ID: {self.id})>'
 
-class Character(Base):
+class Character(Base): # Defined for schema creation, not populated by this script
     __tablename__ = 'character'
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)
     realm_slug = Column(String(100), nullable=False)
-    level = Column(Integer)
     class_id = Column(Integer, ForeignKey('playable_class.id'))
-    class_name = Column(String(50))
-    spec_name = Column(String(50))
-    main_spec_override = Column(String(50), nullable=True)
-    role = Column(String(15))
-    status = Column(String(15), nullable=False, index=True)
-    item_level = Column(Integer, index=True)
-    raid_progression = Column(String(200))
-    rank = Column(Integer, index=True)
-    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
-    avg_wcl_performance = Column(Float, nullable=True)
-
+    # ... other Character fields from update_roster_data.py would go here if needed for full schema consistency
+    # For this script, only 'id' is strictly necessary for CharacterBiS's foreign key
     playable_class = relationship("PlayableClass", back_populates="characters")
     bis_selections = relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
-    attendances = relationship("WCLAttendance", back_populates="character", cascade="all, delete-orphan")
-    performances = relationship("WCLPerformance", back_populates="character", cascade="all, delete-orphan")
-
     __table_args__ = (UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
-    def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
-
-# Define WCL Models as they are related to Character via ForeignKeys
-class WCLReport(Base):
-    __tablename__ = 'wcl_report'
-    code = Column(String(50), primary_key=True)
-    title = Column(String(200))
-    start_time = Column(DateTime, index=True)
-    end_time = Column(DateTime)
-    owner_name = Column(String(100))
-    fetched_at = Column(DateTime, default=datetime.utcnow)
-    attendances = relationship("WCLAttendance", back_populates="report", cascade="all, delete-orphan")
-    performances = relationship("WCLPerformance", back_populates="report", cascade="all, delete-orphan")
-    def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
-
-class WCLAttendance(Base):
-    __tablename__ = 'wcl_attendance'
-    id = Column(Integer, primary_key=True)
-    report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
-    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
-    report = relationship("WCLReport", back_populates="attendances")
-    character = relationship("Character", back_populates="attendances")
-    __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
-    def __repr__(self): return f'<WCLAttendance Report={self.report_code} CharacterID={self.character_id}>'
-
-class WCLPerformance(Base):
-    __tablename__ = 'wcl_performance'
-    id = Column(Integer, primary_key=True)
-    report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
-    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
-    encounter_id = Column(Integer, nullable=False)
-    encounter_name = Column(String(100))
-    spec_name = Column(String(50))
-    metric = Column(String(20))
-    rank_percentile = Column(Float)
-    report = relationship("WCLReport", back_populates="performances")
-    character = relationship("Character", back_populates="performances")
-    __table_args__ = ( UniqueConstraint('report_code', 'character_id', 'encounter_id', 'metric', name='_perf_uc'), )
-    def __repr__(self): return f'<WCLPerformance Report={self.report_code} CharID={self.character_id} Enc={self.encounter_name} Metric={self.metric} Perf={self.rank_percentile}>'
 
 
 class CharacterBiS(Base):
     __tablename__ = 'character_bis'
     id = Column(Integer, primary_key=True, autoincrement=True)
     character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
-    slot_type_ui = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) # Renamed to slot_type_ui
+    slot_type_ui = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
     item_id = Column(Integer, ForeignKey('item.id'), nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
     character = relationship("Character", back_populates="bis_selections")
     slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui])
     item = relationship("Item", back_populates="bis_selections")
-
     __table_args__ = (UniqueConstraint('character_id', 'slot_type_ui', name='_character_slot_ui_uc'),)
     def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} SlotUI: {self.slot_type_ui} ItemID: {self.item_id}>'
 
@@ -260,22 +204,35 @@ def populate_playable_slots(db_session):
     """Pre-populates the PlayableSlot table with standard equipment slots."""
     print("Populating Playable Slots...", flush=True)
     slots_data = [
-        {"type": "HEAD", "name": "Head", "display_order": 1}, {"type": "NECK", "name": "Neck", "display_order": 2},
-        {"type": "SHOULDER", "name": "Shoulder", "display_order": 3}, {"type": "BACK", "name": "Back", "display_order": 4},
-        {"type": "CHEST", "name": "Chest", "display_order": 5}, {"type": "SHIRT", "name": "Shirt", "display_order": 6},
-        {"type": "TABARD", "name": "Tabard", "display_order": 7}, {"type": "WRIST", "name": "Wrist", "display_order": 8},
-        {"type": "HANDS", "name": "Hands", "display_order": 9}, {"type": "WAIST", "name": "Waist", "display_order": 10},
-        {"type": "LEGS", "name": "Legs", "display_order": 11}, {"type": "FEET", "name": "Feet", "display_order": 12},
+        {"type": "HEAD", "name": "Head", "display_order": 1},
+        {"type": "NECK", "name": "Neck", "display_order": 2},
+        {"type": "SHOULDER", "name": "Shoulder", "display_order": 3},
+        {"type": "BACK", "name": "Back", "display_order": 4},
+        {"type": "CLOAK", "name": "Back (Cloak API)", "display_order": 4},
+        {"type": "CHEST", "name": "Chest", "display_order": 5},
+        {"type": "ROBE", "name": "Chest (Robe API)", "display_order": 5},
+        {"type": "SHIRT", "name": "Shirt", "display_order": 6},
+        {"type": "TABARD", "name": "Tabard", "display_order": 7},
+        {"type": "WRIST", "name": "Wrist", "display_order": 8},
+        {"type": "HANDS", "name": "Hands", "display_order": 9},
+        {"type": "HAND", "name": "Hands (API)", "display_order": 9},
+        {"type": "WAIST", "name": "Waist", "display_order": 10},
+        {"type": "LEGS", "name": "Legs", "display_order": 11},
+        {"type": "FEET", "name": "Feet", "display_order": 12},
         {"type": "FINGER", "name": "Finger (API Generic)", "display_order": 13},
         {"type": "FINGER1", "name": "Finger 1", "display_order": 13},
         {"type": "FINGER2", "name": "Finger 2", "display_order": 14},
         {"type": "TRINKET", "name": "Trinket (API Generic)", "display_order": 15},
         {"type": "TRINKET1", "name": "Trinket 1", "display_order": 15},
         {"type": "TRINKET2", "name": "Trinket 2", "display_order": 16},
+        {"type": "WEAPON", "name": "Weapon (Generic API)", "display_order": 17},
         {"type": "MAIN_HAND", "name": "Main Hand", "display_order": 17},
         {"type": "OFF_HAND", "name": "Off Hand", "display_order": 18},
+        {"type": "SHIELD", "name": "Shield", "display_order": 18},
+        {"type": "HOLDABLE", "name": "Holdable (Off-hand)", "display_order": 18},
         {"type": "ONE_HAND", "name": "One-Hand", "display_order": 20},
-        {"type": "TWO_HAND", "name": "Two-Hand", "display_order": 21}
+        {"type": "TWO_HAND", "name": "Two-Hand", "display_order": 21},
+        {"type": "TWOHWEAPON", "name": "Two-Hand (API)", "display_order": 21}
     ]
     for slot_data in slots_data:
         slot = db_session.query(PlayableSlot).filter_by(type=slot_data["type"]).first()
@@ -381,9 +338,12 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
                             break
             
             if item_name and item_quality == "EPIC" and slot_type_api:
+                if slot_type_api == "NON_EQUIP": # Explicitly skip non-equip items
+                    continue
+
                 slot_exists = db_session.query(PlayableSlot).filter_by(type=slot_type_api).first()
                 if not slot_exists:
-                    print(f"      CRITICAL WARNING: API slot type '{slot_type_api}' for item '{item_name}' (ID: {item_id}) not found in PlayableSlot table. ADD IT TO populate_playable_slots!", flush=True)
+                    print(f"      CRITICAL WARNING: API slot type '{slot_type_api}' for item '{item_name}' (ID: {item_id}) not found in PlayableSlot table. Please add it to populate_playable_slots() in this script!", flush=True)
                     continue
 
                 existing_item = db_session.query(Item).filter_by(id=item_id).first()
