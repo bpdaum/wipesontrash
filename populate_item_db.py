@@ -27,36 +27,73 @@ except Exception as e:
      print(f"Error creating database engine: {e}", flush=True)
      exit(1)
 
-# --- Models (Referencing item_database_models_with_bis) ---
+# --- Models ---
+# Note: The CharacterBiS model references 'character.id'.
+# This script doesn't define the Character model itself, assuming it's defined elsewhere
+# if this script were to directly interact with CharacterBiS for writing.
+# However, for populating items, slots, and sources, CharacterBiS is not directly written to here.
+
 class PlayableSlot(Base):
     __tablename__ = 'playable_slot'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(100), nullable=False)
-    display_order = Column(Integer, default=0)
+    type = Column(String(50), unique=True, nullable=False, index=True) # Blizzard API's inventory_type.type string
+    name = Column(String(100), nullable=False) # User-friendly name
+    display_order = Column(Integer, default=0) # For ordering slots in the UI
+
     items = relationship("Item", back_populates="slot")
-    def __repr__(self): return f'<PlayableSlot {self.name} ({self.type})>'
+    # bis_selections = relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan") # Not needed for this script's primary purpose
+
+    def __repr__(self):
+        return f'<PlayableSlot Name: {self.name} Type:({self.type})>'
 
 class DataSource(Base):
     __tablename__ = 'data_source'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(200), unique=True, nullable=False)
-    type = Column(String(50)) # "Raid", "Dungeon"
+    name = Column(String(200), unique=True, nullable=False) # e.g., "Liberation of Undermine"
+    type = Column(String(50)) # e.g., "Raid", "Dungeon"
+
     items = relationship("Item", back_populates="source")
-    def __repr__(self): return f'<DataSource {self.name}>'
+
+    def __repr__(self):
+        return f'<DataSource {self.name}>'
 
 class Item(Base):
     __tablename__ = 'item'
     id = Column(Integer, primary_key=True) # Blizzard Item ID
     name = Column(String(255), nullable=False, index=True)
     quality = Column(String(20)) # e.g., "EPIC"
-    icon_url = Column(String(512), nullable=True)
+    icon_url = Column(String(512), nullable=True) # URL for the item icon
+    # This slot_type will store the exact type from Blizzard API (e.g., "FINGER", "TRINKET")
     slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
     slot = relationship("PlayableSlot", back_populates="items")
+
     source_id = Column(Integer, ForeignKey('data_source.id'), nullable=True, index=True)
     source = relationship("DataSource", back_populates="items")
+
     source_details = Column(String(255)) # e.g., Boss name
-    def __repr__(self): return f'<Item {self.name} (ID: {self.id})>'
+    # bis_selections = relationship("CharacterBiS", back_populates="item", cascade="all, delete-orphan") # Not needed for this script's primary purpose
+
+    def __repr__(self):
+        return f'<Item {self.name} (ID: {self.id})>'
+
+# CharacterBiS model is defined here to ensure Base.metadata.create_all works,
+# but this script doesn't populate it. It's populated by app.py.
+class CharacterBiS(Base):
+    __tablename__ = 'character_bis'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True) # Assumes 'character' table exists
+    slot_type_ui = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) # UI slot type
+    item_id = Column(Integer, ForeignKey('item.id'), nullable=True)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships - these would require Character model to be defined here if used by this script
+    # character = relationship("Character", back_populates="bis_selections")
+    slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui])
+    item = relationship("Item", back_populates="bis_selections")
+
+    __table_args__ = (UniqueConstraint('character_id', 'slot_type_ui', name='_character_slot_ui_uc'),)
+    def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} SlotUI: {self.slot_type_ui} ItemID: {self.item_id}>'
+
 
 # --- Blizzard API Configuration ---
 BLIZZARD_CLIENT_ID = os.environ.get('BLIZZARD_CLIENT_ID')
@@ -119,12 +156,12 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None, max_retries=
     if not full_url and "locale" not in params:
         params["locale"] = "en_US"
 
-    print(f"DEBUG: Requesting URL: {api_url} with params: {params}", flush=True)
+    # print(f"DEBUG: Requesting URL: {api_url} with params: {params}", flush=True)
 
     for attempt in range(max_retries):
         try:
             response = requests.get(api_url, params=params, headers=headers, timeout=30)
-            print(f"DEBUG: API call to {response.url} - Status: {response.status_code}", flush=True)
+            # print(f"DEBUG: API call to {response.url} - Status: {response.status_code}", flush=True)
             if response.status_code == 404:
                 print(f"Warning: 404 Not Found for API URL: {response.url}", flush=True)
                 return None
@@ -157,18 +194,34 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None, max_retries=
 def populate_playable_slots(db_session):
     """Pre-populates the PlayableSlot table with standard equipment slots."""
     print("Populating Playable Slots...", flush=True)
+    # These 'type' values should be the EXACT strings returned by the Blizzard API for inventory_type.type
+    # The 'name' is for UI display.
+    # Generic types that the API uses for items (e.g., FINGER, TRINKET)
+    # and UI-specific types (e.g., FINGER1, TRINKET1) for display differentiation.
     slots_data = [
-        {"type": "HEAD", "name": "Head", "display_order": 1}, {"type": "NECK", "name": "Neck", "display_order": 2},
-        {"type": "SHOULDER", "name": "Shoulder", "display_order": 3}, {"type": "BACK", "name": "Back", "display_order": 4},
-        {"type": "CHEST", "name": "Chest", "display_order": 5}, {"type": "SHIRT", "name": "Shirt", "display_order": 6},
-        {"type": "TABARD", "name": "Tabard", "display_order": 7}, {"type": "WRIST", "name": "Wrist", "display_order": 8},
-        {"type": "HANDS", "name": "Hands", "display_order": 9}, {"type": "WAIST", "name": "Waist", "display_order": 10},
-        {"type": "LEGS", "name": "Legs", "display_order": 11}, {"type": "FEET", "name": "Feet", "display_order": 12},
-        {"type": "FINGER1", "name": "Finger 1", "display_order": 13}, {"type": "FINGER2", "name": "Finger 2", "display_order": 14},
-        {"type": "TRINKET1", "name": "Trinket 1", "display_order": 15}, {"type": "TRINKET2", "name": "Trinket 2", "display_order": 16},
-        {"type": "WEAPONMAINHAND", "name": "Main Hand", "display_order": 17},
-        {"type": "WEAPONOFFHAND", "name": "Off Hand", "display_order": 18},
-        {"type": "RANGED", "name": "Ranged/Relic", "display_order": 19}
+        {"type": "HEAD", "name": "Head", "display_order": 1},
+        {"type": "NECK", "name": "Neck", "display_order": 2},
+        {"type": "SHOULDER", "name": "Shoulder", "display_order": 3},
+        {"type": "BACK", "name": "Back", "display_order": 4},
+        {"type": "CHEST", "name": "Chest", "display_order": 5},
+        {"type": "SHIRT", "name": "Shirt", "display_order": 6},
+        {"type": "TABARD", "name": "Tabard", "display_order": 7},
+        {"type": "WRIST", "name": "Wrist", "display_order": 8},
+        {"type": "HANDS", "name": "Hands", "display_order": 9},
+        {"type": "WAIST", "name": "Waist", "display_order": 10},
+        {"type": "LEGS", "name": "Legs", "display_order": 11},
+        {"type": "FEET", "name": "Feet", "display_order": 12},
+        {"type": "FINGER", "name": "Finger (API Generic)", "display_order": 13}, # Generic API type
+        {"type": "FINGER1", "name": "Finger 1", "display_order": 13},           # UI Specific
+        {"type": "FINGER2", "name": "Finger 2", "display_order": 14},           # UI Specific
+        {"type": "TRINKET", "name": "Trinket (API Generic)", "display_order": 15},# Generic API type
+        {"type": "TRINKET1", "name": "Trinket 1", "display_order": 15},         # UI Specific
+        {"type": "TRINKET2", "name": "Trinket 2", "display_order": 16},         # UI Specific
+        {"type": "MAIN_HAND", "name": "Main Hand", "display_order": 17},
+        {"type": "OFF_HAND", "name": "Off Hand", "display_order": 18},
+        {"type": "ONE_HAND", "name": "One-Hand", "display_order": 20},
+        {"type": "TWO_HAND", "name": "Two-Hand", "display_order": 21}
+        # Removed "RANGED" as it's usually covered by weapon types or specific to hunter-like classes
     ]
     for slot_data in slots_data:
         slot = db_session.query(PlayableSlot).filter_by(type=slot_data["type"]).first()
@@ -188,7 +241,7 @@ def populate_data_sources(db_session):
     print("Populating Data Sources...", flush=True)
     sources_data = [
         {"name": "Liberation of Undermine", "type": "Raid"},
-        {"name": "Mythic+ Season 2", "type": "Dungeon"}
+        {"name": "Mythic+ Season 2", "type": "Dungeon"} # Placeholder for M+
     ]
     for source_data in sources_data:
         source = db_session.query(DataSource).filter_by(name=source_data["name"]).first()
@@ -203,7 +256,7 @@ def populate_data_sources(db_session):
         print(f"Error populating DataSource table: {e}", flush=True)
     return {source.name: source.id for source in db_session.query(DataSource).all()}
 
-# --- NEW: Function to find Journal Instance ID by name ---
+
 def find_journal_instance_id(instance_name_to_find):
     """Queries the Blizzard API for the journal instance index and finds the ID for a given instance name."""
     print(f"Attempting to find Journal ID for instance: '{instance_name_to_find}'", flush=True)
@@ -253,7 +306,7 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
             item_id = item_ref["id"]
             item_detail_data = make_blizzard_api_request(f"/data/wow/item/{item_id}", params=instance_params)
             if not item_detail_data:
-                print(f"      Warning: Could not fetch details for item ID {item_id}", flush=True)
+                # print(f"      Warning: Could not fetch details for item ID {item_id}", flush=True) # Reduce verbosity
                 time.sleep(0.05)
                 continue
 
@@ -275,11 +328,17 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
                             break
             
             if item_name and item_quality == "EPIC" and slot_type_api:
+                slot_exists = db_session.query(PlayableSlot).filter_by(type=slot_type_api).first()
+                if not slot_exists:
+                    print(f"      CRITICAL WARNING: API slot type '{slot_type_api}' for item '{item_name}' (ID: {item_id}) not found in PlayableSlot table. ADD IT TO populate_playable_slots!", flush=True)
+                    continue # Skip item if its slot type isn't defined
+
                 existing_item = db_session.query(Item).filter_by(id=item_id).first()
                 if not existing_item:
                     new_item = Item(
                         id=item_id, name=item_name, quality=item_quality,
-                        slot_type=slot_type_api, source_id=data_source_id,
+                        slot_type=slot_type_api,
+                        source_id=data_source_id,
                         source_details=encounter_name, icon_url=icon_url
                     )
                     db_session.add(new_item)
@@ -308,14 +367,17 @@ def main():
     db_session = SessionLocal()
 
     print("Ensuring all database tables exist (will create if not present)...", flush=True)
+    # Drop all tables defined in Base, in the correct order
+    print("Dropping all known tables (if they exist)...", flush=True)
+    Base.metadata.drop_all(engine, checkfirst=True)
+    print("Creating all tables...", flush=True)
     Base.metadata.create_all(engine)
     print("Database tables verified/created.", flush=True)
 
     populate_playable_slots(db_session)
     data_sources = populate_data_sources(db_session)
 
-    # --- Dynamically find Raid Journal ID ---
-    target_raid_name_for_items = "Liberation of Undermine" # Make sure this matches API name
+    target_raid_name_for_items = "Liberation of Undermine"
     liberation_of_undermine_journal_id = find_journal_instance_id(target_raid_name_for_items)
     
     if liberation_of_undermine_journal_id:
