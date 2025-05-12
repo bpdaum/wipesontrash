@@ -5,7 +5,8 @@ from flask import Flask, render_template, jsonify, request, abort
 from flask_sqlalchemy import SQLAlchemy
 # Import desc for descending sort order AND SQLAlchemy column types
 # Import func for count aggregation
-from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func, Float # Added Float, UniqueConstraint
+from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func, Float
+from sqlalchemy.orm import relationship # Ensure relationship is imported for model definitions
 import os
 import requests # Keep for potential future use or type hints
 import time
@@ -41,9 +42,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Disable modification trac
 db = SQLAlchemy(app) # Initialize SQLAlchemy with the Flask app
 
 # --- Database Models ---
-# Forward declaration for relationships if models are in the same file and order matters
-# Base = db.Model # Not needed if all models inherit db.Model directly
-
 class PlayableClass(db.Model):
     __tablename__ = 'playable_class'
     id = db.Column(db.Integer, primary_key=True) # Blizzard Class ID
@@ -72,12 +70,12 @@ class Character(db.Model):
     name = db.Column(String(100), nullable=False)
     realm_slug = db.Column(String(100), nullable=False) # Needed for Armory link
     level = db.Column(Integer)
-    class_id = db.Column(Integer, db.ForeignKey('playable_class.id')) # Foreign key to PlayableClass
+    class_id = db.Column(Integer, db.ForeignKey('playable_class.id'))
     class_name = db.Column(String(50))
     # race_name removed
     spec_name = db.Column(String(50)) # API Active Spec
     main_spec_override = db.Column(String(50), nullable=True) # User override
-    role = db.Column(String(10))      # Role (Tank, Healer, DPS)
+    role = db.Column(String(15))      # Role (Tank, Healer, Melee DPS, Ranged DPS)
     status = db.Column(String(15), nullable=False, index=True) # Calculated/User Status field
     item_level = db.Column(Integer, index=True) # Index item_level for filtering/sorting
     raid_progression = db.Column(String(200)) # Store summary string
@@ -164,7 +162,6 @@ def get_all_specs():
     global ALL_SPECS_CACHE, ALL_SPECS_LAST_FETCHED
     current_time = time.time()
 
-    # Check in-memory cache first
     if ALL_SPECS_CACHE and (current_time - ALL_SPECS_LAST_FETCHED < CACHE_TTL):
         print("Using in-memory cached specs.")
         return ALL_SPECS_CACHE
@@ -173,7 +170,7 @@ def get_all_specs():
     temp_spec_map = {}
     try:
         with app.app_context(): # Ensure we are in app context for DB query
-            # Check if PlayableSpec table exists
+            # Ensure PlayableSpec table exists
             if not db.engine.dialect.has_table(db.engine.connect(), PlayableSpec.__tablename__):
                 print("PlayableSpec table does not exist. Cannot load specs from DB.")
                 # Fallback or error handling if table doesn't exist
@@ -194,7 +191,7 @@ def get_all_specs():
                 print(f"Specs populated from database for {len(ALL_SPECS_CACHE)} classes.")
                 return ALL_SPECS_CACHE
             else:
-                print("PlayableSpec table is empty in the database.")
+                print("PlayableSpec table is empty in the database. No specs to load.")
                 return {} # Return empty if table exists but no data
 
     except Exception as e:
@@ -208,26 +205,34 @@ def home():
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
 
-    raid_status_counts = {'Tank': 0, 'Healer': 0, 'DPS': 0, 'Total': 0}
+    # Initialize counts for Melee DPS and Ranged DPS
+    raid_status_counts = {'Tank': 0, 'Healer': 0, 'Melee DPS': 0, 'Ranged DPS': 0, 'DPS':0, 'Total': 0}
     max_heroic_kills = 0
     max_mythic_kills = 0
-    heroic_total_bosses = 8 # Default assumption
-    mythic_total_bosses = 8 # Default assumption
-    target_raid_short_name = "Undermine" # Match the prefix used in summarize_raid_progression
+    heroic_total_bosses = 8
+    mythic_total_bosses = 8
+    target_raid_short_name = "Undermine"
 
     try:
         with app.app_context():
              if db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
-                # Query all 'Wiper' characters
                 wipers = Character.query.filter(Character.status == 'Wiper').all()
                 raid_status_counts['Total'] = len(wipers)
 
                 for wiper in wipers:
-                    # Count roles
-                    if wiper.role in raid_status_counts:
-                        raid_status_counts[wiper.role] += 1
+                    # Count specific roles
+                    if wiper.role == 'Tank':
+                        raid_status_counts['Tank'] += 1
+                    elif wiper.role == 'Healer':
+                        raid_status_counts['Healer'] += 1
+                    elif wiper.role == 'Melee DPS':
+                        raid_status_counts['Melee DPS'] += 1
+                    elif wiper.role == 'Ranged DPS':
+                        raid_status_counts['Ranged DPS'] += 1
+                    elif wiper.role == 'DPS': # Fallback for generic DPS
+                        raid_status_counts['DPS'] += 1
 
-                    # Parse progression string for max kills
+
                     prog_str = wiper.raid_progression
                     if prog_str and prog_str.startswith(target_raid_short_name + ":"):
                         heroic_match = re.search(r'(\d+)/(\d+)H', prog_str)

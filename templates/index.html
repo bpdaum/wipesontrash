@@ -10,7 +10,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
-        /* Base styles */
         body { font-family: 'Inter', sans-serif; background-color: #f7fafc; /* gray-100 */ }
         /* Custom styles for KPI cards */
         .kpi-card {
@@ -48,20 +47,16 @@
 </head>
 <body class="bg-gray-100 text-gray-800">
 
-    {# Added inline style for background color #}
     <nav class="text-white p-4 shadow-md" style="background-color: #6B1A51;">
         <div class="container mx-auto flex flex-wrap justify-between items-center">
-            {# Wrapped title and image in a flex container #}
             <div class="flex items-center space-x-3 mb-2 sm:mb-0">
-                 {# Image tag using url_for to link to static file #}
-                 {# Ensure 'static/images/wot_logo.png' exists and was deployed #}
                  <img src="{{ url_for('static', filename='images/wot_logo.png') }}"
                       alt="{{ guild_name }} Logo"
                       class="h-8 w-8 rounded-full border-2 border-white">
                  <h1 class="text-xl font-semibold">{{ guild_name }} Portal</h1>
             </div>
             <div class="flex space-x-2">
-                <a href="/" class="px-3 py-2 rounded bg-gray-700 font-medium hover:bg-gray-600">Home</a> {# Added hover effect #}
+                <a href="/" class="px-3 py-2 rounded bg-gray-700 font-medium hover:bg-gray-600">Home</a>
                 <a href="/roster" class="px-3 py-2 rounded hover:bg-gray-600">Roster</a>
                 <a href="#" class="px-3 py-2 rounded hover:bg-gray-600">Raids</a>
                 <a href="#" class="px-3 py-2 rounded hover:bg-gray-600">Loot</a>
@@ -69,7 +64,7 @@
         </div>
     </nav>
 
-    <main class="container mx-auto mt-8 p-4 space-y-8"> {# Added space-y-8 for spacing between sections #}
+    <main class="container mx-auto mt-8 p-4 space-y-8">
 
         <div class="bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-2xl font-bold mb-4 text-gray-900">Welcome to the {{ guild_name }} Portal!</h2>
@@ -78,23 +73,14 @@
 
         <div class="bg-white p-6 rounded-lg shadow-lg">
             <h2 class="text-2xl font-bold mb-4 text-gray-900">About Us</h2>
-            <div class="space-y-3 text-gray-700"> {# Add space between paragraphs #}
-                <p>
-                    <span class="font-semibold">{{ guild_name }}</span> is a casual raiding guild proudly calling <span class="font-medium">Area 52 (US)</span> home.
-                    We have gotten AOTC every single tier going back to ~WotLK, and enjoy a fun environment that remains progression-oriented.
-                </p>
-                <p>
-                    Beyond raiding, many of our members actively push Mythic+ keys throughout the week. Whether you're looking for organized raiding or pushing keys with guildmates,
-                    you'll find like-minded players here.
-                </p>
-                 <p>
-                    {# Optional: Add a link to Discord or application form #}
-                    {# <a href="https://discord.gg/Yj2Gyc5p" class="text-blue-600 hover:underline">Interested? Join our Discord!</a> #}
-                 </p>
+            <div class="space-y-3 text-gray-700">
+                <p> <span class="font-semibold">{{ guild_name }}</span> is a casual raiding guild proudly calling <span class="font-medium">Area 52 (US)</span> home. We focus on enjoying the game together while making steady progress through current content. </p>
+                <p> Our main raid nights are <span class="font-medium">Wednesdays and Fridays</span> from <span class="font-medium">8:00 PM to 11:00 PM Central Time (CT)</span>. We also host optional alt raids on Saturdays for those interested. </p>
+                <p> Beyond raiding, many of our members actively push Mythic+ keys throughout the week. Whether you're looking for organized raiding or pushing keys with guildmates, you'll find like-minded players here. </p>
             </div>
         </div>
 
-        <div class="bg-white p-6 rounded-lg shadow-lg text-center"> {# Added text-center #}
+        <div class="bg-white p-6 rounded-lg shadow-lg text-center">
             <h2 class="text-2xl font-bold mb-4 text-gray-900">Raid Schedule</h2>
             <p class="text-xl text-gray-800 font-semibold">
                 Wednesdays & Fridays
@@ -106,26 +92,20 @@
                 (Optional Alt Raid Saturdays)
              </p>
         </div>
-        <div class="bg-white p-6 rounded-lg shadow-lg space-y-6"> {# Added space-y-6 for spacing inside #}
+        <div class="bg-white p-6 rounded-lg shadow-lg space-y-6">
             <h2 class="text-2xl font-bold text-gray-900">Raid Status (Wipers)</h2>
 
             {# Progression Row #}
             <div>
                 <h3 class="text-lg font-semibold mb-4 text-gray-800">Progression</h3>
-                {# Grid layout for 2 KPI cards #}
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
-                     {# Max Heroic Kills Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon prog-heroic"><i class="fas fa-trophy"></i></div>
-                         {# Display max kills / total bosses #}
                          <div class="kpi-value">{{ max_heroic_kills | default(0) }}/{{ heroic_total_bosses | default('?') }}</div>
                          <div class="kpi-label">LoU Heroic</div>
                      </div>
-
-                     {# Max Mythic Kills Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon prog-mythic"><i class="fas fa-skull-crossbones"></i></div>
-                         {# Display max kills / total bosses #}
                          <div class="kpi-value">{{ max_mythic_kills | default(0) }}/{{ mythic_total_bosses | default('?') }}</div>
                          <div class="kpi-label">LoU Mythic</div>
                      </div>
@@ -135,30 +115,27 @@
             {# Current Roster Row #}
             <div>
                  <h3 class="text-lg font-semibold mb-4 text-gray-800">Current Roster</h3>
-                 {# Grid layout for 3 KPI cards #}
-                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-                     {# Tank Card #}
+                 {# Grid layout for 4 KPI cards (Tanks, Healers, Melee DPS, Ranged DPS) #}
+                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
                      <div class="kpi-card">
                          <div class="kpi-icon role-tank"><i class="fas fa-shield-halved"></i></div>
-                         {# Display tank count from Flask variable #}
                          <div class="kpi-value">{{ raid_status_counts.Tank | default(0) }}</div>
                          <div class="kpi-label">Tanks</div>
                      </div>
-
-                     {# Healer Card #}
                      <div class="kpi-card">
                          <div class="kpi-icon role-healer"><i class="fas fa-briefcase-medical"></i></div>
-                         {# Display healer count from Flask variable #}
                          <div class="kpi-value">{{ raid_status_counts.Healer | default(0) }}</div>
                          <div class="kpi-label">Healers</div>
                      </div>
-
-                     {# DPS Card #}
                      <div class="kpi-card">
-                         <div class="kpi-icon role-dps"><i class="fas fa-khanda"></i></div>
-                         {# Display DPS count from Flask variable #}
-                         <div class="kpi-value">{{ raid_status_counts.DPS | default(0) }}</div>
-                         <div class="kpi-label">DPS</div>
+                         <div class="kpi-icon role-melee-dps"><i class="fas fa-swords"></i></div>
+                         <div class="kpi-value">{{ raid_status_counts['Melee DPS'] | default(0) }}</div>
+                         <div class="kpi-label">Melee DPS</div>
+                     </div>
+                     <div class="kpi-card">
+                         <div class="kpi-icon role-ranged-dps"><i class="fas fa-wand-sparkles"></i></div>
+                         <div class="kpi-value">{{ raid_status_counts['Ranged DPS'] | default(0) }}</div>
+                         <div class="kpi-label">Ranged DPS</div>
                      </div>
                  </div>
             </div>
@@ -166,7 +143,6 @@
         </main>
 
     <footer class="text-center text-gray-500 mt-8 pb-4">
-        {# Display guild name and current year passed from Flask #}
         &copy; {{ guild_name }} - {{ current_year }}
     </footer>
 
