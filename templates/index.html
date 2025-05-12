@@ -37,7 +37,8 @@
             margin-bottom: 0.75rem; /* mb-3 */
         }
         /* Role icon colors (consistent with roster page) */
-        .role-dps { color: #c53030; } /* red-700 */
+        .role-melee-dps { color: #dc2626; } /* red-600 */
+        .role-ranged-dps { color: #f59e0b; } /* amber-500 */
         .role-healer { color: #2f855a; } /* green-700 */
         .role-tank { color: #2b6cb0; } /* blue-700 */
         /* Progression icon colors */
@@ -127,8 +128,9 @@
                          <div class="kpi-value">{{ raid_status_counts.Healer | default(0) }}</div>
                          <div class="kpi-label">Healers</div>
                      </div>
+                     {# MODIFIED: Melee DPS Card Icon #}
                      <div class="kpi-card">
-                         <div class="kpi-icon role-melee-dps"><i class="fas fa-swords"></i></div>
+                         <div class="kpi-icon role-melee-dps"><i class="fas fa-gavel"></i></div> {# Changed from fa-swords to fa-gavel #}
                          <div class="kpi-value">{{ raid_status_counts['Melee DPS'] | default(0) }}</div>
                          <div class="kpi-label">Melee DPS</div>
                      </div>
