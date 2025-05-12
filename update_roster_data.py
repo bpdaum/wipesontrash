@@ -11,7 +11,7 @@ import re
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index, ForeignKey, Float
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.sql import func
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, IntegrityError
 
 # Get DB URI from environment or default to local SQLite
 DATABASE_URI = os.environ.get('DATABASE_URL')
@@ -45,16 +45,17 @@ class Character(Base):
     class_name = Column(String(50))
     spec_name = Column(String(50)) # API Active Spec
     main_spec_override = Column(String(50), nullable=True) # User override
-    role = Column(String(15))      # Increased length for "Ranged DPS", "Melee DPS"
-    status = Column(String(15), nullable=False, index=True)
+    role = Column(String(15))      # e.g., Tank, Healer, Melee DPS, Ranged DPS
+    status = Column(String(15), nullable=False, index=True) # Calculated/User Status field
     item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
-    avg_wcl_performance = Column(Float, nullable=True)
+    avg_wcl_performance = Column(Float, nullable=True) # Average performance percentile
 
     attendances = relationship("WCLAttendance", back_populates="character")
+    performances = relationship("WCLPerformance", back_populates="character") # New relationship
     playable_class = relationship("PlayableClass", back_populates="characters")
 
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
@@ -62,28 +63,47 @@ class Character(Base):
 
 class WCLReport(Base):
     __tablename__ = 'wcl_report'
-    code = Column(String(50), primary_key=True)
+    code = Column(String(50), primary_key=True) # WCL Report Code
     title = Column(String(200))
-    start_time = Column(DateTime, index=True)
+    start_time = Column(DateTime, index=True) # Store as UTC DateTime
     end_time = Column(DateTime)
     owner_name = Column(String(100))
     fetched_at = Column(DateTime, default=datetime.utcnow)
     attendances = relationship("WCLAttendance", back_populates="report")
+    performances = relationship("WCLPerformance", back_populates="report") # New relationship
     def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
 
 class WCLAttendance(Base):
     __tablename__ = 'wcl_attendance'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Simple primary key
     report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
-    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True) # Link to Blizzard Character ID
     report = relationship("WCLReport", back_populates="attendances")
     character = relationship("Character", back_populates="attendances")
     __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
     def __repr__(self): return f'<WCLAttendance Report={self.report_code} CharacterID={self.character_id}>'
 
+# NEW: WCL Performance Table
+class WCLPerformance(Base):
+    __tablename__ = 'wcl_performance'
+    id = Column(Integer, primary_key=True)
+    report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    encounter_id = Column(Integer, nullable=False) # WCL Encounter ID
+    encounter_name = Column(String(100))
+    spec_name = Column(String(50)) # Spec used for this performance
+    metric = Column(String(20)) # e.g., "dps", "hps", "bossdps"
+    rank_percentile = Column(Float)
+
+    report = relationship("WCLReport", back_populates="performances")
+    character = relationship("Character", back_populates="performances")
+    __table_args__ = ( UniqueConstraint('report_code', 'character_id', 'encounter_id', 'metric', name='_perf_uc'), )
+    def __repr__(self): return f'<WCLPerformance Report={self.report_code} CharID={self.character_id} Enc={self.encounter_name} Metric={self.metric} Perf={self.rank_percentile}>'
+
+
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Class ID
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class")
     characters = relationship("Character", back_populates="playable_class")
@@ -91,7 +111,7 @@ class PlayableClass(Base):
 
 class PlayableSpec(Base):
     __tablename__ = 'playable_spec'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Spec ID
     name = Column(String(50), nullable=False)
     class_id = Column(Integer, ForeignKey('playable_class.id'), nullable=False)
     playable_class = relationship("PlayableClass", back_populates="specs")
@@ -129,24 +149,14 @@ CENTRAL_TZ = pytz.timezone('America/Chicago')
 TANK_SPECS = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]
 HEALER_SPECS = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]
 MELEE_DPS_SPECS = {
-    "Warrior": ["Arms", "Fury"],
-    "Paladin": ["Retribution"],
-    "Death Knight": ["Frost", "Unholy"],
-    "Shaman": ["Enhancement"],
-    "Hunter": ["Survival"],
-    "Rogue": ["Assassination", "Outlaw", "Subtlety"],
-    "Monk": ["Windwalker"],
-    "Demon Hunter": ["Havoc"],
-    "Druid": ["Feral"]
+    "Warrior": ["Arms", "Fury"], "Paladin": ["Retribution"], "Death Knight": ["Frost", "Unholy"],
+    "Shaman": ["Enhancement"], "Hunter": ["Survival"], "Rogue": ["Assassination", "Outlaw", "Subtlety"],
+    "Monk": ["Windwalker"], "Demon Hunter": ["Havoc"], "Druid": ["Feral"]
 }
 RANGED_DPS_SPECS = {
-    "Mage": ["Arcane", "Fire", "Frost"],
-    "Warlock": ["Affliction", "Demonology", "Destruction"],
-    "Priest": ["Shadow"],
-    "Hunter": ["Beast Mastery", "Marksmanship"],
-    "Druid": ["Balance"],
-    "Shaman": ["Elemental"],
-    "Evoker": ["Devastation", "Augmentation"]
+    "Mage": ["Arcane", "Fire", "Frost"], "Warlock": ["Affliction", "Demonology", "Destruction"],
+    "Priest": ["Shadow"], "Hunter": ["Beast Mastery", "Marksmanship"], "Druid": ["Balance"],
+    "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
 }
 
 
@@ -508,21 +518,31 @@ def fetch_wcl_guild_reports(limit=30):
     print(f"Filtered down to {len(filtered_reports)} Wed/Fri WCL reports.")
     return filtered_reports
 
-def fetch_wcl_report_details(report_code):
-    """Fetches player details for a specific WCL report using the masterData actors field."""
+def fetch_wcl_report_data(report_code, metric="dps"): # Changed from fetch_wcl_report_details
+    """Fetches player actors (for attendance) and rankings for a specific WCL report."""
     if not report_code: return None
     access_token = get_wcl_access_token()
     if not access_token: return None
 
     query = f"""
-    query ReportPlayers($reportCode: String!) {{
+    query ReportDetails($reportCode: String!) {{
       reportData {{
         report(code: $reportCode) {{
           masterData {{
-            actors(type: "Player") {{ # Filter for actual players
-              id # WCL actor ID
+            actors(type: "Player") {{ # For attendance
+              id
               name
               server
+            }}
+          }}
+          rankings(playerMetric: {metric}, compare: Parsek) {{ # For performance
+            data {{
+              encounter {{ id name }}
+              character {{ id name server }}
+              class {{ name }}
+              spec {{ name }}
+              rankPercent
+              total
             }}
           }}
         }}
@@ -533,12 +553,20 @@ def fetch_wcl_report_details(report_code):
     headers = {"Authorization": f"Bearer {access_token}"}
     data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables)
 
-    if data and data.get('data', {}).get('reportData', {}).get('report', {}).get('masterData', {}).get('actors'):
-        return data['data']['reportData']['report']['masterData']['actors']
+    actors = None
+    rankings = None
+
+    if data and data.get('data', {}).get('reportData', {}).get('report'):
+        report_content = data['data']['reportData']['report']
+        if report_content.get('masterData', {}).get('actors'):
+            actors = report_content['masterData']['actors']
+        if report_content.get('rankings', {}).get('data'):
+            rankings = report_content['rankings']['data']
     else:
-        print(f"Failed to fetch or parse player details from WCL report {report_code}.")
+        print(f"Failed to fetch or parse data for WCL report {report_code}.")
         if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}")
-        return None
+
+    return {"actors": actors, "rankings": rankings}
 
 # --- END API Helper Functions ---
 
@@ -551,8 +579,9 @@ def update_database():
     db_session = SessionLocal()
 
     try:
-        print(f"Attempting to drop existing tables (WCLAttendance, WCLReport, Character, PlayableSpec, PlayableClass)...")
+        print(f"Attempting to drop existing tables (WCLPerformance, WCLAttendance, WCLReport, Character, PlayableSpec, PlayableClass)...")
         Base.metadata.bind = engine
+        WCLPerformance.__table__.drop(engine, checkfirst=True)
         WCLAttendance.__table__.drop(engine, checkfirst=True)
         WCLReport.__table__.drop(engine, checkfirst=True)
         Character.__table__.drop(engine, checkfirst=True)
@@ -570,11 +599,11 @@ def update_database():
         print(f"Error during table drop/create: {e}")
         db_session.close(); return
 
-    if not update_static_tables(db_session): # This populates PlayableClass and PlayableSpec
+    if not update_static_tables(db_session):
         print("Error: Failed to update static class/spec tables. Aborting update.")
         db_session.close(); return
     try:
-        db_session.commit() # Commit static tables before proceeding
+        db_session.commit()
         print("Static tables (Class/Spec) committed.")
     except Exception as e:
         print(f"Error committing static table data: {e}")
@@ -592,9 +621,7 @@ def update_database():
     blizz_id_to_char_map = {}
     api_call_count = 0
     processed_for_details = 0
-    # Load class map from DB for role determination
     local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
-
 
     for member_entry in roster_data['members']:
         character_info = member_entry.get('character', {})
@@ -623,7 +650,6 @@ def update_database():
             active_spec_data = summary_data.get('active_spec')
             if active_spec_data and isinstance(active_spec_data, dict):
                 spec_name = active_spec_data.get('name')
-                # --- REFINED Role Determination ---
                 try:
                     if spec_name in TANK_SPECS: role = "Tank"
                     elif spec_name in HEALER_SPECS: role = "Healer"
@@ -631,13 +657,11 @@ def update_database():
                         role = "Melee DPS"
                     elif class_name_from_roster in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS.get(class_name_from_roster, []):
                         role = "Ranged DPS"
-                    elif spec_name: role = "DPS" # Fallback for generic DPS if spec is known
+                    elif spec_name: role = "DPS"
                     else: role = "Unknown"
                 except Exception as spec_err:
                     print(f"Warning: Could not determine role for {char_name} (Class: {class_name_from_roster}, Spec: {spec_name}): {spec_err}")
                     role = "Unknown"
-                # --- END REFINED Role Determination ---
-            # print(f"DEBUG: For {char_name}: API Spec='{spec_name}', Role='{role}'")
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
@@ -682,31 +706,65 @@ def update_database():
     wcl_reports_to_process = fetch_wcl_guild_reports()
     wcl_reports_in_db = []
     wcl_attendances_to_insert = []
+    wcl_performances_to_insert = []
     character_attendance_raw_counts = {}
-    successfully_processed_wcl_reports = 0
+    character_performance_scores = {}
+    successfully_processed_wcl_reports_for_attendance = 0
+    successfully_processed_wcl_reports_for_performance = 0
 
     if wcl_reports_to_process:
-        print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance...")
+        print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance & performance...")
         for report_data in wcl_reports_to_process:
             report_code = report_data.get('code')
             if not report_code: continue
+
             new_report = WCLReport(
                 code=report_code, title=report_data.get('title'),
                 start_time=report_data.get('start_time_dt'), end_time=report_data.get('end_time_dt'),
                 owner_name=report_data.get('owner', {}).get('name')
             )
             wcl_reports_in_db.append(new_report)
-            actors_data = fetch_wcl_report_details(report_code)
+
+            report_details = fetch_wcl_report_data(report_code, metric="dps")
+            actors_data = report_details.get("actors")
+            rankings_data = report_details.get("rankings")
+
             if actors_data:
-                successfully_processed_wcl_reports += 1
+                successfully_processed_wcl_reports_for_attendance += 1
                 player_names_in_log = {actor.get('name') for actor in actors_data if actor.get('name')}
                 for char_id, character_obj in blizz_id_to_char_map.items():
                     if character_obj.name.lower() in (name.lower() for name in player_names_in_log):
                         wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=char_id))
                         character_attendance_raw_counts[char_id] = character_attendance_raw_counts.get(char_id, 0) + 1
             else:
-                print(f"Warning: Could not get player details for WCL report {report_code}. This report will not count towards attendance percentage.")
-            time.sleep(0.1)
+                print(f"Warning: Could not get player list for WCL report {report_code} (attendance).")
+
+            if rankings_data:
+                successfully_processed_wcl_reports_for_performance +=1
+                for rank_entry in rankings_data:
+                    char_info = rank_entry.get('character', {})
+                    wcl_char_name = char_info.get('name')
+                    matched_char_id = None
+                    for blizz_id, char_obj in blizz_id_to_char_map.items():
+                        if char_obj.name.lower() == wcl_char_name.lower():
+                            matched_char_id = blizz_id
+                            break
+                    if matched_char_id:
+                        if matched_char_id not in character_performance_scores:
+                            character_performance_scores[matched_char_id] = []
+                        percentile = rank_entry.get('rankPercent')
+                        if percentile is not None:
+                            character_performance_scores[matched_char_id].append(percentile)
+                            wcl_performances_to_insert.append(WCLPerformance(
+                                report_code=report_code, character_id=matched_char_id,
+                                encounter_id=rank_entry.get('encounter',{}).get('id', 0),
+                                encounter_name=rank_entry.get('encounter',{}).get('name', 'Overall'),
+                                spec_name=rank_entry.get('spec',{}).get('name'),
+                                metric="dps", rank_percentile=percentile
+                            ))
+            else:
+                print(f"Warning: Could not get rankings for WCL report {report_code}.")
+            time.sleep(0.2) # Increased delay slightly for WCL API
         try:
             if wcl_reports_in_db:
                 print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...")
@@ -718,20 +776,42 @@ def update_database():
                 db_session.add_all(wcl_attendances_to_insert)
                 db_session.commit()
                 print("WCL attendance inserted.")
+            if wcl_performances_to_insert:
+                print(f"Inserting {len(wcl_performances_to_insert)} WCL performance records...")
+                db_session.add_all(wcl_performances_to_insert)
+                db_session.commit()
+                print("WCL performance records inserted.")
+
             if character_attendance_raw_counts:
                 print("Updating character attendance percentages...")
                 update_count = 0
-                if successfully_processed_wcl_reports > 0:
+                if successfully_processed_wcl_reports_for_attendance > 0:
                     for char_id, raw_count in character_attendance_raw_counts.items():
                         char_to_update = db_session.query(Character).get(char_id)
                         if char_to_update:
-                            attendance_percentage = round((raw_count / successfully_processed_wcl_reports) * 100, 2)
+                            attendance_percentage = round((raw_count / successfully_processed_wcl_reports_for_attendance) * 100, 2)
                             char_to_update.raid_attendance_percentage = attendance_percentage
                             update_count += 1
                     db_session.commit()
-                    print(f"Updated attendance percentage for {update_count} characters based on {successfully_processed_wcl_reports} successfully processed reports.")
+                    print(f"Updated attendance percentage for {update_count} characters based on {successfully_processed_wcl_reports_for_attendance} successfully processed reports.")
                 else:
-                    print("No WCL reports were successfully processed for details; cannot calculate attendance percentage.")
+                    print("No WCL reports were successfully processed for attendance details; cannot calculate attendance percentage.")
+
+            if character_performance_scores:
+                print("Updating character average WCL performance...")
+                update_count = 0
+                for char_id, scores in character_performance_scores.items():
+                    char_to_update = db_session.query(Character).get(char_id)
+                    if char_to_update and scores:
+                        avg_perf = round(sum(scores) / len(scores), 2)
+                        char_to_update.avg_wcl_performance = avg_perf
+                        update_count +=1
+                db_session.commit()
+                print(f"Updated average performance for {update_count} characters.")
+
+        except IntegrityError as ie: # Catch issues with unique constraints (e.g., duplicate WCLPerformance)
+            print(f"Database Integrity Error during WCL data insert/update: {ie}")
+            db_session.rollback()
         except Exception as e:
             print(f"Error during WCL data insert/update: {e}")
             db_session.rollback()

@@ -35,12 +35,14 @@
         .armory-link { color: #2b6cb0; /* blue-700 */ text-decoration: none; }
         .armory-link:hover { color: #2c5282; /* blue-800 */ text-decoration: underline; }
         .role-icon { font-size: 1.1rem; width: 1.5em; text-align: center; display: inline-block; }
+        /* Updated Role Colors */
+        .role-tank { color: #2563eb; } /* blue-600 */
+        .role-healer { color: #16a34a; } /* green-600 */
+        .role-melee-dps { color: #dc2626; } /* red-600 */
+        .role-ranged-dps { color: #f59e0b; } /* amber-500 */
         .role-dps { color: #c53030; } /* Original DPS color for fallback */
-        .role-melee-dps { color: #dc2626; } /* red-600 for Melee */
-        .role-ranged-dps { color: #f59e0b; } /* amber-500 for Ranged */
-        .role-healer { color: #2f855a; } /* green-700 */
-        .role-tank { color: #2b6cb0; } /* blue-700 */
         .role-unknown { color: #a0aec0; } /* gray-500 */
+
 
         /* Styles for Editing (shared for spec and status) */
         .display-value { display: inline-block; margin-right: 5px;}
@@ -164,7 +166,7 @@
                     </thead>
                     <tbody id="rosterBody">
                         {% for member in members %}
-                        {# Add character and class IDs to the row for JavaScript access #}
+                        {# Added data-class-name attribute to the row #}
                         <tr data-character-id="{{ member.id }}" data-class-id="{{ member.class_id }}" data-class-name="{{ member.class }}" data-api-spec="{{ member.spec_name }}" data-status="{{ member.status }}">
                             <td>
                                 <a href="https://worldofwarcraft.blizzard.com/{{ wow_locale }}/character/{{ wow_region }}/{{ member.realm_slug }}/{{ member.name | urlencode }}"
@@ -173,7 +175,8 @@
                                 </a>
                             </td>
                             <td>{{ member.level }}</td>
-                             <td class="text-center role-cell"> {# Center align the icon #}
+                             <td class="text-center role-cell">
+                                {# MODIFIED: Jinja logic for new roles #}
                                 {% set role_lower = member.role | lower if member.role else '' %}
                                 {% if role_lower == 'melee dps' %} <i class="fa-solid fa-swords role-icon role-melee-dps" title="Melee DPS"></i>
                                 {% elif role_lower == 'ranged dps' %} <i class="fa-solid fa-wand-sparkles role-icon role-ranged-dps" title="Ranged DPS"></i>
@@ -226,36 +229,33 @@
                             <td>
                                 {% if member.raid_progression == "N/A" or member.raid_progression is none %} <span class="na-value">N/A</span> {% else %} {{ member.raid_progression }} {% endif %}
                             </td>
-                            {# Attendance Percentage Cell #}
                             <td>
                                 {% if member.raid_attendance_percentage is none %}
                                     <span class="na-value">N/A</span>
                                 {% else %}
-                                    {{ "%.1f%%" | format(member.raid_attendance_percentage) }} {# Format as percentage with 1 decimal place #}
+                                    {{ "%.1f%%" | format(member.raid_attendance_percentage) }}
                                 {% endif %}
                             </td>
                             <td>{{ member.rank }}</td>
                         </tr>
-                        {% endfor %} {# End of member loop #}
+                        {% endfor %}
                     </tbody>
                 </table>
             </div>
             {% elif not error_message %}
-            {# Message if no members match the filter criteria #}
             <p>No members found matching rank criteria (<= 4) and item level (>= 600) in the database.</p>
-            {% endif %} {# End of members check #}
+            {% endif %}
         </div>
     </main>
 
     <footer class="text-center text-gray-500 mt-8 pb-4">
-        &copy; {{ guild_name }} - {{ current_year }} {# Assuming current_year is passed from Flask #}
+        &copy; {{ guild_name }} - {{ current_year }}
     </footer>
 
     <script>
-        // Parse the spec data passed from Flask
         const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
 
-        // --- Role Determination Logic ---
+        // --- MODIFIED: Role Determination Logic ---
         const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
         const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
         const meleeDpsSpecs = {
@@ -271,14 +271,24 @@
 
         function getRoleFromSpec(specName, className) { // Added className parameter
             if (!specName || specName === 'N/A') return 'Unknown';
+            // Check specific roles first
             if (tankSpecs.includes(specName)) return 'Tank';
             if (healerSpecs.includes(specName)) return 'Healer';
-            if (className && meleeDpsSpecs[className] && meleeDpsSpecs[className].includes(specName)) return 'Melee DPS';
-            if (className && rangedDpsSpecs[className] && rangedDpsSpecs[className].includes(specName)) return 'Ranged DPS';
-            return 'DPS'; // Fallback
+
+            // Check Melee DPS by class and spec
+            if (className && meleeDpsSpecs[className] && meleeDpsSpecs[className].includes(specName)) {
+                return 'Melee DPS';
+            }
+            // Check Ranged DPS by class and spec
+            if (className && rangedDpsSpecs[className] && rangedDpsSpecs[className].includes(specName)) {
+                return 'Ranged DPS';
+            }
+            // Fallback for generic DPS if spec is known but not in detailed lists
+            if (specName) return 'DPS';
+            return 'Unknown'; // Default if no match
         }
 
-        // --- UI Update Functions ---
+        // --- MODIFIED: UI Update Functions ---
         function updateRoleIcon(tableRow, newRole) {
             const roleCell = tableRow.querySelector('.role-cell');
             if (!roleCell) return;
@@ -298,7 +308,7 @@
             icon.setAttribute('title', title);
         }
 
-        function updateStatusDisplay(displaySpan, newStatus) {
+        function updateStatusDisplay(displaySpan, newStatus) { /* ... as before ... */
              const innerSpan = displaySpan.querySelector('span');
              if (!innerSpan) return;
              innerSpan.className = '';
@@ -319,7 +329,7 @@
             let currentSort = { column: -1, ascending: true };
 
             // Sorting Event Listeners
-            headers.forEach(header => {
+            headers.forEach(header => { /* ... as before ... */
                 header.addEventListener('click', function() {
                     const columnIndex = parseInt(this.dataset.columnIndex);
                     const sortType = this.dataset.sortType || 'string';
@@ -331,7 +341,7 @@
             });
 
             // Editing Event Listeners
-            tableBody.addEventListener('click', function(event) {
+            tableBody.addEventListener('click', function(event) { /* ... as before ... */
                 if (event.target.classList.contains('edit-spec-btn')) { startEdit(event.target, 'spec'); }
                 else if (event.target.classList.contains('spec-save-btn')) { saveEdit(event.target, 'spec'); }
                 else if (event.target.classList.contains('spec-cancel-btn')) { cancelEdit(event.target, 'spec'); }
@@ -349,7 +359,7 @@
 
 
             // Generic Editing Functions
-            function startEdit(editButton, type) {
+            function startEdit(editButton, type) { /* ... as before ... */
                 const td = editButton.closest('td');
                 const tr = editButton.closest('tr');
                 const displaySpan = td.querySelector(`.${type}-display`);
@@ -379,7 +389,7 @@
                 statusSpan.textContent = '';
             }
 
-            function cancelEdit(cancelButton, type) {
+            function cancelEdit(cancelButton, type) { /* ... as before ... */
                  const td = cancelButton.closest('td');
                  const displaySpan = td.querySelector(`.${type}-display`);
                  const editButton = td.querySelector(`.edit-${type}-btn`);
@@ -389,7 +399,7 @@
                  editButton.style.display = 'inline-block';
             }
 
-            function saveEdit(saveButton, type) {
+            function saveEdit(saveButton, type) { /* ... as before ... */
                 const td = saveButton.closest('td');
                 const tr = saveButton.closest('tr');
                 const select = td.querySelector(`.${type}-select`);
@@ -446,7 +456,7 @@
         }); // End DOMContentLoaded
 
         // --- Sorting Functions ---
-        function sortTable(columnIndex, sortType, ascending) {
+        function sortTable(columnIndex, sortType, ascending) { /* ... as before ... */
             const tableBody = document.getElementById('rosterBody');
              if (!tableBody) return;
             const rows = Array.from(tableBody.querySelectorAll('tr'));
@@ -484,7 +494,7 @@
             rows.sort(compareFunction);
             rows.forEach(row => tableBody.appendChild(row));
         }
-        function updateSortArrows(headers, activeColumnIndex, ascending) {
+        function updateSortArrows(headers, activeColumnIndex, ascending) { /* ... as before ... */
              headers.forEach(header => {
                 const arrowSpan = header.querySelector('.sort-arrow');
                 if (arrowSpan) {
