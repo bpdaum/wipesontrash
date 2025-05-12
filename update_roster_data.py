@@ -16,7 +16,7 @@ from sqlalchemy.exc import OperationalError, IntegrityError
 # Get DB URI from environment or default to local SQLite
 DATABASE_URI = os.environ.get('DATABASE_URL')
 if not DATABASE_URI:
-    print("WARNING: DATABASE_URL environment variable not found. Defaulting to local sqlite:///guild_data.db")
+    print("WARNING: DATABASE_URL environment variable not found. Defaulting to local sqlite:///guild_data.db", flush=True)
     DATABASE_URI = 'sqlite:///guild_data.db'
 else:
     if DATABASE_URI.startswith("postgres://"):
@@ -26,7 +26,7 @@ try:
     engine = create_engine(DATABASE_URI)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
-    metadata = MetaData()
+    metadata = MetaData() # Using Base.metadata is also fine
 except ImportError as e:
      print(f"Error: Database driver likely missing. {e}", flush=True)
      exit(1)
@@ -138,8 +138,6 @@ WCL_API_ENDPOINT = "https://www.warcraftlogs.com/api/v2/client"
 # --- Caching ---
 blizzard_access_token_cache = { "token": None, "expires_at": 0 }
 wcl_access_token_cache = { "token": None, "expires_at": 0 }
-# CLASS_MAP and SPEC_MAP_BY_CLASS are no longer used as in-memory caches in this script
-# They are populated into the database by update_static_tables
 
 # --- Timezone ---
 CENTRAL_TZ = pytz.timezone('America/Chicago')
@@ -148,24 +146,14 @@ CENTRAL_TZ = pytz.timezone('America/Chicago')
 TANK_SPECS = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]
 HEALER_SPECS = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]
 MELEE_DPS_SPECS = {
-    "Warrior": ["Arms", "Fury"],
-    "Paladin": ["Retribution"],
-    "Death Knight": ["Frost", "Unholy"],
-    "Shaman": ["Enhancement"],
-    "Hunter": ["Survival"],
-    "Rogue": ["Assassination", "Outlaw", "Subtlety"],
-    "Monk": ["Windwalker"],
-    "Demon Hunter": ["Havoc"],
-    "Druid": ["Feral"]
+    "Warrior": ["Arms", "Fury"], "Paladin": ["Retribution"], "Death Knight": ["Frost", "Unholy"],
+    "Shaman": ["Enhancement"], "Hunter": ["Survival"], "Rogue": ["Assassination", "Outlaw", "Subtlety"],
+    "Monk": ["Windwalker"], "Demon Hunter": ["Havoc"], "Druid": ["Feral"]
 }
 RANGED_DPS_SPECS = {
-    "Mage": ["Arcane", "Fire", "Frost"],
-    "Warlock": ["Affliction", "Demonology", "Destruction"],
-    "Priest": ["Shadow"],
-    "Hunter": ["Beast Mastery", "Marksmanship"],
-    "Druid": ["Balance"],
-    "Shaman": ["Elemental"],
-    "Evoker": ["Devastation", "Augmentation"]
+    "Mage": ["Arcane", "Fire", "Frost"], "Warlock": ["Affliction", "Demonology", "Destruction"],
+    "Priest": ["Shadow"], "Hunter": ["Beast Mastery", "Marksmanship"], "Druid": ["Balance"],
+    "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
 }
 
 
@@ -592,41 +580,40 @@ def update_database():
     existing_spec_overrides = {}
     existing_statuses = {}
     try:
-        if engine.dialect.has_table(engine.connect(), Character.__tablename__):
-            print("Fetching existing spec overrides and statuses before table drop...", flush=True)
-            user_settable_statuses = ['Wiper', 'Member', 'Wiping Alt']
-            existing_chars = db_session.query(Character.id, Character.main_spec_override, Character.status).all()
-            for char_id, spec_override, char_status in existing_chars:
-                if spec_override:
-                    existing_spec_overrides[char_id] = spec_override
-                if char_status in user_settable_statuses:
-                    existing_statuses[char_id] = char_status
-            print(f"Found {len(existing_spec_overrides)} existing spec overrides and {len(existing_statuses)} user-set statuses.", flush=True)
-        else:
-            print("Character table does not exist yet, skipping fetch of overrides/statuses.", flush=True)
+        # Check if Character table exists before trying to query it
+        # Use a temporary connection for this check to avoid interfering with the session
+        with engine.connect() as conn:
+            if engine.dialect.has_table(conn, Character.__tablename__):
+                print("Fetching existing spec overrides and statuses before table drop...", flush=True)
+                user_settable_statuses = ['Wiper', 'Member', 'Wiping Alt']
+                # Use a new session for this query if the main one is problematic
+                temp_session = SessionLocal()
+                try:
+                    existing_chars = temp_session.query(Character.id, Character.main_spec_override, Character.status).all()
+                    for char_id, spec_override, char_status in existing_chars:
+                        if spec_override:
+                            existing_spec_overrides[char_id] = spec_override
+                        if char_status in user_settable_statuses:
+                            existing_statuses[char_id] = char_status
+                    print(f"Found {len(existing_spec_overrides)} existing spec overrides and {len(existing_statuses)} user-set statuses.", flush=True)
+                except Exception as query_err:
+                    print(f"Error querying existing overrides/statuses: {query_err}", flush=True)
+                finally:
+                    temp_session.close()
+            else:
+                print("Character table does not exist yet, skipping fetch of overrides/statuses.", flush=True)
     except Exception as e:
-        print(f"Error fetching existing overrides/statuses: {e}", flush=True)
+        print(f"Error checking for Character table or fetching existing overrides/statuses: {e}", flush=True)
+
 
     # --- Drop and Recreate Tables with Enhanced Logging ---
-    tables_to_drop = [
-        WCLPerformance.__table__,
-        WCLAttendance.__table__,
-        WCLReport.__table__,
-        Character.__table__,
-        PlayableSpec.__table__,
-        PlayableClass.__table__
-    ]
     try:
-        Base.metadata.bind = engine
-        print("Attempting to drop existing tables...", flush=True)
-        for table in tables_to_drop:
-            print(f"  Attempting to drop {table.name}...", flush=True)
-            table.drop(engine, checkfirst=True)
-            print(f"  Table {table.name} dropped (or did not exist).", flush=True)
+        print("Attempting to drop all existing tables defined in Base metadata...", flush=True)
+        Base.metadata.drop_all(engine, checkfirst=True) # This drops all tables known to Base
         print("All specified tables dropped successfully.", flush=True)
 
         print("Creating all tables...", flush=True)
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(engine) # This creates all tables known to Base
         print("All tables created successfully.", flush=True)
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.", flush=True)
