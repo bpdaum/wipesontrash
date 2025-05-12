@@ -26,7 +26,7 @@ try:
     engine = create_engine(DATABASE_URI)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     Base = declarative_base()
-    metadata = MetaData()
+    metadata = MetaData() # Using Base.metadata is also fine
 except ImportError as e:
      print(f"Error: Database driver likely missing. {e}", flush=True)
      exit(1)
@@ -37,36 +37,37 @@ except Exception as e:
 # --- Database Models ---
 class Character(Base):
     __tablename__ = 'character'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Character ID
     name = Column(String(100), nullable=False)
     realm_slug = Column(String(100), nullable=False)
     level = Column(Integer)
     class_id = Column(Integer, ForeignKey('playable_class.id'))
     class_name = Column(String(50))
-    spec_name = Column(String(50))
-    main_spec_override = Column(String(50), nullable=True)
-    role = Column(String(15))
-    status = Column(String(15), nullable=False, index=True)
+    spec_name = Column(String(50)) # API Active Spec
+    main_spec_override = Column(String(50), nullable=True) # User override
+    role = Column(String(15))      # e.g., Tank, Healer, Melee DPS, Ranged DPS
+    status = Column(String(15), nullable=False, index=True) # Calculated/User Status field
     item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
-    avg_wcl_performance = Column(Float, nullable=True)
+    avg_wcl_performance = Column(Float, nullable=True) # Average performance percentile
 
     attendances = relationship("WCLAttendance", back_populates="character", cascade="all, delete-orphan")
     performances = relationship("WCLPerformance", back_populates="character", cascade="all, delete-orphan")
     playable_class = relationship("PlayableClass", back_populates="characters")
     bis_selections = relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
 
+
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
     def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
 
 class WCLReport(Base):
     __tablename__ = 'wcl_report'
-    code = Column(String(50), primary_key=True)
+    code = Column(String(50), primary_key=True) # WCL Report Code
     title = Column(String(200))
-    start_time = Column(DateTime, index=True)
+    start_time = Column(DateTime, index=True) # Store as UTC DateTime
     end_time = Column(DateTime)
     owner_name = Column(String(100))
     fetched_at = Column(DateTime, default=datetime.utcnow)
@@ -76,9 +77,9 @@ class WCLReport(Base):
 
 class WCLAttendance(Base):
     __tablename__ = 'wcl_attendance'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Simple primary key
     report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
-    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True) # Link to Blizzard Character ID
     report = relationship("WCLReport", back_populates="attendances")
     character = relationship("Character", back_populates="attendances")
     __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
@@ -89,19 +90,21 @@ class WCLPerformance(Base):
     id = Column(Integer, primary_key=True)
     report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
     character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
-    encounter_id = Column(Integer, nullable=False)
+    encounter_id = Column(Integer, nullable=False) # WCL Encounter ID
     encounter_name = Column(String(100))
-    spec_name = Column(String(50))
-    metric = Column(String(20))
+    spec_name = Column(String(50)) # Spec used for this performance
+    metric = Column(String(20)) # e.g., "dps", "hps", "bossdps"
     rank_percentile = Column(Float)
+
     report = relationship("WCLReport", back_populates="performances")
     character = relationship("Character", back_populates="performances")
     __table_args__ = ( UniqueConstraint('report_code', 'character_id', 'encounter_id', 'metric', name='_perf_uc'), )
     def __repr__(self): return f'<WCLPerformance Report={self.report_code} CharID={self.character_id} Enc={self.encounter_name} Metric={self.metric} Perf={self.rank_percentile}>'
 
+
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Class ID
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class", cascade="all, delete-orphan")
     characters = relationship("Character", back_populates="playable_class")
@@ -109,7 +112,7 @@ class PlayableClass(Base):
 
 class PlayableSpec(Base):
     __tablename__ = 'playable_spec'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Spec ID
     name = Column(String(50), nullable=False)
     class_id = Column(Integer, ForeignKey('playable_class.id'), nullable=False)
     playable_class = relationship("PlayableClass", back_populates="specs")
@@ -129,13 +132,13 @@ class DataSource(Base):
     __tablename__ = 'data_source'
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), unique=True, nullable=False)
-    type = Column(String(50))
+    type = Column(String(50)) # "Raid", "Dungeon"
     items = relationship("Item", back_populates="source", cascade="all, delete-orphan")
     def __repr__(self): return f'<DataSource {self.name}>'
 
 class Item(Base):
     __tablename__ = 'item'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Item ID
     name = Column(String(255), nullable=False, index=True)
     quality = Column(String(20))
     icon_url = Column(String(512), nullable=True)
@@ -500,7 +503,7 @@ def summarize_raid_progression(raid_data):
     hc_kills_return = 0 if heroic_kills == -1 else heroic_kills
     return summary_output, hc_kills_return
 
-def fetch_wcl_guild_reports(limit=50): # Increased limit to ensure we get enough reports to filter
+def fetch_wcl_guild_reports(limit=50):
     """
     Fetches recent raid reports for the guild from WCL API,
     filters for the last 8 raid nights on Wed/Fri in Central Time that contain "Liberation of Undermine".
@@ -549,8 +552,13 @@ def fetch_wcl_guild_reports(limit=50): # Increased limit to ensure we get enough
     target_raid_name_wcl = "Liberation of Undermine" # Name as it appears in WCL zone names
 
     for report in all_reports:
+        if not report: # Add check for None report entries
+            print("Warning: Encountered a None report object in WCL data.", flush=True)
+            continue
         start_time_ms = report.get('startTime')
-        zone_name = report.get('zone', {}).get('name', '')
+        zone_info = report.get('zone', {}) # Ensure zone is a dict
+        zone_name = zone_info.get('name', '') if isinstance(zone_info, dict) else ''
+
 
         if not start_time_ms: continue
 
