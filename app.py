@@ -10,7 +10,9 @@ from sqlalchemy.orm import relationship # Ensure relationship is imported for mo
 import os
 import requests # Keep for potential future use or type hints
 import time
-from datetime import datetime # Needed for Character model timestamp
+from datetime import datetime, date # Added date for calendar
+import calendar # For calendar generation
+import pytz # For timezone handling
 import json # For parsing request body
 import re # Import regex for parsing progression string
 
@@ -88,34 +90,42 @@ class Character(db.Model):
     # Define a unique constraint on name and realm_slug
     __table_args__ = (db.UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
     playable_class = db.relationship("PlayableClass", back_populates="characters") # Relationship
+    # attendances = db.relationship("WCLAttendance", back_populates="character") # Assuming WCLAttendance model exists
 
     def __repr__(self):
         return f'<Character {self.name}-{self.realm_slug}>'
 
+# WCL Report Model (ensure it's defined for querying)
+class WCLReport(db.Model):
+    __tablename__ = 'wcl_report'
+    code = db.Column(String(50), primary_key=True)
+    title = db.Column(String(200))
+    start_time = db.Column(DateTime, index=True) # Stored as UTC
+    end_time = db.Column(DateTime)
+    owner_name = db.Column(String(100))
+    fetched_at = db.Column(DateTime, default=datetime.utcnow)
+    # attendances = db.relationship("WCLAttendance", back_populates="report") # Assuming WCLAttendance model exists
+
+    def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
+
 
 # --- Data Caching & API Config (for Specs) ---
-# Simple in-memory cache for all specs, populated on first roster load
-ALL_SPECS_CACHE = {} # Structure: {class_id: [{id: spec_id, name: spec_name}, ...]}
+ALL_SPECS_CACHE = {}
 ALL_SPECS_LAST_FETCHED = 0
-CACHE_TTL = 3600 * 6 # Cache specs for 6 hours (adjust as needed)
-
-# Separate token cache for the spec fetching within the web app context
+CACHE_TTL = 3600 * 6
 WEB_APP_ACCESS_TOKEN_CACHE = {"token": None, "expires_at": 0}
 API_BASE_URL = f"https://{REGION}.api.blizzard.com"
 TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
+CENTRAL_TZ = pytz.timezone('America/Chicago')
 
 
-# --- API Helper Functions (for Web App Context) ---
-
+# --- API Helper Functions (for Web App Context - Spec Fetch) ---
 def get_web_app_token():
     """ Gets/refreshes token specifically for web app needs (like spec fetching). """
-    global WEB_APP_ACCESS_TOKEN_CACHE # Use the dedicated cache
+    global WEB_APP_ACCESS_TOKEN_CACHE
     now = time.time()
-    # Check cache first
     if WEB_APP_ACCESS_TOKEN_CACHE["token"] and WEB_APP_ACCESS_TOKEN_CACHE["expires_at"] > now + 60:
         return WEB_APP_ACCESS_TOKEN_CACHE["token"]
-
-    # Fetch new token if needed (requires API keys set for web dyno)
     client_id = BLIZZARD_CLIENT_ID
     client_secret = BLIZZARD_CLIENT_SECRET
     if not client_id or not client_secret:
@@ -169,13 +179,10 @@ def get_all_specs():
     print("Fetching specs from database...")
     temp_spec_map = {}
     try:
-        with app.app_context(): # Ensure we are in app context for DB query
-            # Ensure PlayableSpec table exists
+        with app.app_context():
             if not db.engine.dialect.has_table(db.engine.connect(), PlayableSpec.__tablename__):
                 print("PlayableSpec table does not exist. Cannot load specs from DB.")
-                # Fallback or error handling if table doesn't exist
-                # For now, returning empty and relying on API fallback if needed by UI
-                return {} # Or potentially trigger the API fetch if critical
+                return {}
 
             all_db_specs = PlayableSpec.query.all()
             if all_db_specs:
@@ -183,20 +190,18 @@ def get_all_specs():
                     if spec.class_id not in temp_spec_map:
                         temp_spec_map[spec.class_id] = []
                     temp_spec_map[spec.class_id].append({"id": spec.id, "name": spec.name})
-                for cid in temp_spec_map: # Sort them
+                for cid in temp_spec_map:
                     temp_spec_map[cid].sort(key=lambda x: x['name'])
-
                 ALL_SPECS_CACHE = temp_spec_map
                 ALL_SPECS_LAST_FETCHED = current_time
                 print(f"Specs populated from database for {len(ALL_SPECS_CACHE)} classes.")
                 return ALL_SPECS_CACHE
             else:
                 print("PlayableSpec table is empty in the database. No specs to load.")
-                return {} # Return empty if table exists but no data
-
+                return {}
     except Exception as e:
         print(f"Error fetching specs from database: {e}")
-        return {} # Return empty on error
+        return {}
 
 # --- Routes ---
 @app.route('/')
@@ -204,149 +209,130 @@ def home():
     """ Route for the homepage ('/'). Fetches raid status counts and max progression. """
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
-
-    # Initialize counts for Melee DPS and Ranged DPS
     raid_status_counts = {'Tank': 0, 'Healer': 0, 'Melee DPS': 0, 'Ranged DPS': 0, 'DPS':0, 'Total': 0}
-    max_heroic_kills = 0
-    max_mythic_kills = 0
-    heroic_total_bosses = 8
-    mythic_total_bosses = 8
+    max_heroic_kills = 0; max_mythic_kills = 0
+    heroic_total_bosses = 8; mythic_total_bosses = 8
     target_raid_short_name = "Undermine"
-
     try:
         with app.app_context():
              if db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
                 wipers = Character.query.filter(Character.status == 'Wiper').all()
                 raid_status_counts['Total'] = len(wipers)
-
                 for wiper in wipers:
-                    # Count specific roles
-                    if wiper.role == 'Tank':
-                        raid_status_counts['Tank'] += 1
-                    elif wiper.role == 'Healer':
-                        raid_status_counts['Healer'] += 1
-                    elif wiper.role == 'Melee DPS':
-                        raid_status_counts['Melee DPS'] += 1
-                    elif wiper.role == 'Ranged DPS':
-                        raid_status_counts['Ranged DPS'] += 1
-                    elif wiper.role == 'DPS': # Fallback for generic DPS
-                        raid_status_counts['DPS'] += 1
-
-
+                    if wiper.role == 'Tank': raid_status_counts['Tank'] += 1
+                    elif wiper.role == 'Healer': raid_status_counts['Healer'] += 1
+                    elif wiper.role == 'Melee DPS': raid_status_counts['Melee DPS'] += 1
+                    elif wiper.role == 'Ranged DPS': raid_status_counts['Ranged DPS'] += 1
+                    elif wiper.role == 'DPS': raid_status_counts['DPS'] += 1
                     prog_str = wiper.raid_progression
                     if prog_str and prog_str.startswith(target_raid_short_name + ":"):
                         heroic_match = re.search(r'(\d+)/(\d+)H', prog_str)
                         mythic_match = re.search(r'(\d+)/(\d+)M', prog_str)
                         if heroic_match:
-                            kills = int(heroic_match.group(1))
-                            total = int(heroic_match.group(2))
-                            max_heroic_kills = max(max_heroic_kills, kills)
-                            heroic_total_bosses = total
+                            kills = int(heroic_match.group(1)); total = int(heroic_match.group(2))
+                            max_heroic_kills = max(max_heroic_kills, kills); heroic_total_bosses = total
                         if mythic_match:
-                            kills = int(mythic_match.group(1))
-                            total = int(mythic_match.group(2))
-                            max_mythic_kills = max(max_mythic_kills, kills)
-                            mythic_total_bosses = total
-             else:
-                  print("Warning: Character table not found when fetching raid status counts.")
-    except Exception as e:
-        print(f"Error fetching raid status counts/progression: {e}")
-
+                            kills = int(mythic_match.group(1)); total = int(mythic_match.group(2))
+                            max_mythic_kills = max(max_mythic_kills, kills); mythic_total_bosses = total
+             else: print("Warning: Character table not found when fetching raid status counts.")
+    except Exception as e: print(f"Error fetching raid status counts/progression: {e}")
     return render_template(
-        'index.html',
-        guild_name=display_guild_name,
-        current_year=current_year,
-        raid_status_counts=raid_status_counts,
-        max_heroic_kills=max_heroic_kills,
-        heroic_total_bosses=heroic_total_bosses,
-        max_mythic_kills=max_mythic_kills,
+        'index.html', guild_name=display_guild_name, current_year=current_year,
+        raid_status_counts=raid_status_counts, max_heroic_kills=max_heroic_kills,
+        heroic_total_bosses=heroic_total_bosses, max_mythic_kills=max_mythic_kills,
         mythic_total_bosses=mythic_total_bosses
     )
 
 @app.route('/roster')
 def roster_page():
-    """
-    Route for the roster page ('/roster'). Fetches data from DB.
-    Passes all specs data to template for dropdowns.
-    """
+    """ Route for the roster page ('/roster'). """
     start_time = time.time()
     error_message = None
     members = []
     min_item_level = 600
-    locale = "en-us"
+    locale = "en-us" # Default
     if REGION == "eu": locale = "en-gb"
     elif REGION == "kr": locale = "ko-kr"
     elif REGION == "tw": locale = "zh-tw"
 
-    all_specs_by_class = get_all_specs() # This now reads from DB
-    if not all_specs_by_class:
-         print("Warning: Could not load specialization data for dropdowns.")
+    all_specs_by_class = get_all_specs()
+    if not all_specs_by_class: print("Warning: Could not load specialization data for dropdowns.")
 
     try:
         with app.app_context():
             if not db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
                  error_message = "Database table not found. Please run the initial setup/update script."
-                 print(error_message)
             else:
                 db_members = Character.query.filter(
-                    Character.rank <= 4,
-                    Character.item_level != None,
-                    Character.item_level >= min_item_level
-                ).order_by(
-                    Character.rank.asc(),
-                    Character.item_level.desc().nullslast()
-                ).all()
-
+                    Character.rank <= 4, Character.item_level != None, Character.item_level >= min_item_level
+                ).order_by(Character.rank.asc(), Character.item_level.desc().nullslast()).all()
                 for char in db_members:
                     members.append({
-                        'id': char.id,
-                        'name': char.name,
-                        'realm_slug': char.realm_slug,
-                        'level': char.level,
-                        'class_id': char.class_id,
-                        'class': char.class_name,
+                        'id': char.id, 'name': char.name, 'realm_slug': char.realm_slug, 'level': char.level,
+                        'class_id': char.class_id, 'class': char.class_name,
                         'spec_name': char.spec_name if char.spec_name else "N/A",
                         'main_spec_override': char.main_spec_override,
-                        'role': char.role if char.role else "N/A",
-                        'status': char.status,
+                        'role': char.role if char.role else "N/A", 'status': char.status,
                         'item_level': char.item_level if char.item_level is not None else "N/A",
                         'raid_progression': char.raid_progression if char.raid_progression else "N/A",
                         'rank': char.rank,
                         'raid_attendance_percentage': char.raid_attendance_percentage if char.raid_attendance_percentage is not None else 0.0
                     })
-
                 if not members and not error_message:
-                     print(f"Warning: Character table exists but found no members matching filters.")
                      error_message = f"No members found matching rank criteria (<= 4) and item level (>= {min_item_level})."
-
     except Exception as e:
-        print(f"Error querying database: {e}")
+        print(f"Error querying database for roster: {e}")
         error_message = "Error retrieving data from the database."
-
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
-    end_time = time.time()
-    load_duration = round(end_time - start_time, 2)
-    print(f"Roster page loaded from DB in {load_duration} seconds.")
+    load_duration = round(time.time() - start_time, 2)
+    print(f"Roster page loaded in {load_duration} seconds.")
+    all_specs_json = json.dumps(all_specs_by_class) if all_specs_by_class else '{}'
+    return render_template('roster.html',
+                           guild_name=display_guild_name, members=members, error_message=error_message,
+                           load_duration=load_duration, wow_region=REGION, wow_locale=locale,
+                           all_specs_by_class=all_specs_json)
+
+@app.route('/raids')
+def raids_page():
+    """ Route for the raid calendar page. """
+    display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
+    current_year = datetime.utcnow().year
+    reports_by_date = {} # { "YYYY-MM-DD": [report1, report2, ...] }
 
     try:
-        all_specs_json = json.dumps(all_specs_by_class)
-    except Exception as json_err:
-        print(f"Error dumping specs to JSON: {json_err}")
-        all_specs_json = '{}'
+        with app.app_context():
+            if db.engine.dialect.has_table(db.engine.connect(), WCLReport.__tablename__):
+                three_months_ago = datetime.utcnow() - timedelta(days=90)
+                recent_reports = WCLReport.query.filter(WCLReport.start_time >= three_months_ago)\
+                                               .order_by(WCLReport.start_time.desc()).all()
+                for report in recent_reports:
+                    if report.start_time:
+                        ct_start_time = report.start_time.replace(tzinfo=pytz.utc).astimezone(CENTRAL_TZ)
+                        if ct_start_time.weekday() == 2 or ct_start_time.weekday() == 4:
+                            date_str = ct_start_time.strftime('%Y-%m-%d')
+                            if date_str not in reports_by_date:
+                                reports_by_date[date_str] = []
+                            reports_by_date[date_str].append({
+                                'code': report.code,
+                                'title': report.title,
+                                'startTime': int(report.start_time.timestamp() * 1000)
+                            })
+            else:
+                print("Warning: WCLReport table not found for raids page.")
+    except Exception as e:
+        print(f"Error fetching WCL reports for raids page: {e}")
 
-    return render_template('roster.html',
-                           guild_name=display_guild_name,
-                           members=members,
-                           error_message=error_message,
-                           load_duration=load_duration,
-                           wow_region=REGION,
-                           wow_locale=locale,
-                           all_specs_by_class=all_specs_json)
+    return render_template(
+        'raids.html',
+        guild_name=display_guild_name,
+        current_year=current_year,
+        reports_by_date_json = json.dumps(reports_by_date)
+    )
+
 
 # --- Update Spec Route ---
 @app.route('/update_spec', methods=['POST'])
 def update_spec():
-    """ Handles AJAX request to update a character's main_spec_override. """
     if not request.is_json: abort(400, description="Request must be JSON")
     data = request.get_json()
     character_id = data.get('character_id')
@@ -378,7 +364,6 @@ def update_spec():
 # --- Update Status Route ---
 @app.route('/update_status', methods=['POST'])
 def update_status():
-    """ Handles AJAX request to update a character's status. """
     if not request.is_json:
         abort(400, description="Request must be JSON")
     data = request.get_json()
