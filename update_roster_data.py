@@ -28,10 +28,10 @@ try:
     Base = declarative_base()
     metadata = MetaData()
 except ImportError as e:
-     print(f"Error: Database driver likely missing. {e}")
+     print(f"Error: Database driver likely missing. {e}", flush=True)
      exit(1)
 except Exception as e:
-     print(f"Error creating database engine: {e}")
+     print(f"Error creating database engine: {e}", flush=True)
      exit(1)
 
 # --- Database Models ---
@@ -178,7 +178,7 @@ def get_blizzard_access_token():
     if blizzard_access_token_cache["token"] and blizzard_access_token_cache["expires_at"] > current_time + 60:
         return blizzard_access_token_cache["token"]
     if not BLIZZARD_CLIENT_ID or not BLIZZARD_CLIENT_SECRET:
-        print("Error: BLIZZARD_CLIENT_ID or BLIZZARD_CLIENT_SECRET not set.")
+        print("Error: BLIZZARD_CLIENT_ID or BLIZZARD_CLIENT_SECRET not set.", flush=True)
         return None
     try:
         response = requests.post(
@@ -190,21 +190,21 @@ def get_blizzard_access_token():
         access_token = token_data.get('access_token')
         expires_in = token_data.get('expires_in', 0)
         if not access_token:
-            print(f"Error: Could not retrieve Blizzard access token. Response: {token_data}")
+            print(f"Error: Could not retrieve Blizzard access token. Response: {token_data}", flush=True)
             return None
         blizzard_access_token_cache["token"] = access_token
         blizzard_access_token_cache["expires_at"] = current_time + expires_in
-        print(f"New Blizzard access token obtained.")
+        print(f"New Blizzard access token obtained.", flush=True)
         return access_token
     except requests.exceptions.RequestException as e:
-        print(f"Error getting Blizzard access token: {e}")
+        print(f"Error getting Blizzard access token: {e}", flush=True)
         if e.response is not None:
-            print(f"Response Status: {e.response.status_code}")
-            try: print(f"Response Body: {e.response.json()}")
-            except: print(f"Response Body: {e.response.text}")
+            print(f"Response Status: {e.response.status_code}", flush=True)
+            try: print(f"Response Body: {e.response.json()}", flush=True)
+            except: print(f"Response Body: {e.response.text}", flush=True)
         return None
     except Exception as e:
-        print(f"An unexpected error during Blizzard token retrieval: {e}")
+        print(f"An unexpected error during Blizzard token retrieval: {e}", flush=True)
         return None
 
 def get_wcl_access_token():
@@ -215,11 +215,11 @@ def get_wcl_access_token():
         return wcl_access_token_cache["token"]
 
     if not WCL_CLIENT_ID or not WCL_CLIENT_SECRET:
-        print("Error: WCL_CLIENT_ID or WCL_CLIENT_SECRET not set in environment variables.")
+        print("Error: WCL_CLIENT_ID or WCL_CLIENT_SECRET not set in environment variables.", flush=True)
         return None
 
     try:
-        print(f"Attempting to get WCL token from: {WCL_TOKEN_URL}")
+        print(f"Attempting to get WCL token from: {WCL_TOKEN_URL}", flush=True)
         response = requests.post(
             WCL_TOKEN_URL,
             auth=(WCL_CLIENT_ID, WCL_CLIENT_SECRET),
@@ -231,24 +231,24 @@ def get_wcl_access_token():
         expires_in = token_data.get('expires_in', 0)
 
         if not access_token:
-            print(f"Error: Could not retrieve WCL access token. Response: {token_data}")
+            print(f"Error: Could not retrieve WCL access token. Response: {token_data}", flush=True)
             return None
 
         wcl_access_token_cache["token"] = access_token
         wcl_access_token_cache["expires_at"] = current_time + expires_in
-        print(f"New Warcraft Logs access token obtained.")
+        print(f"New Warcraft Logs access token obtained.", flush=True)
         return access_token
     except requests.exceptions.RequestException as e:
-        print(f"Error getting WCL access token: {e}")
+        print(f"Error getting WCL access token: {e}", flush=True)
         if e.response is not None:
-            print(f"WCL Token Response Status: {e.response.status_code}")
+            print(f"WCL Token Response Status: {e.response.status_code}", flush=True)
             try:
-                print(f"WCL Token Response Body: {e.response.json()}")
+                print(f"WCL Token Response Body: {e.response.json()}", flush=True)
             except requests.exceptions.JSONDecodeError:
-                print(f"WCL Token Response Body: {e.response.text}")
+                print(f"WCL Token Response Body: {e.response.text}", flush=True)
         return None
     except Exception as e:
-        print(f"An unexpected error during WCL token retrieval: {e}")
+        print(f"An unexpected error during WCL token retrieval: {e}", flush=True)
         return None
 
 
@@ -258,7 +258,7 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl
         try:
             if is_wcl:
                 if not wcl_query:
-                    print("Error: WCL query missing for GraphQL request.")
+                    print("Error: WCL query missing for GraphQL request.", flush=True)
                     return None
                 json_payload = {'query': wcl_query}
                 if wcl_variables:
@@ -273,32 +273,32 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl
             return response.json()
 
         except requests.exceptions.Timeout:
-            print(f"Timeout error during API request to {api_url}. Attempt {attempt + 1}/{max_retries}.")
+            print(f"Timeout error during API request to {api_url}. Attempt {attempt + 1}/{max_retries}.", flush=True)
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
             else:
-                print(f"Max retries reached for timeout at {api_url}.")
+                print(f"Max retries reached for timeout at {api_url}.", flush=True)
                 return None
         except requests.exceptions.HTTPError as e:
             if e.response.status_code in [500, 502, 503, 504] and attempt < max_retries - 1:
-                print(f"HTTP Error {e.response.status_code} for {api_url}. Attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay}s...")
+                print(f"HTTP Error {e.response.status_code} for {api_url}. Attempt {attempt + 1}/{max_retries}. Retrying in {retry_delay}s...", flush=True)
                 time.sleep(retry_delay)
             else:
-                print(f"HTTP Error during API request: {e}")
-                print(f"URL attempted: {e.request.url}")
-                print(f"Response Status: {e.response.status_code}")
-                try: print(f"Response Body: {e.response.json()}")
-                except: print(f"Response Body: {e.response.text}")
+                print(f"HTTP Error during API request: {e}", flush=True)
+                print(f"URL attempted: {e.request.url}", flush=True)
+                print(f"Response Status: {e.response.status_code}", flush=True)
+                try: print(f"Response Body: {e.response.json()}", flush=True)
+                except: print(f"Response Body: {e.response.text}", flush=True)
                 return None
         except requests.exceptions.RequestException as e:
-            print(f"Network error during API request: {e}. Attempt {attempt + 1}/{max_retries}.")
+            print(f"Network error during API request: {e}. Attempt {attempt + 1}/{max_retries}.", flush=True)
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
             else:
-                print(f"Max retries reached for network error at {api_url}.")
+                print(f"Max retries reached for network error at {api_url}.", flush=True)
                 return None
         except Exception as e:
-            print(f"An unexpected error occurred during API request: {e}")
+            print(f"An unexpected error occurred during API request: {e}", flush=True)
             return None
     return None
 
@@ -324,12 +324,12 @@ def get_static_data(endpoint, use_base_url=True):
 
 def update_static_tables(db_session):
     """ Fetches and updates PlayableClass and PlayableSpec tables. """
-    print("Updating static PlayableClass and PlayableSpec tables...")
+    print("Updating static PlayableClass and PlayableSpec tables...", flush=True)
     class_success = False
     spec_success = False
 
     # 1. Update Playable Classes
-    print("Fetching playable class index...")
+    print("Fetching playable class index...", flush=True)
     class_index_data = get_static_data('/playable-class/index')
     if class_index_data and 'classes' in class_index_data:
         classes_to_add = []
@@ -338,22 +338,22 @@ def update_static_tables(db_session):
                 classes_to_add.append(PlayableClass(id=class_info['id'], name=class_info['name']))
         if classes_to_add:
             db_session.add_all(classes_to_add)
-            print(f"PlayableClass table prepared with {len(classes_to_add)} entries.")
+            print(f"PlayableClass table prepared with {len(classes_to_add)} entries.", flush=True)
             class_success = True
         else:
-            print("No class data to add.")
+            print("No class data to add.", flush=True)
     else:
-        print("Error: Failed to fetch or parse playable class index.")
+        print("Error: Failed to fetch or parse playable class index.", flush=True)
 
     # 2. Update Playable Specializations
-    print("Fetching playable specialization index...")
+    print("Fetching playable specialization index...", flush=True)
     spec_index_data = get_static_data('/playable-specialization/index')
     if spec_index_data and 'character_specializations' in spec_index_data:
         specs_to_add = []
         fetch_errors = 0
         processed_count = 0
         spec_list = spec_index_data['character_specializations']
-        print(f"Fetched {len(spec_list)} specializations from index. Fetching details for class IDs...")
+        print(f"Fetched {len(spec_list)} specializations from index. Fetching details for class IDs...", flush=True)
 
         for spec_info_from_index in spec_list:
             spec_id = spec_info_from_index.get('id')
@@ -370,24 +370,24 @@ def update_static_tables(db_session):
                 if class_id:
                     specs_to_add.append(PlayableSpec(id=spec_id, name=spec_name, class_id=class_id))
                 else:
-                    print(f"Warning: No class_id for spec {spec_name} (ID: {spec_id})")
+                    print(f"Warning: No class_id for spec {spec_name} (ID: {spec_id})", flush=True)
                     fetch_errors +=1
             else:
-                print(f"Warning: Failed to fetch details for spec {spec_name} (ID: {spec_id})")
+                print(f"Warning: Failed to fetch details for spec {spec_name} (ID: {spec_id})", flush=True)
                 fetch_errors +=1
-            if processed_count % 10 == 0: print(f"Processed details for {processed_count}/{len(spec_list)} specs...")
+            if processed_count % 10 == 0: print(f"Processed details for {processed_count}/{len(spec_list)} specs...", flush=True)
             time.sleep(0.05)
 
         if specs_to_add:
             db_session.add_all(specs_to_add)
-            print(f"PlayableSpec table prepared with {len(specs_to_add)} entries.")
+            print(f"PlayableSpec table prepared with {len(specs_to_add)} entries.", flush=True)
             spec_success = True
         else:
-            print("No spec data to add.")
+            print("No spec data to add.", flush=True)
         if fetch_errors > 0:
-            print(f"Warning: Encountered {fetch_errors} errors while fetching spec details.")
+            print(f"Warning: Encountered {fetch_errors} errors while fetching spec details.", flush=True)
     else:
-        print("Error: Failed to fetch or parse playable specialization index.")
+        print("Error: Failed to fetch or parse playable specialization index.", flush=True)
 
     return class_success and spec_success
 
@@ -474,12 +474,12 @@ def fetch_wcl_guild_reports(limit=30):
     filters for the last 8 raid nights on Wed/Fri in Central Time.
     """
     if not WCL_GUILD_ID:
-        print("Error: WCL_GUILD_ID not set.")
+        print("Error: WCL_GUILD_ID not set.", flush=True)
         return None
     try:
         guild_id_int = int(WCL_GUILD_ID)
     except ValueError:
-        print(f"Error: WCL_GUILD_ID '{WCL_GUILD_ID}' is not valid.")
+        print(f"Error: WCL_GUILD_ID '{WCL_GUILD_ID}' is not valid.", flush=True)
         return None
 
     access_token = get_wcl_access_token()
@@ -504,12 +504,12 @@ def fetch_wcl_guild_reports(limit=30):
     data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query)
 
     if not data or not data.get('data', {}).get('reportData', {}).get('reports', {}).get('data'):
-        print("Failed to fetch or parse WCL guild reports.")
-        if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}")
+        print("Failed to fetch or parse WCL guild reports.", flush=True)
+        if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}", flush=True)
         return None
 
     all_reports = data['data']['reportData']['reports']['data']
-    print(f"Fetched {len(all_reports)} total WCL reports. Filtering for Wed/Fri...")
+    print(f"Fetched {len(all_reports)} total WCL reports. Filtering for Wed/Fri...", flush=True)
 
     filtered_reports = []
     all_reports.sort(key=lambda r: r.get('startTime', 0), reverse=True)
@@ -524,7 +524,7 @@ def fetch_wcl_guild_reports(limit=30):
              report['end_time_dt'] = datetime.fromtimestamp(report.get('endTime', 0) / 1000, tz=pytz.utc) if report.get('endTime') else None
              filtered_reports.append(report)
              if len(filtered_reports) == 8: break
-    print(f"Filtered down to {len(filtered_reports)} Wed/Fri WCL reports.")
+    print(f"Filtered down to {len(filtered_reports)} Wed/Fri WCL reports.", flush=True)
     return filtered_reports
 
 def fetch_wcl_report_data(report_code, metric="dps"):
@@ -573,8 +573,8 @@ def fetch_wcl_report_data(report_code, metric="dps"):
         if report_content.get('rankings', {}).get('data'):
             rankings = report_content['rankings']['data']
     else:
-        print(f"Failed to fetch or parse data for WCL report {report_code}.")
-        if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}")
+        print(f"Failed to fetch or parse data for WCL report {report_code}.", flush=True)
+        if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}", flush=True)
 
     return {"actors": actors, "rankings": rankings}
 
@@ -584,7 +584,7 @@ def fetch_wcl_report_data(report_code, metric="dps"):
 # --- Database Update Logic ---
 def update_database():
     """ Fetches all data from Blizzard API and updates the database. """
-    print("Starting database update process...")
+    print("Starting database update process...", flush=True)
     start_time = time.time()
     db_session = SessionLocal()
 
@@ -593,7 +593,7 @@ def update_database():
     existing_statuses = {}
     try:
         if engine.dialect.has_table(engine.connect(), Character.__tablename__):
-            print("Fetching existing spec overrides and statuses before table drop...")
+            print("Fetching existing spec overrides and statuses before table drop...", flush=True)
             user_settable_statuses = ['Wiper', 'Member', 'Wiping Alt']
             existing_chars = db_session.query(Character.id, Character.main_spec_override, Character.status).all()
             for char_id, spec_override, char_status in existing_chars:
@@ -601,11 +601,11 @@ def update_database():
                     existing_spec_overrides[char_id] = spec_override
                 if char_status in user_settable_statuses:
                     existing_statuses[char_id] = char_status
-            print(f"Found {len(existing_spec_overrides)} existing spec overrides and {len(existing_statuses)} user-set statuses.")
+            print(f"Found {len(existing_spec_overrides)} existing spec overrides and {len(existing_statuses)} user-set statuses.", flush=True)
         else:
-            print("Character table does not exist yet, skipping fetch of overrides/statuses.")
+            print("Character table does not exist yet, skipping fetch of overrides/statuses.", flush=True)
     except Exception as e:
-        print(f"Error fetching existing overrides/statuses: {e}")
+        print(f"Error fetching existing overrides/statuses: {e}", flush=True)
 
     # --- Drop and Recreate Tables with Enhanced Logging ---
     tables_to_drop = [
@@ -618,44 +618,45 @@ def update_database():
     ]
     try:
         Base.metadata.bind = engine
-        print("Attempting to drop existing tables...")
+        print("Attempting to drop existing tables...", flush=True)
         for table in tables_to_drop:
-            print(f"  Dropping table {table.name} if it exists...")
+            print(f"  Attempting to drop {table.name}...", flush=True)
             table.drop(engine, checkfirst=True)
-            print(f"  Table {table.name} dropped (or did not exist).")
-        print("All specified tables dropped successfully.")
+            print(f"  Table {table.name} dropped (or did not exist).", flush=True)
+        print("All specified tables dropped successfully.", flush=True)
 
-        print("Creating all tables...")
+        print("Creating all tables...", flush=True)
         Base.metadata.create_all(bind=engine)
-        print("All tables created successfully.")
+        print("All tables created successfully.", flush=True)
     except OperationalError as e:
-         print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.")
+         print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.", flush=True)
          db_session.close(); return
     except Exception as e:
-        print(f"Error during table drop/create: {e}")
+        print(f"Error during table drop/create: {e}", flush=True)
         db_session.close(); return
+    # --- END Drop and Recreate ---
 
-    if not update_static_tables(db_session):
-        print("Error: Failed to update static class/spec tables. Aborting update.")
+    if not update_static_tables(db_session): # Pass session
+        print("Error: Failed to update static class/spec tables. Aborting update.", flush=True)
         db_session.close(); return
     try:
         db_session.commit()
-        print("Static tables (Class/Spec) committed.")
+        print("Static tables (Class/Spec) committed.", flush=True)
     except Exception as e:
-        print(f"Error committing static table data: {e}")
+        print(f"Error committing static table data: {e}", flush=True)
         db_session.rollback(); db_session.close(); return
 
     local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
     if not local_class_map:
-        print("Warning: Local class map is empty after static table update. Roles may not be determined correctly.")
+        print("Warning: Local class map is empty after static table update. Roles may not be determined correctly.", flush=True)
 
     roster_data = get_guild_roster()
     if not roster_data or 'members' not in roster_data:
-        print("Error: Failed to fetch guild roster. Aborting update.")
+        print("Error: Failed to fetch guild roster. Aborting update.", flush=True)
         db_session.close(); return
 
     total_members = len(roster_data['members'])
-    print(f"Fetched {total_members} total members from Blizzard roster. Processing rank <= 4...")
+    print(f"Fetched {total_members} total members from Blizzard roster. Processing rank <= 4...", flush=True)
 
     characters_to_insert = []
     blizz_id_to_char_map = {}
@@ -674,7 +675,7 @@ def update_database():
 
         processed_for_details += 1
         if processed_for_details % 10 == 1 or processed_for_details == total_members:
-             print(f"\nProcessing Blizzard details for {char_name}-{char_realm_slug} (Rank {rank})...")
+             print(f"\nProcessing Blizzard details for {char_name}-{char_realm_slug} (Rank {rank})...", flush=True)
 
         class_id = character_info.get('playable_class', {}).get('id')
         class_name_from_roster = local_class_map.get(class_id, f"ID: {class_id}" if class_id else "N/A")
@@ -699,7 +700,7 @@ def update_database():
                     elif spec_name: role = "DPS"
                     else: role = "Unknown"
                 except Exception as spec_err:
-                    print(f"Warning: Could not determine role for {char_name} (Class: {class_name_from_roster}, Spec: {spec_name}): {spec_err}")
+                    print(f"Warning: Could not determine role for {char_name} (Class: {class_name_from_roster}, Spec: {spec_name}): {spec_err}", flush=True)
                     role = "Unknown"
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
@@ -730,21 +731,21 @@ def update_database():
         characters_to_insert.append(new_char)
         blizz_id_to_char_map[char_id] = new_char
 
-    print(f"\nProcessed Blizzard details for {len(characters_to_insert)} members (Rank <= 4). Made {api_call_count} API calls.")
+    print(f"\nProcessed Blizzard details for {len(characters_to_insert)} members (Rank <= 4). Made {api_call_count} API calls.", flush=True)
 
     try:
-        print(f"Inserting {len(characters_to_insert)} characters into the database...")
+        print(f"Inserting {len(characters_to_insert)} characters into the database...", flush=True)
         if characters_to_insert:
              db_session.add_all(characters_to_insert)
              db_session.commit()
-             print(f"Character insert complete.")
+             print(f"Character insert complete.", flush=True)
         else:
-             print("No characters met the criteria to be inserted.")
+             print("No characters met the criteria to be inserted.", flush=True)
     except Exception as e:
-        print(f"Error during character insert: {e}")
+        print(f"Error during character insert: {e}", flush=True)
         db_session.rollback(); db_session.close(); return
 
-    print("\n--- Fetching and Processing Warcraft Logs Data ---")
+    print("\n--- Fetching and Processing Warcraft Logs Data ---", flush=True)
     wcl_reports_to_process = fetch_wcl_guild_reports()
     wcl_reports_in_db = []
     wcl_attendances_to_insert = []
@@ -755,7 +756,7 @@ def update_database():
     successfully_processed_wcl_reports_for_performance = 0
 
     if wcl_reports_to_process:
-        print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance & performance...")
+        print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance & performance...", flush=True)
         for report_data in wcl_reports_to_process:
             report_code = report_data.get('code')
             if not report_code: continue
@@ -779,7 +780,7 @@ def update_database():
                         wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=char_id))
                         character_attendance_raw_counts[char_id] = character_attendance_raw_counts.get(char_id, 0) + 1
             else:
-                print(f"Warning: Could not get player list for WCL report {report_code} (attendance).")
+                print(f"Warning: Could not get player list for WCL report {report_code} (attendance).", flush=True)
 
             if rankings_data:
                 successfully_processed_wcl_reports_for_performance +=1
@@ -805,27 +806,27 @@ def update_database():
                                 metric="dps", rank_percentile=percentile
                             ))
             else:
-                print(f"Warning: Could not get rankings for WCL report {report_code}.")
-            time.sleep(0.2) # Increased delay slightly for WCL API
+                print(f"Warning: Could not get rankings for WCL report {report_code}.", flush=True)
+            time.sleep(0.2)
         try:
             if wcl_reports_in_db:
-                print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...")
+                print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...", flush=True)
                 db_session.add_all(wcl_reports_in_db)
                 db_session.commit()
-                print("WCL reports inserted.")
+                print("WCL reports inserted.", flush=True)
             if wcl_attendances_to_insert:
-                print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...")
+                print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...", flush=True)
                 db_session.add_all(wcl_attendances_to_insert)
                 db_session.commit()
-                print("WCL attendance inserted.")
+                print("WCL attendance inserted.", flush=True)
             if wcl_performances_to_insert:
-                print(f"Inserting {len(wcl_performances_to_insert)} WCL performance records...")
+                print(f"Inserting {len(wcl_performances_to_insert)} WCL performance records...", flush=True)
                 db_session.add_all(wcl_performances_to_insert)
                 db_session.commit()
-                print("WCL performance records inserted.")
+                print("WCL performance records inserted.", flush=True)
 
             if character_attendance_raw_counts:
-                print("Updating character attendance percentages...")
+                print("Updating character attendance percentages...", flush=True)
                 update_count = 0
                 if successfully_processed_wcl_reports_for_attendance > 0:
                     for char_id, raw_count in character_attendance_raw_counts.items():
@@ -835,12 +836,12 @@ def update_database():
                             char_to_update.raid_attendance_percentage = attendance_percentage
                             update_count += 1
                     db_session.commit()
-                    print(f"Updated attendance percentage for {update_count} characters based on {successfully_processed_wcl_reports_for_attendance} successfully processed reports.")
+                    print(f"Updated attendance percentage for {update_count} characters based on {successfully_processed_wcl_reports_for_attendance} successfully processed reports.", flush=True)
                 else:
-                    print("No WCL reports were successfully processed for attendance details; cannot calculate attendance percentage.")
+                    print("No WCL reports were successfully processed for attendance details; cannot calculate attendance percentage.", flush=True)
 
             if character_performance_scores:
-                print("Updating character average WCL performance...")
+                print("Updating character average WCL performance...", flush=True)
                 update_count = 0
                 for char_id, scores in character_performance_scores.items():
                     char_to_update = db_session.query(Character).get(char_id)
@@ -849,41 +850,41 @@ def update_database():
                         char_to_update.avg_wcl_performance = avg_perf
                         update_count +=1
                 db_session.commit()
-                print(f"Updated average performance for {update_count} characters.")
+                print(f"Updated average performance for {update_count} characters.", flush=True)
 
         except IntegrityError as ie:
-            print(f"Database Integrity Error during WCL data insert/update: {ie}")
+            print(f"Database Integrity Error during WCL data insert/update: {ie}", flush=True)
             db_session.rollback()
         except Exception as e:
-            print(f"Error during WCL data insert/update: {e}")
+            print(f"Error during WCL data insert/update: {e}", flush=True)
             db_session.rollback()
         finally:
             db_session.close()
     else:
-        print("Skipping WCL processing as no reports were fetched.")
+        print("Skipping WCL processing as no reports were fetched.", flush=True)
         db_session.close()
 
     end_time = time.time()
-    print(f"\nUpdate process finished in {round(end_time - start_time, 2)} seconds.")
+    print(f"\nUpdate process finished in {round(end_time - start_time, 2)} seconds.", flush=True)
 
 
 # --- Main Execution ---
 if __name__ == "__main__":
     required_vars = ['BLIZZARD_CLIENT_ID', 'BLIZZARD_CLIENT_SECRET', 'GUILD_NAME', 'REALM_SLUG', 'REGION', 'DATABASE_URL', 'WCL_CLIENT_ID', 'WCL_CLIENT_SECRET', 'WCL_GUILD_ID']
-    print(f"Checking environment variables...")
+    print(f"Checking environment variables...", flush=True)
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     if missing_vars:
-        print(f"Error: Missing required environment variables: {', '.join(missing_vars)}")
+        print(f"Error: Missing required environment variables: {', '.join(missing_vars)}", flush=True)
         if missing_vars == ['DATABASE_URL'] and DATABASE_URI.startswith('sqlite:///'):
-             print("Attempting to use default local SQLite DB: guild_data.db")
+             print("Attempting to use default local SQLite DB: guild_data.db", flush=True)
              api_keys_missing = [var for var in required_vars if not os.environ.get(var) and var != 'DATABASE_URL']
              if api_keys_missing:
-                  print(f"Error: Missing API environment variables needed for fetch: {', '.join(api_keys_missing)}")
+                  print(f"Error: Missing API environment variables needed for fetch: {', '.join(api_keys_missing)}", flush=True)
                   exit(1)
              else:
                   update_database()
         else:
              exit(1)
     else:
-        print("All required environment variables found.")
+        print("All required environment variables found.", flush=True)
         update_database()
