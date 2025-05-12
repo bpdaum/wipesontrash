@@ -57,6 +57,8 @@ class Character(Base):
     attendances = relationship("WCLAttendance", back_populates="character")
     performances = relationship("WCLPerformance", back_populates="character") # New relationship
     playable_class = relationship("PlayableClass", back_populates="characters")
+    bis_selections = relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
+
 
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
     def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
@@ -69,8 +71,8 @@ class WCLReport(Base):
     end_time = Column(DateTime)
     owner_name = Column(String(100))
     fetched_at = Column(DateTime, default=datetime.utcnow)
-    attendances = relationship("WCLAttendance", back_populates="report")
-    performances = relationship("WCLPerformance", back_populates="report") # New relationship
+    attendances = relationship("WCLAttendance", back_populates="report", cascade="all, delete-orphan")
+    performances = relationship("WCLPerformance", back_populates="report", cascade="all, delete-orphan")
     def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
 
 class WCLAttendance(Base):
@@ -104,7 +106,7 @@ class PlayableClass(Base):
     __tablename__ = 'playable_class'
     id = Column(Integer, primary_key=True) # Blizzard Class ID
     name = Column(String(50), unique=True, nullable=False)
-    specs = relationship("PlayableSpec", back_populates="playable_class")
+    specs = relationship("PlayableSpec", back_populates="playable_class", cascade="all, delete-orphan")
     characters = relationship("Character", back_populates="playable_class")
     def __repr__(self): return f'<PlayableClass {self.name}>'
 
@@ -115,6 +117,51 @@ class PlayableSpec(Base):
     class_id = Column(Integer, ForeignKey('playable_class.id'), nullable=False)
     playable_class = relationship("PlayableClass", back_populates="specs")
     def __repr__(self): return f'<PlayableSpec {self.name} (Class ID: {self.class_id})>'
+
+class PlayableSlot(Base):
+    __tablename__ = 'playable_slot'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    type = Column(String(50), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False)
+    display_order = Column(Integer, default=0)
+    items = relationship("Item", back_populates="slot", cascade="all, delete-orphan")
+    bis_selections = relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan")
+    def __repr__(self): return f'<PlayableSlot {self.name} ({self.type})>'
+
+class DataSource(Base):
+    __tablename__ = 'data_source'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), unique=True, nullable=False)
+    type = Column(String(50)) # "Raid", "Dungeon"
+    items = relationship("Item", back_populates="source", cascade="all, delete-orphan")
+    def __repr__(self): return f'<DataSource {self.name}>'
+
+class Item(Base):
+    __tablename__ = 'item'
+    id = Column(Integer, primary_key=True) # Blizzard Item ID
+    name = Column(String(255), nullable=False, index=True)
+    quality = Column(String(20))
+    icon_url = Column(String(512), nullable=True)
+    slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
+    slot = relationship("PlayableSlot", back_populates="items")
+    source_id = Column(Integer, ForeignKey('data_source.id'), nullable=True, index=True)
+    source = relationship("DataSource", back_populates="items")
+    source_details = Column(String(255))
+    bis_selections = relationship("CharacterBiS", back_populates="item", cascade="all, delete-orphan")
+    def __repr__(self): return f'<Item {self.name} (ID: {self.id})>'
+
+class CharacterBiS(Base):
+    __tablename__ = 'character_bis'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey('item.id'), nullable=True)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    character = relationship("Character", back_populates="bis_selections")
+    slot = relationship("PlayableSlot", back_populates="bis_selections")
+    item = relationship("Item", back_populates="bis_selections")
+    __table_args__ = (UniqueConstraint('character_id', 'slot_type', name='_character_slot_uc'),)
+    def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} Slot: {self.slot_type} ItemID: {self.item_id}>'
 
 
 # --- Configuration Loading ---
@@ -251,7 +298,7 @@ def make_api_request(api_url, params, headers, is_wcl=False, wcl_query=None, wcl
                 json_payload = {'query': wcl_query}
                 if wcl_variables:
                     json_payload['variables'] = wcl_variables
-                response = requests.post(api_url, json=json_payload, headers=headers, timeout=30)
+                response = requests.post(api_url, json=json_payload, headers=headers, timeout=45) # Increased timeout for WCL
             else:
                 response = requests.get(api_url, params=params, headers=headers, timeout=30)
 
@@ -456,10 +503,10 @@ def summarize_raid_progression(raid_data):
     hc_kills_return = 0 if heroic_kills == -1 else heroic_kills
     return summary_output, hc_kills_return
 
-def fetch_wcl_guild_reports(limit=30):
+def fetch_wcl_guild_reports(limit=50): # Increased limit to ensure we get enough reports to filter
     """
     Fetches recent raid reports for the guild from WCL API,
-    filters for the last 8 raid nights on Wed/Fri in Central Time.
+    filters for the last 8 raid nights on Wed/Fri in Central Time that contain "Liberation of Undermine".
     """
     if not WCL_GUILD_ID:
         print("Error: WCL_GUILD_ID not set.", flush=True)
@@ -483,6 +530,7 @@ def fetch_wcl_guild_reports(limit=30):
                     startTime # UTC timestamp in milliseconds
                     endTime
                     owner {{ name }}
+                    zone {{ name id }} # Get zone info to filter by raid instance
                 }}
             }}
         }}
@@ -497,23 +545,39 @@ def fetch_wcl_guild_reports(limit=30):
         return None
 
     all_reports = data['data']['reportData']['reports']['data']
-    print(f"Fetched {len(all_reports)} total WCL reports. Filtering for Wed/Fri...", flush=True)
+    print(f"Fetched {len(all_reports)} total WCL reports. Filtering for Wed/Fri & 'Liberation of Undermine'...", flush=True)
 
     filtered_reports = []
     all_reports.sort(key=lambda r: r.get('startTime', 0), reverse=True)
+    target_raid_name_wcl = "Liberation of Undermine" # Name as it appears in WCL zone names
 
     for report in all_reports:
         start_time_ms = report.get('startTime')
+        zone_name = report.get('zone', {}).get('name', '')
+
         if not start_time_ms: continue
+
         utc_dt = datetime.fromtimestamp(start_time_ms / 1000, tz=pytz.utc)
         ct_dt = utc_dt.astimezone(CENTRAL_TZ)
-        if ct_dt.weekday() == 2 or ct_dt.weekday() == 4: # Wednesday or Friday
+
+        is_raid_day = ct_dt.weekday() == 2 or ct_dt.weekday() == 4 # Wednesday or Friday
+        is_target_raid = target_raid_name_wcl.lower() in zone_name.lower()
+
+        if is_raid_day and is_target_raid:
              report['start_time_dt'] = utc_dt
              report['end_time_dt'] = datetime.fromtimestamp(report.get('endTime', 0) / 1000, tz=pytz.utc) if report.get('endTime') else None
              filtered_reports.append(report)
-             if len(filtered_reports) == 8: break
-    print(f"Filtered down to {len(filtered_reports)} Wed/Fri WCL reports.", flush=True)
+             print(f"  -> Keeping Report: {report['code']} - {report['title']} (Zone: {zone_name}, Started: {ct_dt.strftime('%Y-%m-%d %H:%M %Z')})", flush=True)
+             if len(filtered_reports) == 8: # Stop once we have 8 valid reports
+                 break
+        # else:
+            # if not is_raid_day: print(f"  -> Skipping Report: {report['code']} (Not Wed/Fri: {ct_dt.strftime('%A')})", flush=True)
+            # if not is_target_raid: print(f"  -> Skipping Report: {report['code']} (Not {target_raid_name_wcl}, Zone: {zone_name})", flush=True)
+
+
+    print(f"Filtered down to {len(filtered_reports)} relevant Wed/Fri WCL reports for '{target_raid_name_wcl}'.", flush=True)
     return filtered_reports
+
 
 def fetch_wcl_report_data(report_code, metric="dps"):
     """Fetches player actors (for attendance) and rankings for a specific WCL report."""
@@ -580,13 +644,10 @@ def update_database():
     existing_spec_overrides = {}
     existing_statuses = {}
     try:
-        # Check if Character table exists before trying to query it
-        # Use a temporary connection for this check to avoid interfering with the session
         with engine.connect() as conn:
             if engine.dialect.has_table(conn, Character.__tablename__):
                 print("Fetching existing spec overrides and statuses before table drop...", flush=True)
                 user_settable_statuses = ['Wiper', 'Member', 'Wiping Alt']
-                # Use a new session for this query if the main one is problematic
                 temp_session = SessionLocal()
                 try:
                     existing_chars = temp_session.query(Character.id, Character.main_spec_override, Character.status).all()
@@ -605,15 +666,13 @@ def update_database():
     except Exception as e:
         print(f"Error checking for Character table or fetching existing overrides/statuses: {e}", flush=True)
 
-
-    # --- Drop and Recreate Tables with Enhanced Logging ---
+    # --- Drop and Recreate Tables ---
     try:
         print("Attempting to drop all existing tables defined in Base metadata...", flush=True)
-        Base.metadata.drop_all(engine, checkfirst=True) # This drops all tables known to Base
+        Base.metadata.drop_all(engine, checkfirst=True)
         print("All specified tables dropped successfully.", flush=True)
-
         print("Creating all tables...", flush=True)
-        Base.metadata.create_all(engine) # This creates all tables known to Base
+        Base.metadata.create_all(engine)
         print("All tables created successfully.", flush=True)
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.", flush=True)
@@ -621,9 +680,8 @@ def update_database():
     except Exception as e:
         print(f"Error during table drop/create: {e}", flush=True)
         db_session.close(); return
-    # --- END Drop and Recreate ---
 
-    if not update_static_tables(db_session): # Pass session
+    if not update_static_tables(db_session):
         print("Error: Failed to update static class/spec tables. Aborting update.", flush=True)
         db_session.close(); return
     try:
