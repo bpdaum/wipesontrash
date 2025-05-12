@@ -28,15 +28,16 @@ except Exception as e:
      print(f"Error creating database engine: {e}", flush=True)
      exit(1)
 
-# --- Database Models ---
-# These models need to be defined so Base.metadata knows about all tables for drop_all/create_all
+# --- Models ---
+# These models need to be defined so Base.metadata knows about all tables for create_all
+# if they don't exist, but we will NOT drop all tables here.
 
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
     id = Column(Integer, primary_key=True)
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class", cascade="all, delete-orphan")
-    characters = relationship("Character", back_populates="playable_class") # Relationship to Character
+    characters = relationship("Character", back_populates="playable_class")
     def __repr__(self): return f'<PlayableClass {self.name}>'
 
 class PlayableSpec(Base):
@@ -87,7 +88,7 @@ class Character(Base):
     name = Column(String(100), nullable=False)
     realm_slug = Column(String(100), nullable=False)
     # Add other fields that WCLAttendance or WCLPerformance might reference if needed for schema creation
-    # For now, only 'id' is strictly necessary for ForeignKeys from WCL tables.
+    # For this script, only 'id' is strictly necessary for CharacterBiS's foreign key.
     # However, to be safe and match other scripts, include all fields.
     level = Column(Integer)
     class_id = Column(Integer, ForeignKey('playable_class.id'))
@@ -119,7 +120,7 @@ class CharacterBiS(Base):
     item_id = Column(Integer, ForeignKey('item.id'), nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     character = relationship("Character", back_populates="bis_selections")
-    slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui]) # Explicit foreign_keys
+    slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui])
     item = relationship("Item", back_populates="bis_selections")
     __table_args__ = (UniqueConstraint('character_id', 'slot_type_ui', name='_character_slot_ui_uc'),)
     def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} SlotUI: {self.slot_type_ui} ItemID: {self.item_id}>'
@@ -438,9 +439,17 @@ def main():
     db_session = SessionLocal()
 
     print("Ensuring all database tables exist (will create if not present)...", flush=True)
-    Base.metadata.drop_all(engine, checkfirst=True) # Drop all tables defined in THIS script's Base
-    Base.metadata.create_all(engine) # Create all tables defined in THIS script's Base
-    print("Database tables (re)created based on this script's models.", flush=True)
+    # Base.metadata.drop_all(engine, checkfirst=True) # REMOVED - This script should not drop Character, WCL tables etc.
+    # Only create tables that this script is responsible for IF THEY DON'T EXIST.
+    # The main update_roster_data.py script handles the full drop/recreate of Character and WCL tables.
+    PlayableSlot.metadata.create_all(engine, checkfirst=True)
+    DataSource.metadata.create_all(engine, checkfirst=True)
+    Item.metadata.create_all(engine, checkfirst=True)
+    # CharacterBiS table will be created here if it doesn't exist, or by app.py / update_roster_data.py
+    # It depends on Character, Item, PlayableSlot, so those must be known to Base.
+    CharacterBiS.metadata.create_all(engine, checkfirst=True)
+
+    print("Item-related database tables verified/created.", flush=True)
 
     populate_playable_slots(db_session)
     data_sources = populate_data_sources(db_session)
@@ -451,6 +460,17 @@ def main():
     if liberation_of_undermine_journal_id:
         lou_source_id = data_sources.get("Liberation of Undermine")
         if lou_source_id:
+            # Clear existing items from this source before repopulating
+            print(f"Clearing existing items for source: {target_raid_name_for_items} (ID: {lou_source_id})", flush=True)
+            db_session.query(Item).filter(Item.source_id == lou_source_id).delete(synchronize_session=False)
+            try:
+                db_session.commit()
+                print("Old items for this source cleared.", flush=True)
+            except Exception as e:
+                db_session.rollback()
+                print(f"Error clearing old items: {e}", flush=True)
+                db_session.close(); return
+
             fetch_and_store_raid_items(db_session, "Liberation of Undermine", liberation_of_undermine_journal_id, lou_source_id)
         else:
             print(f"Error: Data source for '{target_raid_name_for_items}' not found in DataSource table.", flush=True)
@@ -464,4 +484,4 @@ if __name__ == "__main__":
     if not BLIZZARD_CLIENT_ID or not BLIZZARD_CLIENT_SECRET:
         print("FATAL: BLIZZARD_CLIENT_ID or BLIZZARD_CLIENT_SECRET environment variables not set.", flush=True)
         exit(1)
-    main() # Call main, which was renamed from update_database
+    main()
