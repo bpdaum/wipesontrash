@@ -1,21 +1,26 @@
 # app.py
 # Import necessary libraries
 from flask import Flask, render_template, jsonify, request, abort
+# Import SQLAlchemy for database interaction
 from flask_sqlalchemy import SQLAlchemy
+# Import desc for descending sort order AND SQLAlchemy column types
+# Import func for count aggregation
 from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func, Float
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship # Ensure relationship is imported for model definitions
 import os
-import requests
+import requests # Keep for potential future use or type hints
 import time
-from datetime import datetime, date, timedelta
-import calendar
-import pytz
-import json
-import re
+from datetime import datetime, date, timedelta # Added date for calendar
+import calendar # For calendar generation
+import pytz # For timezone handling
+import json # For parsing request body
+import re # Import regex for parsing progression string
 
 # --- Configuration Loading ---
+# Basic app config (can be expanded)
 GUILD_NAME = os.environ.get('GUILD_NAME')
-REGION = os.environ.get('REGION', 'us').lower()
+REGION = os.environ.get('REGION', 'us').lower() # Needed for Armory URL construction
+# API Keys are needed here ONLY if the spec cache needs to be populated by the web app
 BLIZZARD_CLIENT_ID = os.environ.get('BLIZZARD_CLIENT_ID')
 BLIZZARD_CLIENT_SECRET = os.environ.get('BLIZZARD_CLIENT_SECRET')
 
@@ -23,59 +28,75 @@ BLIZZARD_CLIENT_SECRET = os.environ.get('BLIZZARD_CLIENT_SECRET')
 app = Flask(__name__)
 
 # --- Database Configuration ---
+# Get the DATABASE_URL from Heroku environment variables
 DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
+    # Default to a local SQLite file if DATABASE_URL is not set (for local dev)
     print("WARNING: DATABASE_URL environment variable not found. Defaulting to local sqlite:///guild_data.db")
     DATABASE_URL = 'sqlite:///guild_data.db'
 else:
+    # Heroku Postgres URLs start with 'postgres://', SQLAlchemy prefers 'postgresql://'
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False # Disable modification tracking
+db = SQLAlchemy(app) # Initialize SQLAlchemy with the Flask app
 
 # --- Database Models ---
 # These should match the definitions in update_roster_data.py and populate_item_db.py
 
 class PlayableClass(db.Model):
     __tablename__ = 'playable_class'
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True) # Blizzard Class ID
     name = db.Column(db.String(50), unique=True, nullable=False)
+    # Relationship to PlayableSpec
     specs = db.relationship("PlayableSpec", back_populates="playable_class")
+    # Relationship to Character
     characters = db.relationship("Character", back_populates="playable_class")
+
     def __repr__(self): return f'<PlayableClass {self.name}>'
 
 class PlayableSpec(db.Model):
     __tablename__ = 'playable_spec'
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True) # Blizzard Spec ID
     name = db.Column(db.String(50), nullable=False)
     class_id = db.Column(db.Integer, db.ForeignKey('playable_class.id'), nullable=False)
+    # Relationship to PlayableClass
     playable_class = db.relationship("PlayableClass", back_populates="specs")
+
     def __repr__(self): return f'<PlayableSpec {self.name} (Class ID: {self.class_id})>'
 
 class Character(db.Model):
-    __tablename__ = 'character'
-    id = db.Column(Integer, primary_key=True)
+    __tablename__ = 'character' # Explicit table name recommended
+    # Use imported types (Integer, String, DateTime)
+    id = db.Column(Integer, primary_key=True) # Use Blizzard's character ID
     name = db.Column(String(100), nullable=False)
-    realm_slug = db.Column(String(100), nullable=False)
+    realm_slug = db.Column(String(100), nullable=False) # Needed for Armory link
     level = db.Column(Integer)
     class_id = db.Column(Integer, db.ForeignKey('playable_class.id'))
     class_name = db.Column(String(50))
-    spec_name = db.Column(String(50))
-    main_spec_override = db.Column(String(50), nullable=True)
-    role = db.Column(String(15))
-    status = db.Column(String(15), nullable=False, index=True)
-    item_level = db.Column(Integer, index=True)
-    raid_progression = db.Column(String(200))
-    rank = db.Column(Integer, index=True)
-    last_updated = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # race_name removed
+    spec_name = db.Column(String(50)) # API Active Spec
+    main_spec_override = db.Column(String(50), nullable=True) # User override
+    role = db.Column(String(15))      # Role (Tank, Healer, Melee DPS, Ranged DPS)
+    status = db.Column(String(15), nullable=False, index=True) # Calculated/User Status field
+    item_level = db.Column(Integer, index=True) # Index item_level for filtering/sorting
+    raid_progression = db.Column(String(200)) # Store summary string
+    rank = db.Column(Integer, index=True) # Index rank for faster filtering
+    last_updated = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) # Use utcnow
+    # WCL Data
     raid_attendance_percentage = db.Column(Float, default=0.0, nullable=True)
     avg_wcl_performance = db.Column(Float, nullable=True)
-    playable_class = db.relationship("PlayableClass", back_populates="characters")
-    bis_selections = db.relationship("CharacterBiS", back_populates="character") # Relationship to BiS selections
+
+    # Define a unique constraint on name and realm_slug
     __table_args__ = (db.UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
-    def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
+    playable_class = db.relationship("PlayableClass", back_populates="characters") # Relationship
+    bis_selections = db.relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
+
+
+    def __repr__(self):
+        return f'<Character {self.name}-{self.realm_slug}>'
 
 class PlayableSlot(db.Model):
     __tablename__ = 'playable_slot'
@@ -84,7 +105,7 @@ class PlayableSlot(db.Model):
     name = db.Column(db.String(100), nullable=False)
     display_order = db.Column(db.Integer, default=0)
     items = db.relationship("Item", back_populates="slot")
-    bis_selections = db.relationship("CharacterBiS", back_populates="slot")
+    bis_selections = db.relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan")
     def __repr__(self): return f'<PlayableSlot {self.name} ({self.type})>'
 
 class DataSource(db.Model):
@@ -106,7 +127,7 @@ class Item(db.Model):
     source_id = db.Column(db.Integer, db.ForeignKey('data_source.id'), nullable=True, index=True)
     source = db.relationship("DataSource", back_populates="items")
     source_details = db.Column(db.String(255))
-    bis_selections = db.relationship("CharacterBiS", back_populates="item")
+    bis_selections = db.relationship("CharacterBiS", back_populates="item", cascade="all, delete-orphan")
     def __repr__(self): return f'<Item {self.name} (ID: {self.id})>'
 
 class CharacterBiS(db.Model):
@@ -122,7 +143,7 @@ class CharacterBiS(db.Model):
     __table_args__ = (db.UniqueConstraint('character_id', 'slot_type', name='_character_slot_uc'),)
     def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} Slot: {self.slot_type} ItemID: {self.item_id}>'
 
-class WCLReport(db.Model):
+class WCLReport(db.Model): # Added WCLReport model for the /raids page
     __tablename__ = 'wcl_report'
     code = db.Column(String(50), primary_key=True)
     title = db.Column(String(200))
@@ -145,6 +166,7 @@ CENTRAL_TZ = pytz.timezone('America/Chicago')
 
 # --- API Helper Functions (for Web App Context) ---
 def get_web_app_token():
+    """ Gets/refreshes token specifically for web app needs (like spec fetching). """
     global WEB_APP_ACCESS_TOKEN_CACHE
     now = time.time()
     if WEB_APP_ACCESS_TOKEN_CACHE["token"] and WEB_APP_ACCESS_TOKEN_CACHE["expires_at"] > now + 60:
@@ -175,16 +197,19 @@ def get_web_app_token():
         return None
 
 def make_blizzard_api_request(endpoint, params=None, full_url=None): # Renamed for clarity
+    """ Helper function to make Blizzard API requests within web app context """
     access_token = get_web_app_token()
     if not access_token: return None
     api_url = full_url if full_url else f"{API_BASE_URL}{endpoint}"
     headers = {"Authorization": f"Bearer {access_token}"}
     if params is None: params = {}
-    if not full_url and "namespace" not in params: params["namespace"] = f"profile-{REGION}"
+    if not full_url and "namespace" not in params: params["namespace"] = f"profile-{REGION}" # Default for profile data
     if not full_url and "locale" not in params: params["locale"] = "en_US"
     try:
         response = requests.get(api_url, params=params, headers=headers, timeout=15)
-        if response.status_code == 404: return None
+        if response.status_code == 404:
+             print(f"Warning (Web App): 404 Not Found for Blizzard API URL: {response.url}")
+             return None
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -192,6 +217,9 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None): # Renamed f
         return None
 
 def get_all_specs():
+    """
+    Fetches and caches all playable specializations from the database.
+    """
     global ALL_SPECS_CACHE, ALL_SPECS_LAST_FETCHED
     current_time = time.time()
     if ALL_SPECS_CACHE and (current_time - ALL_SPECS_LAST_FETCHED < CACHE_TTL):
@@ -224,8 +252,6 @@ def get_all_specs():
 # --- Routes ---
 @app.route('/')
 def home():
-    # [PASTE PREVIOUS home() route code HERE - UNCHANGED]
-    # ...
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
     raid_status_counts = {'Tank': 0, 'Healer': 0, 'Melee DPS': 0, 'Ranged DPS': 0, 'DPS':0, 'Total': 0}
@@ -265,13 +291,11 @@ def home():
 
 @app.route('/roster')
 def roster_page():
-    # [PASTE PREVIOUS roster_page() route code HERE - UNCHANGED]
-    # ...
     start_time = time.time()
     error_message = None
     members = []
     min_item_level = 600
-    locale = "en-us" # Default
+    locale = "en-us"
     if REGION == "eu": locale = "en-gb"
     elif REGION == "kr": locale = "ko-kr"
     elif REGION == "tw": locale = "zh-tw"
@@ -313,8 +337,6 @@ def roster_page():
 
 @app.route('/raids')
 def raids_page():
-    # [PASTE PREVIOUS raids_page() route code HERE - UNCHANGED]
-    # ...
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
     reports_by_date = {}
@@ -394,17 +416,22 @@ def api_character_equipped_items(character_id):
     endpoint = f"/profile/wow/character/{character.realm_slug.lower()}/{character.name.lower()}/equipment"
     api_params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
     equipment_data = make_blizzard_api_request(endpoint, params=api_params)
+
     if equipment_data and "equipped_items" in equipment_data:
         equipped_map = {}
+        # print(f"DEBUG: Raw equipment data for {character.name}: {json.dumps(equipment_data['equipped_items'], indent=2)}")
         for item_entry in equipment_data["equipped_items"]:
-            slot_type = item_entry.get("slot", {}).get("type")
+            slot_info = item_entry.get("slot", {})
+            slot_type = slot_info.get("type")
+            # slot_name = slot_info.get("name")
             item_id = item_entry.get("item", {}).get("id")
             item_name = item_entry.get("name")
-            icon_url = None # Placeholder for now
+            # print(f"DEBUG: Processing item: {item_name}, Slot Type from API: {slot_type}, Slot Name from API: {slot_name}")
             if slot_type and item_id and item_name:
                 equipped_map[slot_type] = {
-                    "item_id": item_id, "name": item_name, "icon_url": icon_url
+                    "item_id": item_id, "name": item_name, "icon_url": None
                 }
+        # print(f"DEBUG: Constructed equipped_map: {equipped_map}")
         return jsonify(equipped_map)
     elif equipment_data and "error" in equipment_data:
         return jsonify({"error": f"Blizzard API error: {equipment_data.get('error_description', 'Unknown error')}"}), 500
@@ -417,19 +444,12 @@ def api_available_items(slot_type):
     """ Fetches all epic items for a given slot type from the database. """
     try:
         with app.app_context():
-            # Query items matching the slot_type and quality 'EPIC'
-            # Also filter by source if needed, e.g., only raid items
-            items_query = Item.query.join(DataSource).filter(
+            items_query = Item.query.filter(
                 Item.slot_type == slot_type,
-                Item.quality == 'EPIC',
-                # Example: Filter by raid source if data_source table is populated
-                # DataSource.type == 'Raid' # Or specific raid name
+                Item.quality == 'EPIC'
             ).order_by(Item.name.asc()).all()
-
             items_data = [{
-                "id": item.id,
-                "name": item.name,
-                "icon_url": item.icon_url,
+                "id": item.id, "name": item.name, "icon_url": item.icon_url,
                 "source_details": item.source_details
             } for item in items_query]
             return jsonify(items_data)
@@ -446,7 +466,7 @@ def get_bis_selection(character_id, slot_type):
             if bis_entry and bis_entry.item_id:
                 return jsonify({"item_id": bis_entry.item_id, "slot_type": bis_entry.slot_type})
             else:
-                return jsonify({"item_id": None, "message": "No BiS selection found"}), 404 # Or return empty if preferred
+                return jsonify({"item_id": None, "message": "No BiS selection found"}), 404
     except Exception as e:
         print(f"Error fetching BiS selection for char {character_id}, slot {slot_type}: {e}")
         return jsonify({"error": "Could not fetch BiS selection"}), 500
@@ -460,35 +480,33 @@ def save_bis_selection():
     data = request.get_json()
     character_id = data.get('character_id')
     slot_type = data.get('slot_type')
-    item_id = data.get('item_id') # Can be None if clearing selection
+    item_id = data.get('item_id')
 
     if not character_id or not slot_type:
         return jsonify({"success": False, "message": "Missing character_id or slot_type"}), 400
-    if item_id is not None and not isinstance(item_id, int): # Allow item_id to be None
+    if item_id is not None and not isinstance(item_id, int):
          return jsonify({"success": False, "message": "Invalid item_id"}), 400
 
     try:
         with app.app_context():
-            # Check if character and slot exist
             character = Character.query.get(character_id)
             slot = PlayableSlot.query.filter_by(type=slot_type).first()
             if not character: return jsonify({"success": False, "message": "Character not found"}), 404
             if not slot: return jsonify({"success": False, "message": "Slot type not found"}), 404
             if item_id and not Item.query.get(item_id): return jsonify({"success": False, "message": "Item not found"}), 404
 
-
             bis_entry = CharacterBiS.query.filter_by(character_id=character_id, slot_type=slot_type).first()
-            if item_id is None: # User wants to clear the BiS selection
+            if item_id is None:
                 if bis_entry:
                     db.session.delete(bis_entry)
                     message = "BiS selection cleared."
                 else:
-                    message = "No BiS selection to clear." # Or just return success
-            elif bis_entry: # Update existing BiS
+                    message = "No BiS selection to clear."
+            elif bis_entry:
                 bis_entry.item_id = item_id
                 bis_entry.last_updated = datetime.utcnow()
                 message = "BiS selection updated."
-            else: # Create new BiS entry
+            else:
                 bis_entry = CharacterBiS(character_id=character_id, slot_type=slot_type, item_id=item_id)
                 db.session.add(bis_entry)
                 message = "BiS selection saved."
