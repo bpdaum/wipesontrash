@@ -116,15 +116,18 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None, max_retries=
         params = {}
     
     # Add default namespace if not a full URL request and not already present
+    # For journal and item data, we typically use the static namespace.
     if not full_url and "namespace" not in params:
-         params["namespace"] = f"static-{REGION}" # Default to static for journal/item data
+         params["namespace"] = f"static-{REGION}"
     if not full_url and "locale" not in params:
         params["locale"] = "en_US"
 
+    print(f"DEBUG: Requesting URL: {api_url} with params: {params}", flush=True) # More verbose logging
+
     for attempt in range(max_retries):
         try:
-            # print(f"DEBUG: Requesting URL: {api_url} with params: {params}", flush=True)
             response = requests.get(api_url, params=params, headers=headers, timeout=30)
+            print(f"DEBUG: API call to {response.url} - Status: {response.status_code}", flush=True) # Log status
             if response.status_code == 404:
                 print(f"Warning: 404 Not Found for API URL: {response.url}", flush=True)
                 return None
@@ -139,7 +142,11 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None, max_retries=
                 print(f"HTTP Error {e.response.status_code} for {api_url}. Retrying...", flush=True)
                 time.sleep(retry_delay)
             else:
-                print(f"HTTP Error for {api_url}: {e}", flush=True); return None
+                print(f"HTTP Error for {api_url}: {e}", flush=True)
+                if e.response is not None:
+                    try: print(f"Error Response Body: {e.response.json()}", flush=True)
+                    except: print(f"Error Response Body: {e.response.text}", flush=True)
+                return None
         except requests.exceptions.RequestException as e:
             print(f"Network error for {api_url}: {e}. Retrying...", flush=True)
             if attempt < max_retries - 1: time.sleep(retry_delay)
@@ -204,9 +211,15 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
     """Fetches items for a given raid and stores them."""
     print(f"Fetching items for raid: {raid_name} (Journal ID: {raid_journal_id})", flush=True)
 
-    instance_data = make_blizzard_api_request(f"/data/wow/journal-instance/{raid_journal_id}")
+    # Explicitly set params for this critical call
+    instance_params = {
+        "namespace": f"static-{REGION}",
+        "locale": "en_US"
+    }
+    instance_data = make_blizzard_api_request(f"/data/wow/journal-instance/{raid_journal_id}", params=instance_params)
+
     if not instance_data or "encounters" not in instance_data:
-        print(f"Error: Could not fetch instance data or encounters for raid ID {raid_journal_id}", flush=True)
+        print(f"Error: Could not fetch instance data or encounters for raid ID {raid_journal_id}. Response: {instance_data}", flush=True)
         return
 
     items_added_count = 0
@@ -215,7 +228,7 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
         encounter_name = encounter_ref["name"]
         print(f"  Fetching loot for encounter: {encounter_name} (ID: {encounter_id})", flush=True)
 
-        encounter_detail_data = make_blizzard_api_request(f"/data/wow/journal-encounter/{encounter_id}")
+        encounter_detail_data = make_blizzard_api_request(f"/data/wow/journal-encounter/{encounter_id}", params=instance_params)
         if not encounter_detail_data or "items" not in encounter_detail_data:
             print(f"    Warning: No 'items' section found for encounter {encounter_name} (ID: {encounter_id})", flush=True)
             continue
@@ -228,10 +241,10 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
                 continue
             
             item_id = item_ref["id"]
-            item_detail_data = make_blizzard_api_request(f"/data/wow/item/{item_id}")
+            item_detail_data = make_blizzard_api_request(f"/data/wow/item/{item_id}", params=instance_params) # Use same params
             if not item_detail_data:
                 print(f"      Warning: Could not fetch details for item ID {item_id}", flush=True)
-                time.sleep(0.05) # Shorter delay for item detail failures
+                time.sleep(0.05)
                 continue
 
             item_name = item_detail_data.get("name")
@@ -244,7 +257,7 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
             icon_url = None
             media_key_href = item_detail_data.get("media", {}).get("key", {}).get("href")
             if media_key_href:
-                item_media_data = make_blizzard_api_request(None, full_url=media_key_href)
+                item_media_data = make_blizzard_api_request(None, full_url=media_key_href, params=instance_params) # Pass params for consistency
                 if item_media_data and "assets" in item_media_data:
                     for asset in item_media_data["assets"]:
                         if asset.get("key") == "icon":
@@ -262,7 +275,7 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
                     db_session.add(new_item)
                     items_added_count += 1
             
-            time.sleep(0.05) # Be respectful to API
+            time.sleep(0.05)
 
         try:
             db_session.commit()
@@ -274,7 +287,7 @@ def fetch_and_store_raid_items(db_session, raid_name, raid_journal_id, data_sour
             print(f"    Error committing items for encounter {encounter_name}: {e}", flush=True)
 
         print(f"  Finished encounter {encounter_name}. Items added so far for this raid: {items_added_count}", flush=True)
-        time.sleep(0.2) # Longer delay between encounters
+        time.sleep(0.2)
 
     print(f"Finished processing raid {raid_name}. Total new items added: {items_added_count}", flush=True)
 
@@ -285,23 +298,19 @@ def main():
     db_session = SessionLocal()
 
     print("Ensuring all database tables exist (will create if not present)...", flush=True)
-    Base.metadata.create_all(engine) # This is idempotent
+    Base.metadata.create_all(engine)
     print("Database tables verified/created.", flush=True)
 
     populate_playable_slots(db_session)
     data_sources = populate_data_sources(db_session)
 
-    # *** UPDATED Journal ID ***
-    liberation_of_undermine_journal_id = 15522
+    liberation_of_undermine_journal_id = 15522 # Confirmed ID
     lou_source_id = data_sources.get("Liberation of Undermine")
 
     if lou_source_id:
         fetch_and_store_raid_items(db_session, "Liberation of Undermine", liberation_of_undermine_journal_id, lou_source_id)
     else:
         print("Error: 'Liberation of Undermine' data source not found.", flush=True)
-
-    # Placeholder for Mythic+ Season 2 Dungeons
-    # ... (Mythic+ logic would go here) ...
 
     db_session.close()
     print("Item Database Population Script Finished.", flush=True)
