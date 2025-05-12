@@ -176,9 +176,9 @@
                             </td>
                             <td>{{ member.level }}</td>
                              <td class="text-center role-cell">
-                                {# Jinja logic for new roles #}
+                                {# MODIFIED: Jinja logic for new roles, using fa-gavel for melee #}
                                 {% set role_lower = member.role | lower if member.role else '' %}
-                                {% if role_lower == 'melee dps' %} <i class="fa-solid fa-swords role-icon role-melee-dps" title="Melee DPS"></i>
+                                {% if role_lower == 'melee dps' %} <i class="fa-solid fa-gavel role-icon role-melee-dps" title="Melee DPS"></i> {# Changed to fa-gavel #}
                                 {% elif role_lower == 'ranged dps' %} <i class="fa-solid fa-wand-sparkles role-icon role-ranged-dps" title="Ranged DPS"></i>
                                 {% elif role_lower == 'healer' %} <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
                                 {% elif role_lower == 'tank' %} <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
@@ -270,59 +270,55 @@
         };
 
         function getRoleFromSpec(specName, className) {
-            console.log("[getRoleFromSpec] Input - Spec:", specName, "Class:", className); // DEBUG
+            console.log("[JS getRoleFromSpec] Input - Spec:", specName, "Class:", className);
             if (!specName || specName === 'N/A') {
-                console.log("[getRoleFromSpec] -> Unknown (no specName)");
+                console.log("[JS getRoleFromSpec] -> Unknown (no specName)");
                 return 'Unknown';
             }
             if (tankSpecs.includes(specName)) {
-                console.log("[getRoleFromSpec] -> Tank");
+                console.log("[JS getRoleFromSpec] -> Tank");
                 return 'Tank';
             }
             if (healerSpecs.includes(specName)) {
-                console.log("[getRoleFromSpec] -> Healer");
+                console.log("[JS getRoleFromSpec] -> Healer");
                 return 'Healer';
             }
-            // Check Melee DPS by class and spec
             if (className && meleeDpsSpecs[className] && meleeDpsSpecs[className].includes(specName)) {
-                console.log("[getRoleFromSpec] -> Melee DPS for class:", className, "spec:", specName);
+                console.log("[JS getRoleFromSpec] -> Melee DPS for class:", className, "spec:", specName);
                 return 'Melee DPS';
             }
-            // Check Ranged DPS by class and spec
             if (className && rangedDpsSpecs[className] && rangedDpsSpecs[className].includes(specName)) {
-                console.log("[getRoleFromSpec] -> Ranged DPS for class:", className, "spec:", specName);
+                console.log("[JS getRoleFromSpec] -> Ranged DPS for class:", className, "spec:", specName);
                 return 'Ranged DPS';
             }
-            // Fallback for generic DPS if spec is known but not in detailed lists
-            if (specName) {
-                console.log("[getRoleFromSpec] -> DPS (fallback) for spec:", specName);
+            if (specName) { // Fallback for generic DPS if spec is known but not in detailed lists
+                console.log("[JS getRoleFromSpec] -> DPS (fallback) for spec:", specName);
                 return 'DPS';
             }
-            console.log("[getRoleFromSpec] -> Unknown (default end)");
+            console.log("[JS getRoleFromSpec] -> Unknown (default end)");
             return 'Unknown';
         }
 
         // --- UI Update Functions ---
         function updateRoleIcon(tableRow, newRole) {
             const roleCell = tableRow.querySelector('.role-cell');
-            if (!roleCell) return;
+            if (!roleCell) { console.error("Role cell not found for row", tableRow); return; }
             const icon = roleCell.querySelector('i');
-            if (!icon) return;
-            icon.className = 'role-icon fa-solid'; // Reset classes
+            if (!icon) { console.error("Icon element not found in role cell", roleCell); return; }
+
             let iconClass = 'fa-question', colorClass = 'role-unknown', title = 'Unknown/N/A';
+            const roleLower = newRole ? newRole.toLowerCase() : 'unknown';
+            console.log("[JS updateRoleIcon] Updating to role:", newRole, "(lowercase:", roleLower + ")");
 
-            const roleLower = newRole ? newRole.toLowerCase() : 'unknown'; // Ensure newRole is a string
-            console.log("[updateRoleIcon] newRole:", newRole, "roleLower:", roleLower); // DEBUG
-
-            if (roleLower === 'melee dps') { iconClass = 'fa-swords'; colorClass = 'role-melee-dps'; title = 'Melee DPS'; }
+            if (roleLower === 'melee dps') { iconClass = 'fa-gavel'; colorClass = 'role-melee-dps'; title = 'Melee DPS'; } // Changed to fa-gavel
             else if (roleLower === 'ranged dps') { iconClass = 'fa-wand-sparkles'; colorClass = 'role-ranged-dps'; title = 'Ranged DPS'; }
             else if (roleLower === 'healer') { iconClass = 'fa-briefcase-medical'; colorClass = 'role-healer'; title = 'Healer'; }
             else if (roleLower === 'tank') { iconClass = 'fa-shield-halved'; colorClass = 'role-tank'; title = 'Tank'; }
-            else if (roleLower === 'dps') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; } // Fallback for generic DPS
+            else if (roleLower === 'dps') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; }
 
-            icon.classList.add(iconClass, colorClass);
+            icon.className = `role-icon fa-solid ${iconClass} ${colorClass}`; // Set className directly
             icon.setAttribute('title', title);
-            console.log("[updateRoleIcon] Applied classes:", icon.className, "Applied title:", title); // DEBUG
+            console.log("[JS updateRoleIcon] Applied classes:", icon.className, "Applied title:", title);
         }
 
         function updateStatusDisplay(displaySpan, newStatus) { /* ... as before ... */
