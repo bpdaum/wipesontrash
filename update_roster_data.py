@@ -83,7 +83,6 @@ class WCLAttendance(Base):
     __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
     def __repr__(self): return f'<WCLAttendance Report={self.report_code} CharacterID={self.character_id}>'
 
-# NEW: WCL Performance Table
 class WCLPerformance(Base):
     __tablename__ = 'wcl_performance'
     id = Column(Integer, primary_key=True)
@@ -595,7 +594,7 @@ def update_database():
     try:
         if engine.dialect.has_table(engine.connect(), Character.__tablename__):
             print("Fetching existing spec overrides and statuses before table drop...")
-            user_settable_statuses = ['Wiper', 'Member', 'Wiping Alt'] # User can set these
+            user_settable_statuses = ['Wiper', 'Member', 'Wiping Alt']
             existing_chars = db_session.query(Character.id, Character.main_spec_override, Character.status).all()
             for char_id, spec_override, char_status in existing_chars:
                 if spec_override:
@@ -608,21 +607,27 @@ def update_database():
     except Exception as e:
         print(f"Error fetching existing overrides/statuses: {e}")
 
-    # --- Drop and Recreate Tables ---
+    # --- Drop and Recreate Tables with Enhanced Logging ---
+    tables_to_drop = [
+        WCLPerformance.__table__,
+        WCLAttendance.__table__,
+        WCLReport.__table__,
+        Character.__table__,
+        PlayableSpec.__table__,
+        PlayableClass.__table__
+    ]
     try:
-        print(f"Attempting to drop existing tables (WCLPerformance, WCLAttendance, WCLReport, Character, PlayableSpec, PlayableClass)...")
         Base.metadata.bind = engine
-        WCLPerformance.__table__.drop(engine, checkfirst=True)
-        WCLAttendance.__table__.drop(engine, checkfirst=True)
-        WCLReport.__table__.drop(engine, checkfirst=True)
-        Character.__table__.drop(engine, checkfirst=True)
-        PlayableSpec.__table__.drop(engine, checkfirst=True)
-        PlayableClass.__table__.drop(engine, checkfirst=True)
-        print("Tables dropped (or did not exist).")
+        print("Attempting to drop existing tables...")
+        for table in tables_to_drop:
+            print(f"  Dropping table {table.name} if it exists...")
+            table.drop(engine, checkfirst=True)
+            print(f"  Table {table.name} dropped (or did not exist).")
+        print("All specified tables dropped successfully.")
 
-        print("Creating tables...")
+        print("Creating all tables...")
         Base.metadata.create_all(bind=engine)
-        print("Tables created successfully.")
+        print("All tables created successfully.")
     except OperationalError as e:
          print(f"Database connection error during drop/create: {e}. Check DATABASE_URL and network.")
          db_session.close(); return
@@ -640,6 +645,10 @@ def update_database():
         print(f"Error committing static table data: {e}")
         db_session.rollback(); db_session.close(); return
 
+    local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
+    if not local_class_map:
+        print("Warning: Local class map is empty after static table update. Roles may not be determined correctly.")
+
     roster_data = get_guild_roster()
     if not roster_data or 'members' not in roster_data:
         print("Error: Failed to fetch guild roster. Aborting update.")
@@ -652,7 +661,6 @@ def update_database():
     blizz_id_to_char_map = {}
     api_call_count = 0
     processed_for_details = 0
-    local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
 
     for member_entry in roster_data['members']:
         character_info = member_entry.get('character', {})
@@ -708,7 +716,6 @@ def update_database():
         elif heroic_kills > 6 : calculated_status = "Wiper"
         elif heroic_kills >= 0 and heroic_kills <= 6: calculated_status = "Member"
 
-        # Use existing override if present, otherwise use calculated status
         final_status = existing_statuses.get(char_id, calculated_status)
         final_spec_override = existing_spec_overrides.get(char_id, None)
 
