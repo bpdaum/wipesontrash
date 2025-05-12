@@ -139,8 +139,8 @@ WCL_API_ENDPOINT = "https://www.warcraftlogs.com/api/v2/client"
 # --- Caching ---
 blizzard_access_token_cache = { "token": None, "expires_at": 0 }
 wcl_access_token_cache = { "token": None, "expires_at": 0 }
-CLASS_MAP = {} # Will be populated by update_static_tables from DB
-SPEC_MAP_BY_CLASS = {} # Will be populated by update_static_tables from DB
+# CLASS_MAP and SPEC_MAP_BY_CLASS are no longer used as in-memory caches in this script
+# They are populated into the database by update_static_tables
 
 # --- Timezone ---
 CENTRAL_TZ = pytz.timezone('America/Chicago')
@@ -149,14 +149,24 @@ CENTRAL_TZ = pytz.timezone('America/Chicago')
 TANK_SPECS = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]
 HEALER_SPECS = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]
 MELEE_DPS_SPECS = {
-    "Warrior": ["Arms", "Fury"], "Paladin": ["Retribution"], "Death Knight": ["Frost", "Unholy"],
-    "Shaman": ["Enhancement"], "Hunter": ["Survival"], "Rogue": ["Assassination", "Outlaw", "Subtlety"],
-    "Monk": ["Windwalker"], "Demon Hunter": ["Havoc"], "Druid": ["Feral"]
+    "Warrior": ["Arms", "Fury"],
+    "Paladin": ["Retribution"],
+    "Death Knight": ["Frost", "Unholy"],
+    "Shaman": ["Enhancement"],
+    "Hunter": ["Survival"],
+    "Rogue": ["Assassination", "Outlaw", "Subtlety"],
+    "Monk": ["Windwalker"],
+    "Demon Hunter": ["Havoc"],
+    "Druid": ["Feral"]
 }
 RANGED_DPS_SPECS = {
-    "Mage": ["Arcane", "Fire", "Frost"], "Warlock": ["Affliction", "Demonology", "Destruction"],
-    "Priest": ["Shadow"], "Hunter": ["Beast Mastery", "Marksmanship"], "Druid": ["Balance"],
-    "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
+    "Mage": ["Arcane", "Fire", "Frost"],
+    "Warlock": ["Affliction", "Demonology", "Destruction"],
+    "Priest": ["Shadow"],
+    "Hunter": ["Beast Mastery", "Marksmanship"],
+    "Druid": ["Balance"],
+    "Shaman": ["Elemental"],
+    "Evoker": ["Devastation", "Augmentation"]
 }
 
 
@@ -518,7 +528,7 @@ def fetch_wcl_guild_reports(limit=30):
     print(f"Filtered down to {len(filtered_reports)} Wed/Fri WCL reports.")
     return filtered_reports
 
-def fetch_wcl_report_data(report_code, metric="dps"): # Changed from fetch_wcl_report_details
+def fetch_wcl_report_data(report_code, metric="dps"):
     """Fetches player actors (for attendance) and rankings for a specific WCL report."""
     if not report_code: return None
     access_token = get_wcl_access_token()
@@ -538,12 +548,13 @@ def fetch_wcl_report_data(report_code, metric="dps"): # Changed from fetch_wcl_r
           rankings(playerMetric: {metric}, compare: Parsek) {{ # For performance
             data {{
               encounter {{ id name }}
-              character {{ id name server }}
+              character {{ id name server }} # WCL Character ID
               class {{ name }}
               spec {{ name }}
               rankPercent
-              total
+              total # Actual metric value (e.g., DPS number)
             }}
+            # totalPlayerCountForRank
           }}
         }}
       }}
@@ -578,6 +589,26 @@ def update_database():
     start_time = time.time()
     db_session = SessionLocal()
 
+    # --- Preserve Overrides ---
+    existing_spec_overrides = {}
+    existing_statuses = {}
+    try:
+        if engine.dialect.has_table(engine.connect(), Character.__tablename__):
+            print("Fetching existing spec overrides and statuses before table drop...")
+            user_settable_statuses = ['Wiper', 'Member', 'Wiping Alt'] # User can set these
+            existing_chars = db_session.query(Character.id, Character.main_spec_override, Character.status).all()
+            for char_id, spec_override, char_status in existing_chars:
+                if spec_override:
+                    existing_spec_overrides[char_id] = spec_override
+                if char_status in user_settable_statuses:
+                    existing_statuses[char_id] = char_status
+            print(f"Found {len(existing_spec_overrides)} existing spec overrides and {len(existing_statuses)} user-set statuses.")
+        else:
+            print("Character table does not exist yet, skipping fetch of overrides/statuses.")
+    except Exception as e:
+        print(f"Error fetching existing overrides/statuses: {e}")
+
+    # --- Drop and Recreate Tables ---
     try:
         print(f"Attempting to drop existing tables (WCLPerformance, WCLAttendance, WCLReport, Character, PlayableSpec, PlayableClass)...")
         Base.metadata.bind = engine
@@ -640,7 +671,7 @@ def update_database():
         class_id = character_info.get('playable_class', {}).get('id')
         class_name_from_roster = local_class_map.get(class_id, f"ID: {class_id}" if class_id else "N/A")
 
-        item_level = None; raid_progression_summary = None; spec_name = None; role = None; main_spec_override = None; heroic_kills = -1
+        item_level = None; raid_progression_summary = None; spec_name = None; role = None; heroic_kills = -1
 
         summary_data = get_character_summary(char_realm_slug, char_name)
         api_call_count += 1
@@ -677,11 +708,15 @@ def update_database():
         elif heroic_kills > 6 : calculated_status = "Wiper"
         elif heroic_kills >= 0 and heroic_kills <= 6: calculated_status = "Member"
 
+        # Use existing override if present, otherwise use calculated status
+        final_status = existing_statuses.get(char_id, calculated_status)
+        final_spec_override = existing_spec_overrides.get(char_id, None)
+
         new_char = Character(
             id=char_id, name=char_name, realm_slug=char_realm_slug, level=character_info.get('level'),
             class_id=class_id, class_name=class_name_from_roster,
-            spec_name=spec_name, main_spec_override=None, role=role,
-            status=calculated_status, item_level=item_level,
+            spec_name=spec_name, main_spec_override=final_spec_override, role=role,
+            status=final_status, item_level=item_level,
             raid_progression=raid_progression_summary, rank=rank,
             raid_attendance_percentage=0.0, avg_wcl_performance=None
         )
@@ -809,7 +844,7 @@ def update_database():
                 db_session.commit()
                 print(f"Updated average performance for {update_count} characters.")
 
-        except IntegrityError as ie: # Catch issues with unique constraints (e.g., duplicate WCLPerformance)
+        except IntegrityError as ie:
             print(f"Database Integrity Error during WCL data insert/update: {ie}")
             db_session.rollback()
         except Exception as e:
