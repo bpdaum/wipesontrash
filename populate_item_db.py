@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueC
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.exc import OperationalError, IntegrityError
+# import pytz # Not strictly needed in this script if not doing timezone conversions here
 
 # --- Database Setup ---
 DATABASE_URI = os.environ.get('DATABASE_URL')
@@ -27,13 +28,15 @@ except Exception as e:
      print(f"Error creating database engine: {e}", flush=True)
      exit(1)
 
-# --- Models ---
+# --- Database Models ---
+# These models need to be defined so Base.metadata knows about all tables for drop_all/create_all
+
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
     id = Column(Integer, primary_key=True)
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class", cascade="all, delete-orphan")
-    characters = relationship("Character", back_populates="playable_class") # Added relationship
+    characters = relationship("Character", back_populates="playable_class") # Relationship to Character
     def __repr__(self): return f'<PlayableClass {self.name}>'
 
 class PlayableSpec(Base):
@@ -58,8 +61,9 @@ class PlayableSlot(Base):
 class DataSource(Base):
     __tablename__ = 'data_source'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(200), unique=True, nullable=False)
-    type = Column(String(50)) # "Raid", "Dungeon"
+    name = Column(String(200), unique=True, nullable=False) # e.g., "Liberation of Undermine"
+    type = Column(String(50)) # e.g., "Raid", "Dungeon"
+
     items = relationship("Item", back_populates="source", cascade="all, delete-orphan")
     def __repr__(self): return f'<DataSource {self.name}>'
 
@@ -77,17 +81,34 @@ class Item(Base):
     bis_selections = relationship("CharacterBiS", back_populates="item", cascade="all, delete-orphan")
     def __repr__(self): return f'<Item {self.name} (ID: {self.id})>'
 
-class Character(Base): # Defined for schema creation, not populated by this script
+class Character(Base):
     __tablename__ = 'character'
     id = Column(Integer, primary_key=True)
     name = Column(String(100), nullable=False)
     realm_slug = Column(String(100), nullable=False)
+    # Add other fields that WCLAttendance or WCLPerformance might reference if needed for schema creation
+    # For now, only 'id' is strictly necessary for ForeignKeys from WCL tables.
+    # However, to be safe and match other scripts, include all fields.
+    level = Column(Integer)
     class_id = Column(Integer, ForeignKey('playable_class.id'))
-    # ... other Character fields from update_roster_data.py would go here if needed for full schema consistency
-    # For this script, only 'id' is strictly necessary for CharacterBiS's foreign key
+    class_name = Column(String(50))
+    spec_name = Column(String(50))
+    main_spec_override = Column(String(50), nullable=True)
+    role = Column(String(15))
+    status = Column(String(15), nullable=False, index=True)
+    item_level = Column(Integer, index=True)
+    raid_progression = Column(String(200))
+    rank = Column(Integer, index=True)
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
+    avg_wcl_performance = Column(Float, nullable=True)
+
     playable_class = relationship("PlayableClass", back_populates="characters")
     bis_selections = relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
+    attendances = relationship("WCLAttendance", back_populates="character", cascade="all, delete-orphan")
+    performances = relationship("WCLPerformance", back_populates="character", cascade="all, delete-orphan")
     __table_args__ = (UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
+    def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
 
 
 class CharacterBiS(Base):
@@ -98,10 +119,47 @@ class CharacterBiS(Base):
     item_id = Column(Integer, ForeignKey('item.id'), nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     character = relationship("Character", back_populates="bis_selections")
-    slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui])
+    slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui]) # Explicit foreign_keys
     item = relationship("Item", back_populates="bis_selections")
     __table_args__ = (UniqueConstraint('character_id', 'slot_type_ui', name='_character_slot_ui_uc'),)
     def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} SlotUI: {self.slot_type_ui} ItemID: {self.item_id}>'
+
+class WCLReport(Base):
+    __tablename__ = 'wcl_report'
+    code = Column(String(50), primary_key=True)
+    title = Column(String(200))
+    start_time = Column(DateTime, index=True)
+    end_time = Column(DateTime)
+    owner_name = Column(String(100))
+    fetched_at = Column(DateTime, default=datetime.utcnow)
+    attendances = relationship("WCLAttendance", back_populates="report", cascade="all, delete-orphan")
+    performances = relationship("WCLPerformance", back_populates="report", cascade="all, delete-orphan")
+    def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
+
+class WCLAttendance(Base):
+    __tablename__ = 'wcl_attendance'
+    id = Column(Integer, primary_key=True)
+    report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    report = relationship("WCLReport", back_populates="attendances")
+    character = relationship("Character", back_populates="attendances")
+    __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
+    def __repr__(self): return f'<WCLAttendance Report={self.report_code} CharacterID={self.character_id}>'
+
+class WCLPerformance(Base):
+    __tablename__ = 'wcl_performance'
+    id = Column(Integer, primary_key=True)
+    report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    encounter_id = Column(Integer, nullable=False)
+    encounter_name = Column(String(100))
+    spec_name = Column(String(50))
+    metric = Column(String(20))
+    rank_percentile = Column(Float)
+    report = relationship("WCLReport", back_populates="performances")
+    character = relationship("Character", back_populates="performances")
+    __table_args__ = ( UniqueConstraint('report_code', 'character_id', 'encounter_id', 'metric', name='_perf_uc'), )
+    def __repr__(self): return f'<WCLPerformance Report={self.report_code} CharID={self.character_id} Enc={self.encounter_name} Metric={self.metric} Perf={self.rank_percentile}>'
 
 
 # --- Blizzard API Configuration ---
@@ -406,4 +464,4 @@ if __name__ == "__main__":
     if not BLIZZARD_CLIENT_ID or not BLIZZARD_CLIENT_SECRET:
         print("FATAL: BLIZZARD_CLIENT_ID or BLIZZARD_CLIENT_SECRET environment variables not set.", flush=True)
         exit(1)
-    main()
+    main() # Call main, which was renamed from update_database
