@@ -176,13 +176,13 @@
                             </td>
                             <td>{{ member.level }}</td>
                              <td class="text-center role-cell">
-                                {# MODIFIED: Jinja logic for new roles #}
+                                {# Jinja logic for new roles #}
                                 {% set role_lower = member.role | lower if member.role else '' %}
                                 {% if role_lower == 'melee dps' %} <i class="fa-solid fa-swords role-icon role-melee-dps" title="Melee DPS"></i>
                                 {% elif role_lower == 'ranged dps' %} <i class="fa-solid fa-wand-sparkles role-icon role-ranged-dps" title="Ranged DPS"></i>
                                 {% elif role_lower == 'healer' %} <i class="fa-solid fa-briefcase-medical role-icon role-healer" title="Healer"></i>
                                 {% elif role_lower == 'tank' %} <i class="fa-solid fa-shield-halved role-icon role-tank" title="Tank"></i>
-                                {% elif role_lower == 'dps' %} <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i> {# Fallback for generic DPS #}
+                                {% elif role_lower == 'dps' %} <i class="fa-solid fa-khanda role-icon role-dps" title="DPS"></i>
                                 {% else %} <i class="fa-solid fa-question role-icon role-unknown" title="Unknown/N/A"></i> {% endif %}
                             </td>
                             <td> {# Spec Column #}
@@ -255,7 +255,7 @@
     <script>
         const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
 
-        // --- MODIFIED: Role Determination Logic ---
+        // --- Role Determination Logic ---
         const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
         const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
         const meleeDpsSpecs = {
@@ -269,26 +269,40 @@
             "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
         };
 
-        function getRoleFromSpec(specName, className) { // Added className parameter
-            if (!specName || specName === 'N/A') return 'Unknown';
-            // Check specific roles first
-            if (tankSpecs.includes(specName)) return 'Tank';
-            if (healerSpecs.includes(specName)) return 'Healer';
-
+        function getRoleFromSpec(specName, className) {
+            console.log("[getRoleFromSpec] Input - Spec:", specName, "Class:", className); // DEBUG
+            if (!specName || specName === 'N/A') {
+                console.log("[getRoleFromSpec] -> Unknown (no specName)");
+                return 'Unknown';
+            }
+            if (tankSpecs.includes(specName)) {
+                console.log("[getRoleFromSpec] -> Tank");
+                return 'Tank';
+            }
+            if (healerSpecs.includes(specName)) {
+                console.log("[getRoleFromSpec] -> Healer");
+                return 'Healer';
+            }
             // Check Melee DPS by class and spec
             if (className && meleeDpsSpecs[className] && meleeDpsSpecs[className].includes(specName)) {
+                console.log("[getRoleFromSpec] -> Melee DPS for class:", className, "spec:", specName);
                 return 'Melee DPS';
             }
             // Check Ranged DPS by class and spec
             if (className && rangedDpsSpecs[className] && rangedDpsSpecs[className].includes(specName)) {
+                console.log("[getRoleFromSpec] -> Ranged DPS for class:", className, "spec:", specName);
                 return 'Ranged DPS';
             }
             // Fallback for generic DPS if spec is known but not in detailed lists
-            if (specName) return 'DPS';
-            return 'Unknown'; // Default if no match
+            if (specName) {
+                console.log("[getRoleFromSpec] -> DPS (fallback) for spec:", specName);
+                return 'DPS';
+            }
+            console.log("[getRoleFromSpec] -> Unknown (default end)");
+            return 'Unknown';
         }
 
-        // --- MODIFIED: UI Update Functions ---
+        // --- UI Update Functions ---
         function updateRoleIcon(tableRow, newRole) {
             const roleCell = tableRow.querySelector('.role-cell');
             if (!roleCell) return;
@@ -297,15 +311,18 @@
             icon.className = 'role-icon fa-solid'; // Reset classes
             let iconClass = 'fa-question', colorClass = 'role-unknown', title = 'Unknown/N/A';
 
-            const roleLower = newRole.toLowerCase();
+            const roleLower = newRole ? newRole.toLowerCase() : 'unknown'; // Ensure newRole is a string
+            console.log("[updateRoleIcon] newRole:", newRole, "roleLower:", roleLower); // DEBUG
+
             if (roleLower === 'melee dps') { iconClass = 'fa-swords'; colorClass = 'role-melee-dps'; title = 'Melee DPS'; }
             else if (roleLower === 'ranged dps') { iconClass = 'fa-wand-sparkles'; colorClass = 'role-ranged-dps'; title = 'Ranged DPS'; }
             else if (roleLower === 'healer') { iconClass = 'fa-briefcase-medical'; colorClass = 'role-healer'; title = 'Healer'; }
             else if (roleLower === 'tank') { iconClass = 'fa-shield-halved'; colorClass = 'role-tank'; title = 'Tank'; }
-            else if (roleLower === 'dps') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; }
+            else if (roleLower === 'dps') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; } // Fallback for generic DPS
 
             icon.classList.add(iconClass, colorClass);
             icon.setAttribute('title', title);
+            console.log("[updateRoleIcon] Applied classes:", icon.className, "Applied title:", title); // DEBUG
         }
 
         function updateStatusDisplay(displaySpan, newStatus) { /* ... as before ... */
