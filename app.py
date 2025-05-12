@@ -10,7 +10,7 @@ from sqlalchemy.orm import relationship # Ensure relationship is imported for mo
 import os
 import requests # Keep for potential future use or type hints
 import time
-from datetime import datetime, date # Added date for calendar
+from datetime import datetime, date, timedelta # Added date for calendar
 import calendar # For calendar generation
 import pytz # For timezone handling
 import json # For parsing request body
@@ -90,21 +90,22 @@ class Character(db.Model):
     # Define a unique constraint on name and realm_slug
     __table_args__ = (db.UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
     playable_class = db.relationship("PlayableClass", back_populates="characters") # Relationship
-    # attendances = db.relationship("WCLAttendance", back_populates="character") # Assuming WCLAttendance model exists
+    # attendances = db.relationship("WCLAttendance", back_populates="character") # Define if WCLAttendance model is used by app.py
 
     def __repr__(self):
         return f'<Character {self.name}-{self.realm_slug}>'
 
 # WCL Report Model (ensure it's defined for querying)
 class WCLReport(db.Model):
-    __tablename__ = 'wcl_report'
+    __tablename__ = 'wcl_report' # Matches the table name in update_roster_data.py
     code = db.Column(String(50), primary_key=True)
     title = db.Column(String(200))
     start_time = db.Column(DateTime, index=True) # Stored as UTC
     end_time = db.Column(DateTime)
     owner_name = db.Column(String(100))
     fetched_at = db.Column(DateTime, default=datetime.utcnow)
-    # attendances = db.relationship("WCLAttendance", back_populates="report") # Assuming WCLAttendance model exists
+    # performances = db.relationship("WCLPerformance", back_populates="report") # Define if WCLPerformance model is used
+    # attendances = db.relationship("WCLAttendance", back_populates="report") # Define if WCLAttendance model is used
 
     def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
 
@@ -167,7 +168,6 @@ def make_web_api_request(api_url, params, headers):
 def get_all_specs():
     """
     Fetches and caches all playable specializations from the database.
-    If DB is empty or cache is stale, it will attempt to use Blizzard API (if configured).
     """
     global ALL_SPECS_CACHE, ALL_SPECS_LAST_FETCHED
     current_time = time.time()
@@ -183,7 +183,6 @@ def get_all_specs():
             if not db.engine.dialect.has_table(db.engine.connect(), PlayableSpec.__tablename__):
                 print("PlayableSpec table does not exist. Cannot load specs from DB.")
                 return {}
-
             all_db_specs = PlayableSpec.query.all()
             if all_db_specs:
                 for spec in all_db_specs:
@@ -302,9 +301,12 @@ def raids_page():
     try:
         with app.app_context():
             if db.engine.dialect.has_table(db.engine.connect(), WCLReport.__tablename__):
-                three_months_ago = datetime.utcnow() - timedelta(days=90)
-                recent_reports = WCLReport.query.filter(WCLReport.start_time >= three_months_ago)\
-                                               .order_by(WCLReport.start_time.desc()).all()
+                days_to_fetch = 180
+                start_date_filter = datetime.utcnow() - timedelta(days=days_to_fetch)
+                recent_reports_query = WCLReport.query.filter(WCLReport.start_time >= start_date_filter)\
+                                               .order_by(WCLReport.start_time.desc())
+                recent_reports = recent_reports_query.all()
+                print(f"Found {len(recent_reports)} WCL reports in the last {days_to_fetch} days.")
                 for report in recent_reports:
                     if report.start_time:
                         ct_start_time = report.start_time.replace(tzinfo=pytz.utc).astimezone(CENTRAL_TZ)
@@ -314,9 +316,10 @@ def raids_page():
                                 reports_by_date[date_str] = []
                             reports_by_date[date_str].append({
                                 'code': report.code,
-                                'title': report.title,
+                                'title': report.title if report.title else "Untitled Report",
                                 'startTime': int(report.start_time.timestamp() * 1000)
                             })
+                            reports_by_date[date_str].sort(key=lambda x: x['startTime'])
             else:
                 print("Warning: WCLReport table not found for raids page.")
     except Exception as e:
