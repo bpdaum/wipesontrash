@@ -109,6 +109,8 @@ class CharacterBiS(Base):
 
 # --- Blizzard API Configuration (accessed via helper_functions) ---
 REGION = os.environ.get('REGION', 'us').lower() # Needed for namespace construction in helpers
+BLIZZARD_CLIENT_ID = os.environ.get('BLIZZARD_CLIENT_ID')
+BLIZZARD_CLIENT_SECRET = os.environ.get('BLIZZARD_CLIENT_SECRET')
 
 # --- Data Population Functions ---
 
