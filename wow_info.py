@@ -42,7 +42,7 @@ class PlayableClass(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class", cascade="all, delete-orphan")
-    characters = relationship("Character", back_populates="playable_class") # Defined for relationship integrity
+    characters = relationship("Character", back_populates="playable_class") 
     def __repr__(self): return f'<PlayableClass {self.name}>'
 
 class PlayableSpec(Base):
@@ -88,11 +88,16 @@ class Item(Base):
 class Character(Base): # Defined for schema integrity due to CharacterBiS FK
     __tablename__ = 'character'
     id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False) # Minimal definition
-    realm_slug = Column(String(100), nullable=False) # Minimal definition
+    name = Column(String(100), nullable=False) 
+    realm_slug = Column(String(100), nullable=False) 
+    
+    # --- ADD THIS LINE ---
+    class_id = Column(Integer, ForeignKey('playable_class.id')) 
+    # ---------------------
+
     playable_class = relationship("PlayableClass", back_populates="characters")
     bis_selections = relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
-    __table_args__ = (UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),) # Must match other scripts
+    __table_args__ = (UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
 
 class CharacterBiS(Base):
     __tablename__ = 'character_bis'
