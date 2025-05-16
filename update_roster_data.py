@@ -564,11 +564,11 @@ def fetch_wcl_guild_reports(limit=50):
     target_raid_name_wcl = "Liberation of Undermine" # Name as it appears in WCL zone names
 
     for report in all_reports:
-        if not report: # Add check for None report entries
+        if not report: 
             print("Warning: Encountered a None report object in WCL data.", flush=True)
             continue
         start_time_ms = report.get('startTime')
-        zone_info = report.get('zone', {}) # Ensure zone is a dict
+        zone_info = report.get('zone', {}) 
         zone_name = zone_info.get('name', '') if isinstance(zone_info, dict) else ''
 
 
@@ -585,7 +585,7 @@ def fetch_wcl_guild_reports(limit=50):
              report['end_time_dt'] = datetime.fromtimestamp(report.get('endTime', 0) / 1000, tz=pytz.utc) if report.get('endTime') else None
              filtered_reports.append(report)
              print(f"  -> Keeping Report: {report['code']} - {report['title']} (Zone: {zone_name}, Started: {ct_dt.strftime('%Y-%m-%d %H:%M %Z')})", flush=True)
-             if len(filtered_reports) == 8: # Stop once we have 8 valid reports
+             if len(filtered_reports) == 8: 
                  break
 
     print(f"Filtered down to {len(filtered_reports)} relevant Wed/Fri WCL reports for '{target_raid_name_wcl}'.", flush=True)
@@ -609,16 +609,8 @@ def fetch_wcl_report_data(report_code, metric="dps"):
               server
             }}
           }}
-          rankings(playerMetric: {metric}, compare: Parsek) {{ # For performance
-            data {{
-              encounter {{ id name }}
-              character {{ id name server }} # WCL Character ID
-              class {{ name }}
-              spec {{ name }}
-              rankPercent
-              total # Actual metric value (e.g., DPS number)
-            }}
-            # totalPlayerCountForRank
+          rankings(playerMetric: {metric}, compare: Parses) {{ # Corrected 'Parsek' to 'Parses'
+            # This field returns a JSON string, so no sub-selection here.
           }}
         }}
       }}
@@ -629,19 +621,33 @@ def fetch_wcl_report_data(report_code, metric="dps"):
     data = make_api_request(WCL_API_ENDPOINT, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables)
 
     actors = None
-    rankings = None
+    parsed_rankings_data = None # This will hold the parsed JSON from the rankings string
 
     if data and data.get('data', {}).get('reportData', {}).get('report'):
         report_content = data['data']['reportData']['report']
         if report_content.get('masterData', {}).get('actors'):
             actors = report_content['masterData']['actors']
-        if report_content.get('rankings', {}).get('data'):
-            rankings = report_content['rankings']['data']
+        
+        # Get the rankings JSON string
+        rankings_json_string = report_content.get('rankings')
+        if rankings_json_string:
+            try:
+                # Parse the JSON string
+                parsed_rankings = json.loads(rankings_json_string)
+                if parsed_rankings and isinstance(parsed_rankings, dict) and parsed_rankings.get('data'):
+                    parsed_rankings_data = parsed_rankings['data']
+                else:
+                    print(f"WCL Rankings data for report {report_code} is not in expected format after parsing JSON.", flush=True)
+            except json.JSONDecodeError as je:
+                print(f"Error decoding WCL rankings JSON for report {report_code}: {je}", flush=True)
+                print(f"Rankings JSON string was: {rankings_json_string}", flush=True)
+            except Exception as e:
+                print(f"Unexpected error parsing WCL rankings JSON for report {report_code}: {e}", flush=True)
     else:
         print(f"Failed to fetch or parse data for WCL report {report_code}.", flush=True)
         if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}", flush=True)
 
-    return {"actors": actors, "rankings": rankings}
+    return {"actors": actors, "rankings": parsed_rankings_data}
 
 # --- END API Helper Functions ---
 
@@ -767,18 +773,16 @@ def update_database():
         final_status = existing_statuses.get(char_id, calculated_initial_status)
         final_spec_override = existing_spec_overrides.get(char_id, None)
         
-        final_role = calculated_role # Default to role from API spec
-        if final_spec_override: # If there's an override, use that to determine role
+        final_role = calculated_role
+        if final_spec_override:
             final_role = determine_role_from_spec_and_class(final_spec_override, class_name_from_roster)
 
         new_char = Character(
             id=char_id, name=char_name, realm_slug=char_realm_slug, level=character_info.get('level'),
             class_id=class_id, class_name=class_name_from_roster,
-            spec_name=api_spec_name, # Store the original API spec
-            main_spec_override=final_spec_override,
-            role=final_role, # Store the role based on effective spec (override or API)
-            status=final_status,
-            item_level=item_level,
+            spec_name=api_spec_name,
+            main_spec_override=final_spec_override, role=final_role,
+            status=final_status, item_level=item_level,
             raid_progression=raid_progression_summary, rank=rank,
             raid_attendance_percentage=0.0, avg_wcl_performance=None
         )
@@ -822,9 +826,9 @@ def update_database():
             )
             wcl_reports_in_db.append(new_report)
 
-            report_details = fetch_wcl_report_data(report_code, metric="dps")
+            report_details = fetch_wcl_report_data(report_code, metric="dps") # metric can be changed if needed
             actors_data = report_details.get("actors")
-            rankings_data = report_details.get("rankings")
+            rankings_data = report_details.get("rankings") # This is now the parsed list of ranking entries
 
             if actors_data:
                 successfully_processed_wcl_reports_for_attendance += 1
@@ -836,9 +840,9 @@ def update_database():
             else:
                 print(f"Warning: Could not get player list for WCL report {report_code} (attendance).", flush=True)
 
-            if rankings_data:
+            if rankings_data: # Check if rankings_data (the parsed list) is not None
                 successfully_processed_wcl_reports_for_performance +=1
-                for rank_entry in rankings_data:
+                for rank_entry in rankings_data: # Iterate through the list of ranking entries
                     char_info = rank_entry.get('character', {})
                     wcl_char_name = char_info.get('name')
                     matched_char_id = None
