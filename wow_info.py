@@ -410,21 +410,31 @@ def main():
     print("Database tables verified/created.", flush=True)
 
     # Clear ONLY the tables this script is responsible for before repopulating
-    print("Clearing item-related and static WoW data tables (Item, DataSource, PlayableSlot, PlayableSpec, PlayableClass)...", flush=True)
+    print("Clearing some item-related and static WoW data tables...", flush=True)
     try:
-        # Delete in order of dependency
+        # Deleting Item, DataSource, PlayableSlot might still cause issues if CharacterBiS references them.
+        # This addresses ONLY the PlayableClass -> Character FK violation.
         db_session.query(Item).delete(synchronize_session=False)
         db_session.query(DataSource).delete(synchronize_session=False)
         db_session.query(PlayableSlot).delete(synchronize_session=False)
-        db_session.query(PlayableSpec).delete(synchronize_session=False)
-        db_session.query(PlayableClass).delete(synchronize_session=False)
-        # CharacterBiS is cleared by app.py or if items are cleared.
-        # This script doesn't directly manage CharacterBiS population.
-        db_session.commit()
-        print("Item-related and static WoW data tables cleared.", flush=True)
+        
+        # db_session.query(PlayableSpec).delete(synchronize_session=False) # Keep this line if Specs are fully repopulated from Classes
+                                                                        # but if Specs can be referenced by something else, it's also risky.
+                                                                        # PlayableSpec is child of PlayableClass, cascade should handle if PlayableClass objects were ORM deleted.
+                                                                        # Since we are not deleting PlayableClass anymore, we likely shouldn't bulk delete PlayableSpec either.
+                                                                        # The update_playable_classes_and_specs handles both.
+        
+        # REMOVE/COMMENT OUT these lines that cause the FK violation with Character table:
+        # db_session.query(PlayableSpec).delete(synchronize_session=False)
+        # db_session.query(PlayableClass).delete(synchronize_session=False) 
+        
+        db_session.commit() # Commit whatever was successfully deleted
+        print("Attempted to clear Item, DataSource, PlayableSlot. PlayableClass & PlayableSpec will be additively updated.", flush=True)
     except Exception as e:
         db_session.rollback()
-        print(f"Error clearing tables: {e}", flush=True)
+        print(f"Error during selective clearing of tables: {e}", flush=True)
+        # It's possible an FK violation still occurs from Item/PlayableSlot to CharacterBiS
+        # If so, those deletes also need to be removed or CharacterBiS cleared first.
         db_session.close()
         return
 
