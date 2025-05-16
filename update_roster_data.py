@@ -126,19 +126,19 @@ class PlayableSlot(Base):
     display_order = Column(Integer, default=0)
     items = relationship("Item", back_populates="slot", cascade="all, delete-orphan")
     bis_selections = relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan")
-    def __repr__(self): return f'<PlayableSlot {self.name} ({self.type})>'
+    def __repr__(self): return f'<PlayableSlot Name: {self.name} Type:({self.type})>'
 
 class DataSource(Base):
     __tablename__ = 'data_source'
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(200), unique=True, nullable=False)
-    type = Column(String(50)) # "Raid", "Dungeon"
+    type = Column(String(50))
     items = relationship("Item", back_populates="source", cascade="all, delete-orphan")
     def __repr__(self): return f'<DataSource {self.name}>'
 
 class Item(Base):
     __tablename__ = 'item'
-    id = Column(Integer, primary_key=True) # Blizzard Item ID
+    id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False, index=True)
     quality = Column(String(20))
     icon_url = Column(String(512), nullable=True)
@@ -154,14 +154,14 @@ class CharacterBiS(Base):
     __tablename__ = 'character_bis'
     id = Column(Integer, primary_key=True, autoincrement=True)
     character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
-    slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
+    slot_type_ui = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
     item_id = Column(Integer, ForeignKey('item.id'), nullable=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     character = relationship("Character", back_populates="bis_selections")
-    slot = relationship("PlayableSlot", back_populates="bis_selections")
+    slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui])
     item = relationship("Item", back_populates="bis_selections")
-    __table_args__ = (UniqueConstraint('character_id', 'slot_type', name='_character_slot_uc'),)
-    def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} Slot: {self.slot_type} ItemID: {self.item_id}>'
+    __table_args__ = (UniqueConstraint('character_id', 'slot_type_ui', name='_character_slot_ui_uc'),)
+    def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} SlotUI: {self.slot_type_ui} ItemID: {self.item_id}>'
 
 
 # --- Configuration Loading ---
@@ -203,6 +203,18 @@ RANGED_DPS_SPECS = {
     "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
 }
 
+# --- Helper function for role determination ---
+def determine_role_from_spec_and_class(spec_name, class_name):
+    """Determines a character's role based on their spec and class."""
+    if not spec_name or not class_name or class_name == "N/A": return "Unknown"
+    if spec_name in TANK_SPECS: return "Tank"
+    if spec_name in HEALER_SPECS: return "Healer"
+    if class_name in MELEE_DPS_SPECS and spec_name in MELEE_DPS_SPECS.get(class_name, []):
+        return "Melee DPS"
+    if class_name in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS.get(class_name, []):
+        return "Ranged DPS"
+    if spec_name: return "DPS" # Fallback for generic DPS
+    return "Unknown"
 
 # --- API Helper Functions ---
 
@@ -575,10 +587,6 @@ def fetch_wcl_guild_reports(limit=50):
              print(f"  -> Keeping Report: {report['code']} - {report['title']} (Zone: {zone_name}, Started: {ct_dt.strftime('%Y-%m-%d %H:%M %Z')})", flush=True)
              if len(filtered_reports) == 8: # Stop once we have 8 valid reports
                  break
-        # else:
-            # if not is_raid_day: print(f"  -> Skipping Report: {report['code']} (Not Wed/Fri: {ct_dt.strftime('%A')})", flush=True)
-            # if not is_target_raid: print(f"  -> Skipping Report: {report['code']} (Not {target_raid_name_wcl}, Zone: {zone_name})", flush=True)
-
 
     print(f"Filtered down to {len(filtered_reports)} relevant Wed/Fri WCL reports for '{target_raid_name_wcl}'.", flush=True)
     return filtered_reports
@@ -730,7 +738,7 @@ def update_database():
         class_id = character_info.get('playable_class', {}).get('id')
         class_name_from_roster = local_class_map.get(class_id, f"ID: {class_id}" if class_id else "N/A")
 
-        item_level = None; raid_progression_summary = None; spec_name = None; role = None; heroic_kills = -1
+        item_level = None; raid_progression_summary = None; api_spec_name = None; calculated_role = "Unknown"; heroic_kills = -1
 
         summary_data = get_character_summary(char_realm_slug, char_name)
         api_call_count += 1
@@ -739,19 +747,8 @@ def update_database():
             item_level = int(ilvl_raw) if isinstance(ilvl_raw, (int, float)) else None
             active_spec_data = summary_data.get('active_spec')
             if active_spec_data and isinstance(active_spec_data, dict):
-                spec_name = active_spec_data.get('name')
-                try:
-                    if spec_name in TANK_SPECS: role = "Tank"
-                    elif spec_name in HEALER_SPECS: role = "Healer"
-                    elif class_name_from_roster in MELEE_DPS_SPECS and spec_name in MELEE_DPS_SPECS.get(class_name_from_roster, []):
-                        role = "Melee DPS"
-                    elif class_name_from_roster in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS.get(class_name_from_roster, []):
-                        role = "Ranged DPS"
-                    elif spec_name: role = "DPS"
-                    else: role = "Unknown"
-                except Exception as spec_err:
-                    print(f"Warning: Could not determine role for {char_name} (Class: {class_name_from_roster}, Spec: {spec_name}): {spec_err}", flush=True)
-                    role = "Unknown"
+                api_spec_name = active_spec_data.get('name')
+                calculated_role = determine_role_from_spec_and_class(api_spec_name, class_name_from_roster)
 
         raid_data = get_character_raid_progression(char_realm_slug, char_name)
         api_call_count += 1
@@ -762,19 +759,26 @@ def update_database():
         else:
             raid_progression_summary = None; heroic_kills = -1
 
-        calculated_status = "Member"
-        if item_level is None or item_level < 650: calculated_status = "Wiping Alt"
-        elif heroic_kills > 6 : calculated_status = "Wiper"
-        elif heroic_kills >= 0 and heroic_kills <= 6: calculated_status = "Member"
+        calculated_initial_status = "Member"
+        if item_level is None or item_level < 650: calculated_initial_status = "Wiping Alt"
+        elif heroic_kills > 6 : calculated_initial_status = "Wiper"
+        elif heroic_kills >= 0 and heroic_kills <= 6: calculated_initial_status = "Member"
 
-        final_status = existing_statuses.get(char_id, calculated_status)
+        final_status = existing_statuses.get(char_id, calculated_initial_status)
         final_spec_override = existing_spec_overrides.get(char_id, None)
+        
+        final_role = calculated_role # Default to role from API spec
+        if final_spec_override: # If there's an override, use that to determine role
+            final_role = determine_role_from_spec_and_class(final_spec_override, class_name_from_roster)
 
         new_char = Character(
             id=char_id, name=char_name, realm_slug=char_realm_slug, level=character_info.get('level'),
             class_id=class_id, class_name=class_name_from_roster,
-            spec_name=spec_name, main_spec_override=final_spec_override, role=role,
-            status=final_status, item_level=item_level,
+            spec_name=api_spec_name, # Store the original API spec
+            main_spec_override=final_spec_override,
+            role=final_role, # Store the role based on effective spec (override or API)
+            status=final_status,
+            item_level=item_level,
             raid_progression=raid_progression_summary, rank=rank,
             raid_attendance_percentage=0.0, avg_wcl_performance=None
         )
