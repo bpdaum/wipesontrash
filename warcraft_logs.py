@@ -52,7 +52,7 @@ class Character(Base):
     class_id = Column(Integer, ForeignKey('playable_class.id')) 
     class_name = Column(String(50)) 
     raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
-    avg_wcl_performance = Column(Float, nullable=True)
+    avg_wcl_performance = Column(Float, nullable=True) # Will store role-appropriate average
     is_active = Column(Boolean, default=True, nullable=False, index=True) 
 
     attendances = relationship("WCLAttendance", back_populates="character", cascade="all, delete-orphan")
@@ -92,8 +92,8 @@ class WCLPerformance(Base):
     character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
     encounter_id = Column(Integer, nullable=False)
     encounter_name = Column(String(100))
-    spec_name = Column(String(50))
-    metric = Column(String(20)) 
+    spec_name = Column(String(50)) 
+    metric = Column(String(20)) # Will be 'dps' or 'hps'
     rank_percentile = Column(Float)
     report = relationship("WCLReport", back_populates="performances")
     character = relationship("Character", back_populates="performances")
@@ -108,6 +108,30 @@ REGION = os.environ.get('REGION', 'us').lower()
 # --- Timezone ---
 CENTRAL_TZ = pytz.timezone('America/Chicago')
 
+# --- Role Definitions ---
+TANK_SPECS = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]
+HEALER_SPECS = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]
+MELEE_DPS_SPECS = {
+    "Warrior": ["Arms", "Fury"], "Paladin": ["Retribution"], "Death Knight": ["Frost", "Unholy"],
+    "Shaman": ["Enhancement"], "Hunter": ["Survival"], "Rogue": ["Assassination", "Outlaw", "Subtlety"],
+    "Monk": ["Windwalker"], "Demon Hunter": ["Havoc"], "Druid": ["Feral"]
+}
+RANGED_DPS_SPECS = {
+    "Mage": ["Arcane", "Fire", "Frost"], "Warlock": ["Affliction", "Demonology", "Destruction"],
+    "Priest": ["Shadow"], "Hunter": ["Beast Mastery", "Marksmanship"], "Druid": ["Balance"],
+    "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
+}
+
+def determine_role_from_spec_and_class(spec_name, class_name):
+    if not spec_name or not class_name: return "Unknown"
+    if spec_name in TANK_SPECS: return "Tank"
+    if spec_name in HEALER_SPECS: return "Healer"
+    if class_name in MELEE_DPS_SPECS and spec_name in MELEE_DPS_SPECS.get(class_name, []):
+        return "Melee DPS"
+    if class_name in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS.get(class_name, []):
+        return "Ranged DPS"
+    if spec_name: return "DPS" 
+    return "Unknown"
 
 # --- WCL Data Fetching Functions ---
 def fetch_wcl_guild_reports_for_processing(limit=50):
@@ -143,7 +167,6 @@ def fetch_wcl_guild_reports_for_processing(limit=50):
     wcl_api_v2_client = os.environ.get("WCL_API_ENDPOINT", "https://www.warcraftlogs.com/api/v2/client")
     data = make_api_request(wcl_api_v2_client, params=None, headers=headers, is_wcl=True, wcl_query=query)
 
-
     if not data or not data.get('data', {}).get('reportData', {}).get('reports', {}).get('data'):
         print("Failed to fetch or parse WCL guild reports.", flush=True)
         if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}", flush=True)
@@ -176,74 +199,94 @@ def fetch_wcl_guild_reports_for_processing(limit=50):
              report['start_time_dt'] = utc_dt
              report['end_time_dt'] = datetime.fromtimestamp(report.get('endTime', 0) / 1000, tz=pytz.utc) if report.get('endTime') else None
              filtered_reports.append(report)
-             print(f"  -> Keeping Report: {report['code']} - {report['title']} (Zone: {zone_name}, Started: {ct_dt.strftime('%Y-%m-%d %H:%M %Z')})", flush=True)
              if len(filtered_reports) >= 8: 
                  break 
     print(f"Filtered down to {len(filtered_reports)} relevant Wed/Fri WCL reports for '{target_raid_name_wcl}'. Taking up to 8.", flush=True)
     return filtered_reports[:8] 
 
+def _parse_rankings_content(report_code, metric_name, rankings_content):
+    """Helper to parse the rankings content string/dict."""
+    if not rankings_content:
+        # print(f"DEBUG: Report {report_code} ({metric_name}): No rankings_content found.", flush=True)
+        return None
+    
+    parsed_rankings = None
+    try:
+        if isinstance(rankings_content, str):
+            parsed_rankings = json.loads(rankings_content)
+        elif isinstance(rankings_content, dict):
+            parsed_rankings = rankings_content
+        else:
+            print(f"ERROR: Report {report_code} ({metric_name}): Rankings content is of unexpected type: {type(rankings_content)}", flush=True)
+            return None
+        
+        if parsed_rankings and isinstance(parsed_rankings, dict) and 'data' in parsed_rankings:
+            return parsed_rankings['data']
+        elif parsed_rankings: 
+            print(f"WARNING: Report {report_code} ({metric_name}): Parsed rankings data not in expected format. Data: {parsed_rankings}", flush=True)
+        return None
+            
+    except json.JSONDecodeError as je: 
+        print(f"ERROR: Report {report_code} ({metric_name}): Error decoding JSON string: {je}", flush=True)
+    except TypeError as te: 
+        print(f"ERROR: Report {report_code} ({metric_name}): TypeError during processing: {te}", flush=True)
+    except Exception as e:
+         print(f"ERROR: Report {report_code} ({metric_name}): Unexpected error parsing: {e}", flush=True)
+    return None
 
-def fetch_wcl_report_data_for_processing(report_code, metric="dps"):
-    if not report_code: return None
-    access_token = get_wcl_access_token() 
-    if not access_token: return None
+def fetch_wcl_report_data_for_processing(report_code):
+    """Fetches actors, DPS rankings, and HPS rankings for a specific WCL report."""
+    if not report_code: return {"actors": None, "dps_rankings": None, "hps_rankings": None}
+    access_token = get_wcl_access_token()
+    if not access_token: return {"actors": None, "dps_rankings": None, "hps_rankings": None}
 
-    query = f"""
+    results = {"actors": None, "dps_rankings": None, "hps_rankings": None}
+    headers = {"Authorization": f"Bearer {access_token}"}
+    wcl_api_v2_client = os.environ.get("WCL_API_ENDPOINT", "https://www.warcraftlogs.com/api/v2/client")
+    graphql_variables = {"reportCode": report_code}
+
+    # Query for actors and DPS rankings in one go
+    dps_actors_query = f"""
     query ReportDetails($reportCode: String!) {{
       reportData {{
         report(code: $reportCode) {{
-          masterData {{
-            actors(type: "Player") {{
-              id
-              name
-              server
-            }}
-          }}
-          rankings(playerMetric: {metric}, compare: Parses) 
+          masterData {{ actors(type: "Player") {{ id name server }} }}
+          rankings(playerMetric: dps, compare: Parses)
         }}
       }}
     }}
     """
-    graphql_variables = {"reportCode": report_code}
-    headers = {"Authorization": f"Bearer {access_token}"}
-    wcl_api_v2_client = os.environ.get("WCL_API_ENDPOINT", "https://www.warcraftlogs.com/api/v2/client")
-    data = make_api_request(wcl_api_v2_client, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables)
+    print(f"DEBUG: Fetching DPS rankings and actors for report {report_code}", flush=True)
+    dps_response = make_api_request(wcl_api_v2_client, None, headers, is_wcl=True, wcl_query=dps_actors_query, wcl_variables=graphql_variables)
 
-    actors = None
-    parsed_rankings_data = None 
-
-    if data and data.get('data', {}).get('reportData', {}).get('report'):
-        report_content = data['data']['reportData']['report']
-        if report_content.get('masterData', {}).get('actors'):
-            actors = report_content['masterData']['actors']
-        
-        rankings_content = report_content.get('rankings') 
-        
-        if rankings_content:
-            parsed_rankings = None 
-            try:
-                if isinstance(rankings_content, str):
-                    parsed_rankings = json.loads(rankings_content)
-                elif isinstance(rankings_content, dict):
-                    parsed_rankings = rankings_content
-                else:
-                    print(f"ERROR: Report {report_code}: Rankings content is of unexpected type: {type(rankings_content)}", flush=True)
-                
-                if parsed_rankings and isinstance(parsed_rankings, dict) and 'data' in parsed_rankings: 
-                    parsed_rankings_data = parsed_rankings['data']
-                elif parsed_rankings: 
-                    print(f"WARNING: Report {report_code}: Parsed rankings data is not in expected format (missing 'data' key or 'data' is None). Parsed data: {parsed_rankings}", flush=True)
-            
-            except json.JSONDecodeError as je: 
-                print(f"ERROR: Report {report_code}: Error decoding WCL rankings JSON string: {je}", flush=True)
-            except TypeError as te: 
-                print(f"ERROR: Report {report_code}: TypeError during WCL rankings processing: {te}", flush=True)
-            except Exception as e:
-                 print(f"ERROR: Report {report_code}: Unexpected error parsing WCL rankings: {e}", flush=True)
+    if dps_response and dps_response.get('data', {}).get('reportData', {}).get('report'):
+        dps_report_content = dps_response['data']['reportData']['report']
+        if dps_report_content.get('masterData', {}).get('actors'):
+            results["actors"] = dps_report_content['masterData']['actors']
+        results["dps_rankings"] = _parse_rankings_content(report_code, "DPS", dps_report_content.get('rankings'))
     else:
-        print(f"ERROR: Report {report_code}: Failed to fetch or parse report data structure. WCL Response: {json.dumps(data, indent=2) if data else 'No data'}", flush=True)
+        print(f"ERROR: Report {report_code} (DPS & Actors): Failed to fetch or parse main report structure. Response: {dps_response}", flush=True)
 
-    return {"actors": actors, "rankings": parsed_rankings_data}
+    # Query for HPS rankings (actors already fetched if DPS call was successful)
+    hps_query = f"""
+    query ReportDetails($reportCode: String!) {{
+      reportData {{
+        report(code: $reportCode) {{
+          rankings(playerMetric: hps, compare: Parses)
+        }}
+      }}
+    }}
+    """
+    print(f"DEBUG: Fetching HPS rankings for report {report_code}", flush=True)
+    hps_response = make_api_request(wcl_api_v2_client, None, headers, is_wcl=True, wcl_query=hps_query, wcl_variables=graphql_variables)
+    
+    if hps_response and hps_response.get('data', {}).get('reportData', {}).get('report'):
+        hps_report_content = hps_response['data']['reportData']['report']
+        results["hps_rankings"] = _parse_rankings_content(report_code, "HPS", hps_report_content.get('rankings'))
+    else:
+        print(f"ERROR: Report {report_code} (HPS): Failed to fetch or parse main report structure. Response: {hps_response}", flush=True)
+        
+    return results
 
 
 # --- Main Processing Function ---
@@ -260,13 +303,16 @@ def process_and_store_wcl_data():
         db_session.commit()
         print("WCL-specific tables cleared.", flush=True)
 
-        characters_in_db_query = db_session.query(Character.id, Character.name, Character.realm_slug, Character.is_active).filter(Character.is_active == True).all()
-        if not characters_in_db_query:
+        active_characters_from_db = db_session.query(Character.id, Character.name, Character.class_name).filter(Character.is_active == True).all()
+        if not active_characters_from_db:
             print("No active characters found in the database. Ensure update_roster_data.py has run and characters are active.", flush=True)
             return
         
-        char_name_to_id_map = {char.name.lower(): char.id for char in characters_in_db_query}
-        print(f"DEBUG: Built char_name_to_id_map with {len(char_name_to_id_map)} active characters. Sample (up to 5 keys): {list(char_name_to_id_map.keys())[:5]}", flush=True)
+        char_info_map = {
+            char.name.lower(): {'id': char.id, 'class_name': char.class_name}
+            for char in active_characters_from_db
+        }
+        print(f"DEBUG: Built char_info_map with {len(char_info_map)} active characters.", flush=True)
         
         wcl_reports_to_process = fetch_wcl_guild_reports_for_processing()
         
@@ -277,7 +323,7 @@ def process_and_store_wcl_data():
         wcl_reports_in_db = []
         wcl_attendances_to_insert = []
         wcl_performances_to_insert = []
-        processed_performance_keys = set() # *** ADDED: Set to track unique performance entries for insertion ***
+        processed_performance_keys = set() 
         character_attendance_raw_counts = {} 
         character_performance_scores = {}    
         
@@ -296,80 +342,77 @@ def process_and_store_wcl_data():
             )
             wcl_reports_in_db.append(new_report_db)
 
-            report_details = fetch_wcl_report_data_for_processing(report_code, metric="dps")
+            report_details = fetch_wcl_report_data_for_processing(report_code) # Fetches both DPS and HPS
             actors_data = report_details.get("actors")
-            rankings_data = report_details.get("rankings") 
+            dps_rankings_data = report_details.get("dps_rankings")
+            hps_rankings_data = report_details.get("hps_rankings")
 
             if actors_data:
                 successfully_processed_wcl_reports_for_attendance += 1
                 player_names_in_log = {actor.get('name').lower() for actor in actors_data if actor.get('name')}
-                
                 for wcl_player_name_lower in player_names_in_log:
-                    matched_char_id = char_name_to_id_map.get(wcl_player_name_lower)
-                    if matched_char_id:
+                    matched_char_info = char_info_map.get(wcl_player_name_lower)
+                    if matched_char_info:
+                        matched_char_id = matched_char_info['id']
                         wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=matched_char_id))
                         character_attendance_raw_counts[matched_char_id] = character_attendance_raw_counts.get(matched_char_id, 0) + 1
             else:
                 print(f"WARNING: Report {report_code}: Could not get player list for attendance. Actors data was: {actors_data}", flush=True)
 
-            if rankings_data: 
-                print(f"DEBUG: Report {report_code}: Processing {len(rankings_data)} fight/encounter summary entries.", flush=True)
-                for fight_summary_entry in rankings_data: 
+            # Helper function to process a specific metric's rankings
+            def process_metric_rankings(metric_rankings_data, metric_name_for_db, relevant_roles_for_avg):
+                if not metric_rankings_data:
+                    print(f"DEBUG: Report {report_code}: No {metric_name_for_db.upper()} rankings data to process.", flush=True)
+                    return
+
+                print(f"DEBUG: Report {report_code}: Processing {len(metric_rankings_data)} {metric_name_for_db.upper()} fight/encounter entries.", flush=True)
+                for fight_summary_entry in metric_rankings_data:
                     encounter_info = fight_summary_entry.get('encounter', {})
-                    encounter_id = encounter_info.get('id', 0) 
+                    encounter_id = encounter_info.get('id', 0)
                     encounter_name = encounter_info.get('name', 'Unknown Encounter')
-
                     roles_data = fight_summary_entry.get('roles', {})
-                    if not roles_data:
-                        # print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}': No 'roles' data in this fight summary.", flush=True)
-                        continue
+                    if not roles_data: continue
 
-                    for role_name, role_details in roles_data.items(): 
-                        if isinstance(role_details, dict) and 'characters' in role_details:
-                            for char_perf_entry in role_details['characters']:
+                    # Iterate through all roles present in this fight summary (dps, healers, tanks)
+                    for role_category_in_log, role_category_details in roles_data.items():
+                        if isinstance(role_category_details, dict) and 'characters' in role_category_details:
+                            for char_perf_entry in role_category_details['characters']:
                                 wcl_char_name = char_perf_entry.get('name')
-                                if not wcl_char_name:
-                                    # print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}', Role '{role_name}': Skipping character entry with no name: {char_perf_entry}", flush=True)
-                                    continue
+                                if not wcl_char_name: continue
                                 
                                 wcl_char_name_lower = wcl_char_name.lower()
-                                matched_char_id = char_name_to_id_map.get(wcl_char_name_lower)
-                                
-                                if not matched_char_id:
-                                    # print(f"DEBUG-NOMATCH: WCL char '{wcl_char_name_lower}' (from report {report_code}, enc '{encounter_name}') not found in char_name_to_id_map.", flush=True)
-                                    continue 
-                                
-                                if matched_char_id: 
-                                    if matched_char_id not in character_performance_scores:
-                                        character_performance_scores[matched_char_id] = []
-                                    
-                                    percentile = char_perf_entry.get('rankPercent')
-                                    spec_name = char_perf_entry.get('spec') 
-                                    current_metric = "dps" # Assuming metric is always 'dps' for now
+                                matched_char_info = char_info_map.get(wcl_char_name_lower)
+                                if not matched_char_info: continue
 
-                                    if percentile is not None:
-                                        # *** ADDED: Check for duplicates before adding to wcl_performances_to_insert ***
-                                        performance_key = (report_code, matched_char_id, encounter_id, current_metric)
-                                        if performance_key not in processed_performance_keys:
-                                            # print(f"DEBUG-MATCH&PERCENTILE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (DB ID: {matched_char_id}), Spec '{spec_name}', adding percentile: {percentile}", flush=True)
-                                            character_performance_scores[matched_char_id].append(percentile)
-                                            
-                                            wcl_performances_to_insert.append(WCLPerformance(
-                                                report_code=report_code, 
-                                                character_id=matched_char_id,
-                                                encounter_id=encounter_id, 
-                                                encounter_name=encounter_name,
-                                                spec_name=spec_name, 
-                                                metric=current_metric, 
-                                                rank_percentile=percentile
-                                            ))
-                                            processed_performance_keys.add(performance_key)
-                                        # else: # Optional: Log if a duplicate was skipped
-                                            # print(f"DEBUG-DUPLICATE-SKIPPED: Performance entry for {performance_key} already processed for this run.", flush=True)
-                                    # else:
-                                        # print(f"DEBUG-NOPERCENTILE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (DB ID: {matched_char_id}), Spec '{spec_name}', but rankPercent is None. Entry: {char_perf_entry}", flush=True)
-            else:
-                print(f"WARNING: Report {report_code}: Could not process rankings. Rankings data was None or empty after fetch.", flush=True)
+                                matched_char_id = matched_char_info['id']
+                                db_character_class_name = matched_char_info['class_name']
+                                wcl_spec_name = char_perf_entry.get('spec')
+                                percentile = char_perf_entry.get('rankPercent')
+
+                                if percentile is not None:
+                                    performance_key = (report_code, matched_char_id, encounter_id, metric_name_for_db)
+                                    if performance_key not in processed_performance_keys:
+                                        wcl_performances_to_insert.append(WCLPerformance(
+                                            report_code=report_code, character_id=matched_char_id,
+                                            encounter_id=encounter_id, encounter_name=encounter_name,
+                                            spec_name=wcl_spec_name, metric=metric_name_for_db,
+                                            rank_percentile=percentile
+                                        ))
+                                        processed_performance_keys.add(performance_key)
+
+                                    played_role_in_fight = determine_role_from_spec_and_class(wcl_spec_name, db_character_class_name)
+                                    if played_role_in_fight in relevant_roles_for_avg:
+                                        if matched_char_id not in character_performance_scores:
+                                            character_performance_scores[matched_char_id] = []
+                                        character_performance_scores[matched_char_id].append(percentile)
+                                        print(f"DEBUG-{metric_name_for_db.upper()}-SCORE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (ID: {matched_char_id}), Played Role '{played_role_in_fight}', adding {metric_name_for_db.upper()} percentile: {percentile}", flush=True)
+            
+            # Process DPS rankings for Tanks and DPS
+            process_metric_rankings(dps_rankings_data, "dps", ["Tank", "Melee DPS", "Ranged DPS", "DPS"])
+            
+            # Process HPS rankings for Healers
+            process_metric_rankings(hps_rankings_data, "hps", ["Healer"])
+
             time.sleep(0.2) 
 
         # --- DB Inserts and Updates ---
@@ -380,22 +423,19 @@ def process_and_store_wcl_data():
             print("WCL reports inserted.", flush=True)
         if wcl_attendances_to_insert:
             print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...", flush=True)
-            # It's good practice to also check for duplicates in attendance if they can occur
-            # For now, assuming attendance is unique per (report_code, character_id) from WCL actors list
             db_session.add_all(wcl_attendances_to_insert)
             db_session.commit()
             print("WCL attendance inserted.", flush=True)
         
         if wcl_performances_to_insert:
-            print(f"Inserting {len(wcl_performances_to_insert)} WCL performance records...", flush=True)
+            print(f"Inserting {len(wcl_performances_to_insert)} WCL performance records (DPS & HPS)...", flush=True)
             db_session.add_all(wcl_performances_to_insert)
-            db_session.commit() # This is where the UniqueViolation was occurring
+            db_session.commit()
             print("WCL performance records inserted.", flush=True)
         else:
             print("No new WCL performance records to insert.", flush=True)
 
-
-        print(f"\nDEBUG: character_performance_scores dictionary before updating DB: {character_performance_scores}", flush=True)
+        print(f"\nDEBUG: character_performance_scores dictionary (role-appropriate parses) before updating DB: {character_performance_scores}", flush=True)
 
         if character_attendance_raw_counts and successfully_processed_wcl_reports_for_attendance > 0:
             print("Updating character attendance percentages...", flush=True)
@@ -412,23 +452,21 @@ def process_and_store_wcl_data():
             print("No WCL reports successfully processed for attendance details or no attendance data; cannot calculate attendance percentage.", flush=True)
 
         if character_performance_scores:
-            print("Updating character average WCL performance...", flush=True)
+            print("Updating character average WCL performance (role-appropriate)...", flush=True)
             update_count = 0
             for char_id, scores in character_performance_scores.items():
                 char_to_update = db_session.get(Character, char_id) 
                 if char_to_update and scores: 
                     avg_perf = round(sum(scores) / len(scores), 2)
-                    print(f"DEBUG: Updating char_id {char_id} ({char_to_update.name}) with avg_perf: {avg_perf} from scores: {scores}", flush=True)
+                    print(f"DEBUG: Updating char_id {char_id} ({char_to_update.name}) with avg_wcl_performance: {avg_perf} from scores: {scores}", flush=True)
                     char_to_update.avg_wcl_performance = avg_perf
                     update_count +=1
-                elif char_to_update and not scores:
-                    print(f"DEBUG: Char_id {char_id} ({char_to_update.name}) found in character_performance_scores, but scores list is empty. Not updating avg_wcl_performance.", flush=True)
-
+                elif char_to_update and not scores: 
+                    print(f"DEBUG: Char_id {char_id} ({char_to_update.name}) in character_performance_scores, but scores list is empty. Not updating.", flush=True)
             db_session.commit()
-            print(f"Updated average performance for {update_count} characters.", flush=True)
+            print(f"Updated average WCL (role-appropriate) performance for {update_count} characters.", flush=True)
         else:
-            print("No performance scores collected for any character; avg_wcl_performance not updated.", flush=True)
-
+            print("No relevant performance scores collected for any character; avg_wcl_performance not updated.", flush=True)
 
     except IntegrityError as ie:
         print(f"Database Integrity Error during WCL data processing: {ie}", flush=True)
@@ -443,7 +481,6 @@ def process_and_store_wcl_data():
 
     end_time = time.time()
     print(f"\nWCL data processing finished in {round(end_time - start_time, 2)} seconds.", flush=True)
-
 
 # --- Main Execution ---
 if __name__ == "__main__":
