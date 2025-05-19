@@ -111,7 +111,7 @@
         }
         .item-display {
             font-size: 0.875rem;
-            color: var(--color-text-secondary); 
+            /* color: var(--color-text-secondary); /* Link will have its own color */
             min-height: 40px; 
             display: flex;
             align-items: center;
@@ -167,6 +167,9 @@
         .item-link:hover {
             color: var(--color-text-link-hover);
             text-decoration: underline;
+        }
+        .no-item-text { /* Style for "None" text */
+            color: var(--color-text-secondary);
         }
     </style>
 </head>
@@ -379,17 +382,22 @@
                     
                     // Special handling for two-handed weapons affecting off-hand display
                     if (uiSlot.type === "OFF_HAND") {
-                        const mainHandEquipped = equippedItemsByApiSlot["MAIN_HAND"];
-                        // Check if the main hand item is explicitly a TWOHWEAPON type from Blizzard's API response
-                        if (mainHandEquipped && equippedItemsByApiSlot["TWOHWEAPON"] && equippedItemsByApiSlot["TWOHWEAPON"].item_id === mainHandEquipped.item_id) {
-                           finalEquippedItem = null; // Clear off-hand if main is identified as 2H by Blizzard
+                        const mainHandEquippedData = equippedItemsByApiSlot["MAIN_HAND"];
+                        // Check if the main hand item is identified as TWOHWEAPON by Blizzard API
+                        // The Blizzard API returns TWOHWEAPON in the MAIN_HAND slot if a 2H is equipped.
+                        // Or, it might be in its own TWOHWEAPON key if the API is structured that way.
+                        // We rely on the `canonicalUiToEquippedApiSlotTypes` for MAIN_HAND including TWOHWEAPON.
+                        if (mainHandEquippedData && equippedItemsByApiSlot["TWOHWEAPON"] && 
+                            equippedItemsByApiSlot["TWOHWEAPON"].item_id === mainHandEquippedData.item_id) {
+                           finalEquippedItem = null; 
                         }
                     }
                     
                     if (finalEquippedItem) {
                         equippedItemIconImg.src = finalEquippedItem.icon_url || 'https://placehold.co/32x32/CCCCCC/999999?text=?';
                         equippedItemIconImg.alt = finalEquippedItem.name;
-                        nameContainer.innerHTML = `<a href="${finalEquippedItem.wowhead_link}" target="_blank" rel="noopener noreferrer" class="item-link">${finalEquippedItem.name}</a>`;
+                        // Use the wowhead_link from the API response
+                        nameContainer.innerHTML = `<a href="${finalEquippedItem.wowhead_link || '#'}" target="_blank" rel="noopener noreferrer" class="item-link">${finalEquippedItem.name}</a>`;
                         equippedItemId = finalEquippedItem.item_id;
                     } else {
                         nameContainer.innerHTML = '<span class="no-item-text">None</span>';
@@ -451,8 +459,9 @@
                 bisSelect.innerHTML = '<option value="">-- Select BiS --</option>'; 
                 
                 const equippedItemDiv = document.getElementById(`equipped-${uiSlotType}`);
-                const equippedItemLink = equippedItemDiv.querySelector('.item-link');
-                const equippedItemName = equippedItemLink ? equippedItemLink.textContent : equippedItemDiv.querySelector('.no-item-text')?.textContent;
+                const equippedItemLink = equippedItemDiv.querySelector('.item-link'); // Check for link first
+                const noItemTextSpan = equippedItemDiv.querySelector('.no-item-text');
+                const equippedItemName = equippedItemLink ? equippedItemLink.textContent : (noItemTextSpan ? noItemTextSpan.textContent : 'None');
 
 
                 if (equippedItemId && equippedItemName && equippedItemName !== 'None') {

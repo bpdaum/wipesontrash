@@ -5,22 +5,20 @@ from flask import Flask, render_template, jsonify, request, abort
 from flask_sqlalchemy import SQLAlchemy
 # Import desc for descending sort order AND SQLAlchemy column types
 # Import func for count aggregation
-from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func, Float, Boolean # Added Boolean
-from sqlalchemy.orm import relationship # Ensure relationship is imported for model definitions
+from sqlalchemy import desc, Integer, String, DateTime, UniqueConstraint, func, Float, Boolean 
+from sqlalchemy.orm import relationship 
 import os
-import requests # Keep for potential future use or type hints
+import requests 
 import time
-from datetime import datetime, date, timedelta # Added date for calendar
-import calendar # For calendar generation
-import pytz # For timezone handling
-import json # For parsing request body
-import re # Import regex for parsing progression string
+from datetime import datetime, date, timedelta 
+import calendar 
+import pytz 
+import json 
+import re 
 
 # --- Configuration Loading ---
-# Basic app config (can be expanded)
 GUILD_NAME = os.environ.get('GUILD_NAME')
-REGION = os.environ.get('REGION', 'us').lower() # Needed for Armory URL construction
-# API Keys are needed here ONLY if the spec cache needs to be populated by the web app
+REGION = os.environ.get('REGION', 'us').lower() 
 BLIZZARD_CLIENT_ID = os.environ.get('BLIZZARD_CLIENT_ID')
 BLIZZARD_CLIENT_SECRET = os.environ.get('BLIZZARD_CLIENT_SECRET')
 
@@ -40,7 +38,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False 
 db = SQLAlchemy(app) 
 
-# --- Database Models ---
+# --- Database Models (ensure these are consistent with your other scripts) ---
 class PlayableClass(db.Model):
     __tablename__ = 'playable_class'
     id = db.Column(db.Integer, primary_key=True) 
@@ -107,7 +105,7 @@ class Item(db.Model):
     id = db.Column(db.Integer, primary_key=True) 
     name = db.Column(db.String(255), nullable=False, index=True)
     quality = db.Column(db.String(20))
-    icon_url = db.Column(db.String(512), nullable=True) # This should be populated by wow_info.py
+    icon_url = db.Column(db.String(512), nullable=True) 
     slot_type = db.Column(db.String(50), db.ForeignKey('playable_slot.type'), nullable=False, index=True) 
     slot = db.relationship("PlayableSlot", back_populates="items")
     source_id = db.Column(db.Integer, db.ForeignKey('data_source.id'), nullable=True, index=True)
@@ -209,12 +207,10 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None):
     api_url = full_url if full_url else f"{API_BASE_URL}{endpoint}"
     headers = {"Authorization": f"Bearer {access_token}"}
     if params is None: params = {}
-    # Default namespace for profile data, static data uses a different one.
-    # The caller should specify the correct namespace if not profile.
     if not full_url and "namespace" not in params: 
-        if "/data/wow/" in api_url: # Heuristic for static/game data
+        if "/data/wow/" in api_url: 
              params["namespace"] = f"static-{REGION}"
-        else: # Default to profile data
+        else: 
             params["namespace"] = f"profile-{REGION}"
             
     if not full_url and "locale" not in params: params["locale"] = "en_US"
@@ -430,7 +426,6 @@ def api_character_equipped_items(character_id):
     if not character:
         return jsonify({"error": "Character not found"}), 404
     
-    # First, get the basic equipment summary
     equipment_summary_endpoint = f"/profile/wow/character/{character.realm_slug.lower()}/{character.name.lower()}/equipment"
     equipment_summary_params = {"namespace": f"profile-{REGION}", "locale": "en_US"} 
     equipment_data = make_blizzard_api_request(equipment_summary_endpoint, params=equipment_summary_params) 
@@ -449,41 +444,22 @@ def api_character_equipped_items(character_id):
         
         if blizzard_api_slot_type and item_id and item_name:
             icon_url = None
-            wowhead_link = f"https://www.wowhead.com/item={item_id}" # Construct Wowhead link
+            wowhead_link = f"https://www.wowhead.com/item={item_id}"
 
-            # Attempt to get icon from our DB first (populated by wow_info.py)
+            # Get icon_url from our local Item table (populated by wow_info.py)
             db_item = db.session.get(Item, item_id)
             if db_item and db_item.icon_url:
                 icon_url = db_item.icon_url
             else:
-                # Fallback: Fetch item media from Blizzard API if not in our DB or no icon
-                item_media_endpoint = f"/data/wow/media/item/{item_id}"
-                # IMPORTANT: Static data API calls use a different namespace
-                item_media_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-                media_data = make_blizzard_api_request(item_media_endpoint, params=item_media_params)
-                if media_data and "assets" in media_data:
-                    for asset in media_data["assets"]:
-                        if asset.get("key") == "icon":
-                            icon_url = asset.get("value")
-                            # Optionally update our DB Item table here if icon was missing
-                            if db_item and not db_item.icon_url: # Check if db_item exists before trying to update
-                                try:
-                                    db_item.icon_url = icon_url
-                                    db.session.commit()
-                                except Exception as e_icon_save:
-                                    db.session.rollback()
-                                    print(f"Error saving icon_url for item {item_id} to DB: {e_icon_save}")
-                            elif not db_item: # If item not in DB at all, we can't update it here. wow_info.py should handle it.
-                                print(f"Note: Item ID {item_id} not found in local DB to save icon_url.")
-                            break
+                print(f"Note: Icon for equipped item ID {item_id} ('{item_name}') not found in local DB. wow_info.py might need to be run/updated.")
+                # No live API call for icon here to improve performance. Frontend will use placeholder.
+
             equipped_map[blizzard_api_slot_type] = {
                 "item_id": item_id, 
                 "name": item_name, 
-                "icon_url": icon_url,
+                "icon_url": icon_url, # Will be None if not in local DB
                 "wowhead_link": wowhead_link
             }
-            if not (db_item and db_item.icon_url): time.sleep(0.05) # Small delay only if we made an API call for media
-
     return jsonify(equipped_map)
 
 
