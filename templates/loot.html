@@ -28,6 +28,8 @@
             --color-status-saving: #4a5568;   /* Default text color for saving status */
             --color-status-saved: #38a169;    /* green-600 */
             --color-status-error: #e53e3e;    /* red-600 */
+            --color-text-link: #2b6cb0;       /* For Wowhead links */
+            --color-text-link-hover: #2c5282;
         }
 
         html.dark {
@@ -48,6 +50,8 @@
             --color-status-saving: #a0aec0;   /* gray-500 */
             --color-status-saved: #68d391;    /* green-400 */
             --color-status-error: #fc8181;    /* red-400 */
+            --color-text-link: #63b3ed;
+            --color-text-link-hover: #90cdf4;
         }
 
         body { 
@@ -155,6 +159,15 @@
         .footer-text {
             color: var(--color-text-muted);
         }
+        /* Wowhead Link Style */
+        .item-link { 
+            color: var(--color-text-link);
+            text-decoration: none;
+        }
+        .item-link:hover {
+            color: var(--color-text-link-hover);
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -240,30 +253,24 @@
         const characterSelect = document.getElementById('characterSelect');
         const gearSlotsContainer = document.getElementById('gearSlotsContainer');
 
-        // Mapping from Canonical UI Slot Type to Blizzard API slot types for *EQUIPPED* items
-        // These are the keys used in the response from /api/character_equipped_items/
-        // Note: Blizzard uses FINGER_1, FINGER_2, TRINKET_1, TRINKET_2 for specific equipped slots.
         const canonicalUiToEquippedApiSlotTypes = {
             "HEAD": ["HEAD"], "NECK": ["NECK"], "SHOULDER": ["SHOULDER"],
             "BACK": ["BACK", "CLOAK"], "CHEST": ["CHEST", "ROBE"], "WRIST": ["WRIST"],
             "HANDS": ["HANDS", "HAND"], "WAIST": ["WAIST"], "LEGS": ["LEGS"], "FEET": ["FEET"],
             "FINGER1": ["FINGER_1"], "FINGER2": ["FINGER_2"], 
             "TRINKET1": ["TRINKET_1"], "TRINKET2": ["TRINKET_2"],
-            "MAIN_HAND": ["MAIN_HAND", "TWOHWEAPON"], // TWOHWEAPON often occupies MAIN_HAND
-            "OFF_HAND": ["OFF_HAND"] // If MAIN_HAND has a 2H, OFF_HAND might be empty or have a cosmetic.
-                                     // If 1H in MAIN_HAND, OFF_HAND can be SHIELD, HOLDABLE, or another WEAPON.
+            "MAIN_HAND": ["MAIN_HAND", "TWOHWEAPON"], 
+            "OFF_HAND": ["OFF_HAND"] 
         };
 
-        // Mapping from Canonical UI Slot Type to API Item.slot_type(s) for *AVAILABLE BiS* items
-        // These are the values stored in your Item.slot_type column.
         const canonicalUiToApiItemTypes = {
             "HEAD": ["HEAD"], "NECK": ["NECK"], "SHOULDER": ["SHOULDER"],
             "BACK": ["BACK", "CLOAK"], "CHEST": ["CHEST", "ROBE"], "WRIST": ["WRIST"],
             "HANDS": ["HANDS", "HAND"], "WAIST": ["WAIST"], "LEGS": ["LEGS"], "FEET": ["FEET"],
             "FINGER1": ["FINGER"], "FINGER2": ["FINGER"], 
             "TRINKET1": ["TRINKET"], "TRINKET2": ["TRINKET"],
-            "MAIN_HAND": ["MAIN_HAND", "WEAPON", "ONE_HAND", "TWOHWEAPON"], // Consolidated for BiS options
-            "OFF_HAND": ["OFF_HAND", "SHIELD", "HOLDABLE", "WEAPON", "ONE_HAND"] // Consolidated for BiS options
+            "MAIN_HAND": ["MAIN_HAND", "WEAPON", "ONE_HAND", "TWOHWEAPON"], 
+            "OFF_HAND": ["OFF_HAND", "SHIELD", "HOLDABLE", "WEAPON", "ONE_HAND"] 
         };
 
         function generateSlotCards() {
@@ -280,7 +287,9 @@
                             <p class="select-label text-xs mb-1">Equipped:</p>
                             <div class="item-display equipped-item-display" id="equipped-${slot.type}">
                                 <img src="https://placehold.co/32x32/CCCCCC/999999?text=?" alt="Equipped Item" class="item-icon equipped-item-icon">
-                                <span class="equipped-item-name">None</span>
+                                <span class="equipped-item-name-container"> 
+                                    <span class="no-item-text">None</span>
+                                </span>
                             </div>
                         </div>
                         <div>
@@ -327,7 +336,8 @@
             canonicalUiSlots.forEach(slot => {
                 const equippedItemDiv = document.getElementById(`equipped-${slot.type}`);
                 if (equippedItemDiv) {
-                    equippedItemDiv.querySelector('.equipped-item-name').textContent = 'None';
+                    const nameContainer = equippedItemDiv.querySelector('.equipped-item-name-container');
+                    nameContainer.innerHTML = '<span class="no-item-text">None</span>'; 
                     equippedItemDiv.querySelector('.equipped-item-icon').src = 'https://placehold.co/32x32/CCCCCC/999999?text=?';
                     equippedItemDiv.querySelector('.equipped-item-icon').alt = 'No item equipped';
                 }
@@ -353,12 +363,11 @@
 
                 canonicalUiSlots.forEach(uiSlot => {
                     const equippedItemDiv = document.getElementById(`equipped-${uiSlot.type}`);
-                    const equippedItemNameSpan = equippedItemDiv.querySelector('.equipped-item-name');
+                    const nameContainer = equippedItemDiv.querySelector('.equipped-item-name-container');
                     const equippedItemIconImg = equippedItemDiv.querySelector('.equipped-item-icon');
                     
                     let finalEquippedItem = null;
                     let equippedItemId = null;
-                    // Use canonicalUiToEquippedApiSlotTypes for looking up equipped items
                     const relevantApiTypesForEquipped = canonicalUiToEquippedApiSlotTypes[uiSlot.type] || [uiSlot.type.toUpperCase()];
                     
                     for (const apiType of relevantApiTypesForEquipped) {
@@ -367,24 +376,23 @@
                             break; 
                         }
                     }
-                    // Special handling for weapons: if MAIN_HAND is a TWOHWEAPON, OFF_HAND should show nothing from API.
-                    if (uiSlot.type === "OFF_HAND" && equippedItemsByApiSlot["MAIN_HAND"] && canonicalUiToEquippedApiSlotTypes["MAIN_HAND"].includes("TWOHWEAPON")) {
-                        const mainHandItem = equippedItemsByApiSlot["MAIN_HAND"];
-                        // A simple check: if the main hand item's API slot type suggests it's two-handed
-                        // This might need refinement based on actual Item.slot_type of the main hand item if available
-                        // For now, if MAIN_HAND is TWOHWEAPON from Blizzard API, we assume OFF_HAND is empty.
-                        // The Blizzard API returns TWOHWEAPON in the MAIN_HAND slot.
-                        if (equippedItemsByApiSlot["TWOHWEAPON"] && equippedItemsByApiSlot["TWOHWEAPON"].item_id === mainHandItem.item_id) {
-                             finalEquippedItem = null; // Effectively clear off-hand if main is 2H
+                    
+                    // Special handling for two-handed weapons affecting off-hand display
+                    if (uiSlot.type === "OFF_HAND") {
+                        const mainHandEquipped = equippedItemsByApiSlot["MAIN_HAND"];
+                        // Check if the main hand item is explicitly a TWOHWEAPON type from Blizzard's API response
+                        if (mainHandEquipped && equippedItemsByApiSlot["TWOHWEAPON"] && equippedItemsByApiSlot["TWOHWEAPON"].item_id === mainHandEquipped.item_id) {
+                           finalEquippedItem = null; // Clear off-hand if main is identified as 2H by Blizzard
                         }
                     }
                     
                     if (finalEquippedItem) {
-                        equippedItemNameSpan.textContent = finalEquippedItem.name;
-                        equippedItemIconImg.alt = finalEquippedItem.name; 
+                        equippedItemIconImg.src = finalEquippedItem.icon_url || 'https://placehold.co/32x32/CCCCCC/999999?text=?';
+                        equippedItemIconImg.alt = finalEquippedItem.name;
+                        nameContainer.innerHTML = `<a href="${finalEquippedItem.wowhead_link}" target="_blank" rel="noopener noreferrer" class="item-link">${finalEquippedItem.name}</a>`;
                         equippedItemId = finalEquippedItem.item_id;
                     } else {
-                        equippedItemNameSpan.textContent = 'None';
+                        nameContainer.innerHTML = '<span class="no-item-text">None</span>';
                         equippedItemIconImg.src = 'https://placehold.co/32x32/CCCCCC/999999?text=?';
                         equippedItemIconImg.alt = 'No item equipped';
                     }
@@ -401,7 +409,6 @@
             const bisSelect = document.getElementById(`bis-${uiSlotType}`);
             if (!bisSelect) return;
 
-            // Use canonicalUiToApiItemTypes for fetching available BiS options
             const apiItemTypesToQuery = canonicalUiToApiItemTypes[uiSlotType] || [uiSlotType.toUpperCase()];
             let allAvailableItems = [];
             let itemIdsProcessed = new Set();
@@ -444,15 +451,16 @@
                 bisSelect.innerHTML = '<option value="">-- Select BiS --</option>'; 
                 
                 const equippedItemDiv = document.getElementById(`equipped-${uiSlotType}`);
-                const equippedItemName = equippedItemDiv.querySelector('.equipped-item-name').textContent;
+                const equippedItemLink = equippedItemDiv.querySelector('.item-link');
+                const equippedItemName = equippedItemLink ? equippedItemLink.textContent : equippedItemDiv.querySelector('.no-item-text')?.textContent;
 
-                // Add equipped item to dropdown if it exists and isn't already in the fetched list
-                if (equippedItemId && equippedItemName !== 'None') {
+
+                if (equippedItemId && equippedItemName && equippedItemName !== 'None') {
                     const equippedInAvailable = allAvailableItems.some(item => item.id === equippedItemId);
                     if (!equippedInAvailable) {
                         const equippedOption = document.createElement('option');
                         equippedOption.value = equippedItemId;
-                        equippedOption.textContent = `${equippedItemName} (Equipped)`; // Mark as equipped
+                        equippedOption.textContent = `${equippedItemName} (Equipped)`; 
                         bisSelect.appendChild(equippedOption);
                     }
                 }
@@ -464,10 +472,8 @@
                     if (item.source_details) {
                         option.textContent += ` (${item.source_details})`;
                     }
-                    // If this item is the equipped one (already handled if it wasn't in the main list)
-                    // we can add the (Equipped) tag here too for items that *are* in the main list.
                     if (item.id === equippedItemId) {
-                         if (!option.textContent.includes("(Equipped)")) { // Avoid double-tagging
+                         if (!option.textContent.includes("(Equipped)")) { 
                             option.textContent += ` (Equipped)`;
                          }
                     }
@@ -477,7 +483,7 @@
                 if (currentBisItemId) {
                     bisSelect.value = currentBisItemId;
                 } else if (equippedItemId) { 
-                    bisSelect.value = equippedItemId; // Default to equipped if no BiS saved
+                    bisSelect.value = equippedItemId; 
                 }
 
             } catch (error) {

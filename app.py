@@ -87,8 +87,8 @@ class Character(db.Model):
 class PlayableSlot(db.Model):
     __tablename__ = 'playable_slot'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    type = db.Column(db.String(50), unique=True, nullable=False, index=True) # This stores the API-like slot types OR canonical UI types
-    name = db.Column(db.String(100), nullable=False) # Display name for this specific type
+    type = db.Column(db.String(50), unique=True, nullable=False, index=True) 
+    name = db.Column(db.String(100), nullable=False) 
     display_order = db.Column(db.Integer, default=0)
     items = db.relationship("Item", back_populates="slot", cascade="all, delete-orphan")
     bis_selections = db.relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan")
@@ -107,8 +107,8 @@ class Item(db.Model):
     id = db.Column(db.Integer, primary_key=True) 
     name = db.Column(db.String(255), nullable=False, index=True)
     quality = db.Column(db.String(20))
-    icon_url = db.Column(db.String(512), nullable=True)
-    slot_type = db.Column(db.String(50), db.ForeignKey('playable_slot.type'), nullable=False, index=True) # This is the API slot_type of the item
+    icon_url = db.Column(db.String(512), nullable=True) # This should be populated by wow_info.py
+    slot_type = db.Column(db.String(50), db.ForeignKey('playable_slot.type'), nullable=False, index=True) 
     slot = db.relationship("PlayableSlot", back_populates="items")
     source_id = db.Column(db.Integer, db.ForeignKey('data_source.id'), nullable=True, index=True)
     source = db.relationship("DataSource", back_populates="items")
@@ -120,8 +120,6 @@ class CharacterBiS(db.Model):
     __tablename__ = 'character_bis'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     character_id = db.Column(db.Integer, db.ForeignKey('character.id'), nullable=False, index=True)
-    # slot_type_ui refers to the 'type' in PlayableSlot, which should store canonical UI slot types
-    # for this FK to be meaningful in the context of the BiS planner.
     slot_type_ui = db.Column(db.String(50), db.ForeignKey('playable_slot.type'), nullable=False, index=True) 
     item_id = db.Column(db.Integer, db.ForeignKey('item.id'), nullable=True) 
     last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -165,7 +163,6 @@ RANGED_DPS_SPECS = {
 }
 
 def determine_role_from_spec(spec_name, class_name):
-    """Determines a character's role based on their spec and class."""
     if not spec_name: return "Unknown"
     if spec_name in TANK_SPECS: return "Tank"
     if spec_name in HEALER_SPECS: return "Healer"
@@ -197,7 +194,6 @@ def get_web_app_token():
              return None
         WEB_APP_ACCESS_TOKEN_CACHE["token"] = access_token
         WEB_APP_ACCESS_TOKEN_CACHE["expires_at"] = now + data.get('expires_in', 0)
-        # print("Fetched new web app access token.") # Can be noisy
         return WEB_APP_ACCESS_TOKEN_CACHE["token"]
     except Exception as e:
         print(f"Error fetching web app token: {e}")
@@ -213,12 +209,18 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None):
     api_url = full_url if full_url else f"{API_BASE_URL}{endpoint}"
     headers = {"Authorization": f"Bearer {access_token}"}
     if params is None: params = {}
-    if not full_url and "namespace" not in params: params["namespace"] = f"profile-{REGION}" 
+    # Default namespace for profile data, static data uses a different one.
+    # The caller should specify the correct namespace if not profile.
+    if not full_url and "namespace" not in params: 
+        if "/data/wow/" in api_url: # Heuristic for static/game data
+             params["namespace"] = f"static-{REGION}"
+        else: # Default to profile data
+            params["namespace"] = f"profile-{REGION}"
+            
     if not full_url and "locale" not in params: params["locale"] = "en_US"
     try:
         response = requests.get(api_url, params=params, headers=headers, timeout=15)
         if response.status_code == 404:
-             # print(f"Warning (Web App): 404 Not Found for Blizzard API URL: {response.url}") # Can be noisy
              return None
         response.raise_for_status()
         return response.json()
@@ -230,9 +232,7 @@ def get_all_specs():
     global ALL_SPECS_CACHE, ALL_SPECS_LAST_FETCHED
     current_time = time.time()
     if ALL_SPECS_CACHE and (current_time - ALL_SPECS_LAST_FETCHED < CACHE_TTL):
-        # print("Using in-memory cached specs.") # Can be noisy
         return ALL_SPECS_CACHE
-    # print("Fetching specs from database...") # Can be noisy
     temp_spec_map = {}
     try:
         with app.app_context():
@@ -247,7 +247,6 @@ def get_all_specs():
                 for cid in temp_spec_map: temp_spec_map[cid].sort(key=lambda x: x['name'])
                 ALL_SPECS_CACHE = temp_spec_map
                 ALL_SPECS_LAST_FETCHED = current_time
-                # print(f"Specs populated from database for {len(ALL_SPECS_CACHE)} classes.") # Can be noisy
                 return ALL_SPECS_CACHE
             else:
                 print("PlayableSpec table is empty in the database. No specs to load.")
@@ -394,7 +393,6 @@ def loot_page():
     current_year = datetime.utcnow().year
     wipers = [] 
     
-    # Define canonical UI slots for the BiS planner
     canonical_ui_slots = [
         {"type": "HEAD", "name": "Head"}, {"type": "NECK", "name": "Neck"},
         {"type": "SHOULDER", "name": "Shoulder"}, {"type": "BACK", "name": "Back"}, 
@@ -428,48 +426,76 @@ def loot_page():
 
 @app.route('/api/character_equipped_items/<int:character_id>')
 def api_character_equipped_items(character_id):
-    character = db.session.get(Character, character_id) # Use Session.get()
+    character = db.session.get(Character, character_id) 
     if not character:
         return jsonify({"error": "Character not found"}), 404
     
-    endpoint = f"/profile/wow/character/{character.realm_slug.lower()}/{character.name.lower()}/equipment"
-    api_params = {"namespace": f"profile-{REGION}", "locale": "en_US"} 
-    equipment_data = make_blizzard_api_request(endpoint, params=api_params) 
-    # print(f"DEBUG: /api/character_equipped_items/ - Blizzard equipment_data for {character.name}: {json.dumps(equipment_data, indent=2)}", flush=True)
+    # First, get the basic equipment summary
+    equipment_summary_endpoint = f"/profile/wow/character/{character.realm_slug.lower()}/{character.name.lower()}/equipment"
+    equipment_summary_params = {"namespace": f"profile-{REGION}", "locale": "en_US"} 
+    equipment_data = make_blizzard_api_request(equipment_summary_endpoint, params=equipment_summary_params) 
 
+    if not equipment_data or "equipped_items" not in equipment_data:
+        if equipment_data and "error" in equipment_data:
+             return jsonify({"error": f"Blizzard API error (equipment summary): {equipment_data.get('error_description', 'Unknown error')}"}), 500
+        print(f"Could not fetch equipment summary for character ID {character_id}. API response: {equipment_data}")
+        return jsonify({"error": "Could not fetch equipment summary"}), 500
 
-    if equipment_data and "equipped_items" in equipment_data:
-        equipped_map = {}
-        for item_entry in equipment_data["equipped_items"]:
-            slot_info = item_entry.get("slot", {})
-            blizzard_api_slot_type = slot_info.get("type") # e.g. HEAD, FINGER_1, MAIN_HAND, TWOHWEAPON
-            item_id = item_entry.get("item", {}).get("id")
-            item_name = item_entry.get("name")
-            
-            if blizzard_api_slot_type and item_id and item_name:
-                equipped_map[blizzard_api_slot_type] = {
-                    "item_id": item_id, "name": item_name, "icon_url": None 
-                }
-        # print(f"DEBUG: /api/character_equipped_items/ - Constructed equipped_map for {character.name}: {json.dumps(equipped_map, indent=2)}", flush=True)
-        return jsonify(equipped_map)
-    elif equipment_data and "error" in equipment_data:
-        return jsonify({"error": f"Blizzard API error: {equipment_data.get('error_description', 'Unknown error')}"}), 500
-    else:
-        print(f"Could not fetch equipment for character ID {character_id}. API response: {equipment_data}")
-        return jsonify({"error": "Could not fetch equipment"}), 500
+    equipped_map = {}
+    for item_entry in equipment_data["equipped_items"]:
+        blizzard_api_slot_type = item_entry.get("slot", {}).get("type") 
+        item_id = item_entry.get("item", {}).get("id")
+        item_name = item_entry.get("name")
+        
+        if blizzard_api_slot_type and item_id and item_name:
+            icon_url = None
+            wowhead_link = f"https://www.wowhead.com/item={item_id}" # Construct Wowhead link
+
+            # Attempt to get icon from our DB first (populated by wow_info.py)
+            db_item = db.session.get(Item, item_id)
+            if db_item and db_item.icon_url:
+                icon_url = db_item.icon_url
+            else:
+                # Fallback: Fetch item media from Blizzard API if not in our DB or no icon
+                item_media_endpoint = f"/data/wow/media/item/{item_id}"
+                # IMPORTANT: Static data API calls use a different namespace
+                item_media_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
+                media_data = make_blizzard_api_request(item_media_endpoint, params=item_media_params)
+                if media_data and "assets" in media_data:
+                    for asset in media_data["assets"]:
+                        if asset.get("key") == "icon":
+                            icon_url = asset.get("value")
+                            # Optionally update our DB Item table here if icon was missing
+                            if db_item and not db_item.icon_url: # Check if db_item exists before trying to update
+                                try:
+                                    db_item.icon_url = icon_url
+                                    db.session.commit()
+                                except Exception as e_icon_save:
+                                    db.session.rollback()
+                                    print(f"Error saving icon_url for item {item_id} to DB: {e_icon_save}")
+                            elif not db_item: # If item not in DB at all, we can't update it here. wow_info.py should handle it.
+                                print(f"Note: Item ID {item_id} not found in local DB to save icon_url.")
+                            break
+            equipped_map[blizzard_api_slot_type] = {
+                "item_id": item_id, 
+                "name": item_name, 
+                "icon_url": icon_url,
+                "wowhead_link": wowhead_link
+            }
+            if not (db_item and db_item.icon_url): time.sleep(0.05) # Small delay only if we made an API call for media
+
+    return jsonify(equipped_map)
 
 
 @app.route('/api/available_items/<api_item_slot_type>') 
 def api_available_items(api_item_slot_type):
     """ Fetches all epic items for a given API item_slot_type from the database. """
-    # print(f"DEBUG: /api/available_items/ received api_item_slot_type: {api_item_slot_type}", flush=True)
     try:
         with app.app_context():
             items_query = Item.query.filter(
                 Item.slot_type == api_item_slot_type, 
                 Item.quality == 'EPIC'
             ).order_by(Item.name.asc()).all()
-            # print(f"DEBUG: Found {len(items_query)} items for slot type {api_item_slot_type}", flush=True)
             
             items_data = [{
                 "id": item.id, "name": item.name, "icon_url": item.icon_url,
@@ -510,18 +536,14 @@ def save_bis_selection():
 
     try:
         with app.app_context():
-            character = db.session.get(Character, character_id) # Use Session.get()
+            character = db.session.get(Character, character_id) 
             
             if not character: return jsonify({"success": False, "message": "Character not found"}), 404
-            # Optional: Validate slot_type_ui against a predefined list of canonical UI types if not relying on PlayableSlot table for this.
-            # For the FK on CharacterBiS.slot_type_ui to work, slot_type_ui must exist as a 'type' in PlayableSlot.
-            # Ensure your wow_info.py populates PlayableSlot with these canonical UI types.
             slot_definition = PlayableSlot.query.filter_by(type=slot_type_ui).first()
             if not slot_definition:
-                print(f"Warning: Canonical UI slot type '{slot_type_ui}' not found in PlayableSlot table. BiS save might fail FK if PlayableSlot is not populated with UI types.")
-                # Depending on DB strictness, this might still work if the string matches, but FK is best practice.
+                print(f"Warning: Canonical UI slot type '{slot_type_ui}' not found in PlayableSlot table during BiS save.")
 
-            if item_id and not db.session.get(Item, item_id): # Use Session.get()
+            if item_id and not db.session.get(Item, item_id): 
                  return jsonify({"success": False, "message": "Item not found"}), 404
 
             bis_entry = CharacterBiS.query.filter_by(character_id=character_id, slot_type_ui=slot_type_ui).first()
@@ -561,7 +583,7 @@ def update_spec():
     
     try:
         with app.app_context():
-            character = db.session.get(Character, character_id) # Use Session.get()
+            character = db.session.get(Character, character_id) 
             if not character: abort(404, description="Character not found")
             
             spec_for_role_calc = new_spec_name if new_spec_name else character.spec_name
@@ -600,7 +622,7 @@ def update_status():
     
     try:
         with app.app_context():
-            character = db.session.get(Character, character_id) # Use Session.get()
+            character = db.session.get(Character, character_id) 
             if not character:
                 print(f"Error: Character not found with ID: {character_id}")
                 abort(404, description="Character not found")
