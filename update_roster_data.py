@@ -214,6 +214,7 @@ def update_character_roster():
     print("Starting Character Roster update process (soft delete approach)...", flush=True)
     start_time = time.time()
     db_session = SessionLocal()
+    api_calls_for_details = 0 # Initialize api_calls_for_details here
 
     try:
         # Ensure all table structures exist.
@@ -228,6 +229,7 @@ def update_character_roster():
         roster_data_from_api = get_guild_roster_data()
         if not roster_data_from_api or 'members' not in roster_data_from_api:
             print("Error: Failed to fetch guild roster from API. Aborting update.", flush=True)
+            # db_session.close() # Ensure session is closed if we exit early
             return
 
         api_character_ids = set()
@@ -268,9 +270,10 @@ def update_character_roster():
         local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
         if not local_class_map:
              print("CRITICAL ERROR: PlayableClass map is empty. Run wow_info.py first.", flush=True)
+             # db_session.close() # Ensure session is closed
              return
 
-        api_calls_for_details = 0
+        # api_calls_for_details = 0 # Moved initialization to the top of the function
 
         # 4. Process characters: update existing, insert new
         for char_id, api_details in api_characters_details.items():
