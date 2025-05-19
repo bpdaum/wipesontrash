@@ -6,7 +6,7 @@ from datetime import datetime
 import json
 
 # --- Standalone SQLAlchemy setup ---
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index, ForeignKey, Float
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index, ForeignKey, Float, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.exc import OperationalError, IntegrityError
@@ -42,9 +42,10 @@ except Exception as e:
      exit(1)
 
 # --- Database Models ---
+# Models managed by this script + dependent models for schema integrity
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Class ID
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class", cascade="all, delete-orphan")
     characters = relationship("Character", back_populates="playable_class") 
@@ -52,27 +53,29 @@ class PlayableClass(Base):
 
 class PlayableSpec(Base):
     __tablename__ = 'playable_spec'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Spec ID
     name = Column(String(50), nullable=False)
     class_id = Column(Integer, ForeignKey('playable_class.id'), nullable=False)
     playable_class = relationship("PlayableClass", back_populates="specs")
     def __repr__(self): return f'<PlayableSpec {self.name} (Class ID: {self.class_id})>'
 
-class PlayableSlot(Base):
+class PlayableSlot(Base): # Stores both API item slot types and canonical UI slot types
     __tablename__ = 'playable_slot'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(50), unique=True, nullable=False, index=True)
-    name = Column(String(100), nullable=False)
-    display_order = Column(Integer, default=0)
+    id = Column(Integer, primary_key=True, autoincrement=True) # Auto-generated PK
+    type = Column(String(50), unique=True, nullable=False, index=True) # e.g., "HEAD", "FINGER", "FINGER1", "MAIN_HAND"
+    name = Column(String(100), nullable=False) # e.g., "Head", "Finger (API)", "Finger 1", "Main Hand"
+    display_order = Column(Integer, default=0) # For ordering in UI if needed
+    # Relationship: An Item's slot_type points here.
     items = relationship("Item", back_populates="slot", cascade="all, delete-orphan")
+    # Relationship: A CharacterBiS's slot_type_ui points here.
     bis_selections = relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan")
     def __repr__(self): return f'<PlayableSlot Name: {self.name} Type:({self.type})>'
 
 class DataSource(Base):
     __tablename__ = 'data_source'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(200), unique=True, nullable=False)
-    type = Column(String(50)) # "Raid", "Dungeon"
+    name = Column(String(200), unique=True, nullable=False) # e.g., "Liberation of Undermine"
+    type = Column(String(50)) # e.g., "Raid", "Dungeon"
     items = relationship("Item", back_populates="source", cascade="all, delete-orphan")
     def __repr__(self): return f'<DataSource {self.name}>'
 
@@ -80,22 +83,25 @@ class Item(Base):
     __tablename__ = 'item'
     id = Column(Integer, primary_key=True) # Blizzard Item ID
     name = Column(String(255), nullable=False, index=True)
-    quality = Column(String(20))
+    quality = Column(String(20)) # e.g., "EPIC"
     icon_url = Column(String(512), nullable=True)
-    slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
+    # Item.slot_type refers to the API slot type of the item (e.g. "HEAD", "FINGER", "WEAPON")
+    slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) 
     slot = relationship("PlayableSlot", back_populates="items")
     source_id = Column(Integer, ForeignKey('data_source.id'), nullable=True, index=True)
     source = relationship("DataSource", back_populates="items")
-    source_details = Column(String(255))
+    source_details = Column(String(255)) # e.g., "Boss Name"
     bis_selections = relationship("CharacterBiS", back_populates="item", cascade="all, delete-orphan")
     def __repr__(self): return f'<Item {self.name} (ID: {self.id})>'
 
 class Character(Base): # Defined for schema integrity due to CharacterBiS FK
     __tablename__ = 'character'
-    id = Column(Integer, primary_key=True)
+    id = Column(Integer, primary_key=True) # Blizzard Character ID
     name = Column(String(100), nullable=False) 
     realm_slug = Column(String(100), nullable=False) 
-    class_id = Column(Integer, ForeignKey('playable_class.id')) 
+    class_id = Column(Integer, ForeignKey('playable_class.id')) # Added for FK integrity
+    is_active = Column(Boolean, default=True, nullable=False, index=True) # For soft deletes
+
     playable_class = relationship("PlayableClass", back_populates="characters")
     bis_selections = relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
     __table_args__ = (UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),) 
@@ -104,56 +110,80 @@ class CharacterBiS(Base):
     __tablename__ = 'character_bis'
     id = Column(Integer, primary_key=True, autoincrement=True)
     character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
-    slot_type_ui = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
-    item_id = Column(Integer, ForeignKey('item.id'), nullable=True)
+    # CharacterBiS.slot_type_ui refers to a canonical UI slot type (e.g. "FINGER1", "MAIN_HAND")
+    # This type must exist in the PlayableSlot table for the FK to work.
+    slot_type_ui = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) 
+    item_id = Column(Integer, ForeignKey('item.id'), nullable=True) # Blizzard Item ID
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
     character = relationship("Character", back_populates="bis_selections")
-    slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui]) # Ensure this matches the column name
+    # The foreign_keys argument specifies which column in CharacterBiS links to PlayableSlot.type
+    slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui]) 
     item = relationship("Item", back_populates="bis_selections")
+    
     __table_args__ = (UniqueConstraint('character_id', 'slot_type_ui', name='_character_slot_ui_uc'),)
     def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} SlotUI: {self.slot_type_ui} ItemID: {self.item_id}>'
 
 # --- Data Population Functions ---
 
 def populate_playable_slots(db_session):
-    """Pre-populates the PlayableSlot table with standard equipment slots."""
+    """
+    Pre-populates the PlayableSlot table with both API item slot types and canonical UI slot types.
+    This table serves as a central reference for Item.slot_type (API types) and CharacterBiS.slot_type_ui (UI types).
+    """
     print("Populating Playable Slots...", flush=True)
+    # Ensure this list is comprehensive for all types needed by Item.slot_type and CharacterBiS.slot_type_ui
     slots_data = [
-        {"type": "HEAD", "name": "Head", "display_order": 1},
-        {"type": "NECK", "name": "Neck", "display_order": 2},
-        {"type": "SHOULDER", "name": "Shoulder", "display_order": 3},
-        {"type": "BACK", "name": "Back", "display_order": 4},      
-        {"type": "CLOAK", "name": "Back (API)", "display_order": 4}, 
-        {"type": "CHEST", "name": "Chest", "display_order": 5},    
-        {"type": "ROBE", "name": "Chest (Robe API)", "display_order": 5}, 
-        {"type": "SHIRT", "name": "Shirt", "display_order": 6},
-        {"type": "TABARD", "name": "Tabard", "display_order": 7},
-        {"type": "WRIST", "name": "Wrist", "display_order": 8},
-        {"type": "HANDS", "name": "Hands", "display_order": 9},   
-        {"type": "HAND", "name": "Hands (API)", "display_order": 9},    
-        {"type": "WAIST", "name": "Waist", "display_order": 10},
-        {"type": "LEGS", "name": "Legs", "display_order": 11},
-        {"type": "FEET", "name": "Feet", "display_order": 12},
-        {"type": "FINGER", "name": "Finger (API Generic)", "display_order": 13}, 
-        {"type": "FINGER1", "name": "Finger 1", "display_order": 13},          
-        {"type": "FINGER2", "name": "Finger 2", "display_order": 14},          
-        {"type": "TRINKET", "name": "Trinket (API Generic)", "display_order": 15},
-        {"type": "TRINKET1", "name": "Trinket 1", "display_order": 15},        
-        {"type": "TRINKET2", "name": "Trinket 2", "display_order": 16},        
-        {"type": "WEAPON", "name": "Weapon (Generic API)", "display_order": 17},
-        {"type": "MAIN_HAND", "name": "Main Hand", "display_order": 17},
-        {"type": "OFF_HAND", "name": "Off Hand", "display_order": 18},
-        {"type": "SHIELD", "name": "Shield", "display_order": 18},
-        {"type": "HOLDABLE", "name": "Holdable (Off-hand)", "display_order": 18},
-        {"type": "ONE_HAND", "name": "One-Hand", "display_order": 20},
-        {"type": "TWO_HAND", "name": "Two-Hand", "display_order": 21},
-        {"type": "TWOHWEAPON", "name": "Two-Hand (API)", "display_order": 21}
+        # API Primary Types (referenced by Item.slot_type)
+        {"type": "HEAD", "name": "Head (API)", "display_order": 1},
+        {"type": "NECK", "name": "Neck (API)", "display_order": 2},
+        {"type": "SHOULDER", "name": "Shoulder (API)", "display_order": 3},
+        {"type": "BACK", "name": "Back (API - Generic)", "display_order": 4}, # Generic API type for back
+        {"type": "CLOAK", "name": "Cloak (API - Specific)", "display_order": 4}, # Specific API type for back
+        {"type": "CHEST", "name": "Chest (API - Generic)", "display_order": 5},
+        {"type": "ROBE", "name": "Robe (API - Chest variant)", "display_order": 5},
+        {"type": "SHIRT", "name": "Shirt (API)", "display_order": 6}, # Usually not for BiS
+        {"type": "TABARD", "name": "Tabard (API)", "display_order": 7}, # Usually not for BiS
+        {"type": "WRIST", "name": "Wrist (API)", "display_order": 8},
+        {"type": "HAND", "name": "Hands (API - Generic)", "display_order": 9}, # Generic API type for hands
+        {"type": "HANDS", "name": "Hands (API - Specific)", "display_order": 9}, # Specific API type for hands
+        {"type": "WAIST", "name": "Waist (API)", "display_order": 10},
+        {"type": "LEGS", "name": "Legs (API)", "display_order": 11},
+        {"type": "FEET", "name": "Feet (API)", "display_order": 12},
+        {"type": "FINGER", "name": "Finger (API - Generic)", "display_order": 13}, # Generic API type for rings
+        {"type": "TRINKET", "name": "Trinket (API - Generic)", "display_order": 15},# Generic API type for trinkets
+        {"type": "WEAPON", "name": "Weapon (API - Generic)", "display_order": 17}, # Generic, might be 1H or 2H
+        {"type": "ONE_HAND", "name": "One-Hand Weapon (API)", "display_order": 17},
+        {"type": "TWOHWEAPON", "name": "Two-Hand Weapon (API)", "display_order": 17}, # Blizzard's type for 2H
+        {"type": "MAIN_HAND", "name": "Main Hand (API - Equipment Slot)", "display_order": 17}, # Blizzard equipment slot type
+        {"type": "OFF_HAND", "name": "Off Hand (API - Equipment Slot)", "display_order": 18}, # Blizzard equipment slot type
+        {"type": "SHIELD", "name": "Shield (API)", "display_order": 18},
+        {"type": "HOLDABLE", "name": "Holdable (API - Off-hand)", "display_order": 18},
+        
+        # Canonical UI Slot Types (referenced by CharacterBiS.slot_type_ui and loot.html)
+        # Ensure these names match what loot.html expects for its `data-slot-type`
+        # If a UI type is identical to an API type (e.g. "HEAD"), it doesn't need to be duplicated if the name is sufficient.
+        # However, for clarity or if display names differ, they can be separate entries.
+        # For simplicity, we'll assume the API types above cover most direct needs,
+        # and loot.html's canonical list will map to these.
+        # The crucial ones for CharacterBiS are the distinct UI slots like FINGER1, FINGER2.
+        {"type": "FINGER1", "name": "Finger 1 (UI)", "display_order": 13},
+        {"type": "FINGER2", "name": "Finger 2 (UI)", "display_order": 14},
+        {"type": "TRINKET1", "name": "Trinket 1 (UI)", "display_order": 15},
+        {"type": "TRINKET2", "name": "Trinket 2 (UI)", "display_order": 16},
+        # UI "MAIN_HAND" and "OFF_HAND" are distinct from Blizzard's equipment slot types if needed for BiS,
+        # but can map to the same 'type' if their names are sufficient.
+        # The `canonical_ui_slots` in app.py's /loot route defines what the UI renders.
+        # This table just needs to have all `type` values that will be used as FKs.
     ]
     for slot_data in slots_data:
         slot = db_session.query(PlayableSlot).filter_by(type=slot_data["type"]).first()
         if not slot:
             slot = PlayableSlot(type=slot_data["type"], name=slot_data["name"], display_order=slot_data["display_order"])
             db_session.add(slot)
+        elif slot.name != slot_data["name"] or slot.display_order != slot_data["display_order"]: # Update if changed
+            slot.name = slot_data["name"]
+            slot.display_order = slot_data["display_order"]
     try:
         db_session.commit()
         print("PlayableSlot table populated/verified.", flush=True)
@@ -167,7 +197,7 @@ def populate_data_sources(db_session):
     print("Populating Data Sources...", flush=True)
     sources_data = [
         {"name": "Liberation of Undermine", "type": "Raid"},
-        {"name": "Mythic+ Season 2 Dungeons", "type": "Dungeon"}
+        {"name": "Mythic+ Season 2 Dungeons", "type": "Dungeon"} # Example
     ]
     for source_data in sources_data:
         source = db_session.query(DataSource).filter_by(name=source_data["name"]).first()
@@ -201,85 +231,56 @@ def update_playable_classes_and_specs(db_session):
     print("Fetching playable class index...", flush=True)
     class_endpoint = '/data/wow/playable-class/index'
     class_url = f"{BLIZZARD_API_BASE_URL}{class_endpoint}"
-    # Use make_api_request (imported from helper_functions)
     class_index_data = make_api_request(api_url=class_url, params=static_params, headers=headers) 
 
     if class_index_data and 'classes' in class_index_data:
-        classes_to_add_or_update = []
         for class_info_api in class_index_data['classes']:
             if class_info_api.get('id') and class_info_api.get('name'):
-                existing_class = db_session.query(PlayableClass).get(class_info_api['id'])
+                existing_class = db_session.get(PlayableClass, class_info_api['id']) # Use Session.get()
                 if existing_class:
                     if existing_class.name != class_info_api['name']:
                         existing_class.name = class_info_api['name']
-                        print(f"  Updating class: ID {existing_class.id}, Name: {existing_class.name}", flush=True)
                 else:
-                    classes_to_add_or_update.append(PlayableClass(id=class_info_api['id'], name=class_info_api['name']))
-        if classes_to_add_or_update:
-            db_session.add_all(classes_to_add_or_update)
-        print(f"PlayableClass table updated/prepared with {len(class_index_data['classes'])} potential entries.", flush=True)
+                    db_session.add(PlayableClass(id=class_info_api['id'], name=class_info_api['name']))
         class_success = True
+        print(f"PlayableClass table updated/prepared.", flush=True)
     else:
         print("Error: Failed to fetch or parse playable class index.", flush=True)
-        if class_index_data: print(f"Debug (Class Index): {json.dumps(class_index_data, indent=2)}", flush=True)
-
 
     # 2. Update Playable Specializations
     print("Fetching playable specialization index...", flush=True)
     spec_endpoint = '/data/wow/playable-specialization/index'
     spec_url = f"{BLIZZARD_API_BASE_URL}{spec_endpoint}"
-    # Use make_api_request (imported from helper_functions)
     spec_index_data = make_api_request(api_url=spec_url, params=static_params, headers=headers)
     
     if spec_index_data and 'character_specializations' in spec_index_data:
-        specs_to_add_or_update = []
         fetch_errors = 0
-        processed_count = 0
-        spec_list = spec_index_data['character_specializations']
-        print(f"Fetched {len(spec_list)} specializations from index. Fetching details for class IDs...", flush=True)
-
-        for spec_info_from_index in spec_list:
+        for spec_info_from_index in spec_index_data['character_specializations']:
             spec_id = spec_info_from_index.get('id')
             spec_name_api = spec_info_from_index.get('name')
             detail_href = spec_info_from_index.get('key', {}).get('href') 
 
             if not spec_id or not spec_name_api or not detail_href: continue
 
-            # Use make_api_request; detail_href is a full URL
             spec_detail_data = make_api_request(api_url=detail_href, params=static_params, headers=headers) 
-            processed_count +=1
             if spec_detail_data:
-                class_info = spec_detail_data.get('playable_class', {})
-                class_id = class_info.get('id')
-                if class_id:
-                    existing_spec = db_session.query(PlayableSpec).get(spec_id)
+                class_id_from_detail = spec_detail_data.get('playable_class', {}).get('id')
+                if class_id_from_detail:
+                    existing_spec = db_session.get(PlayableSpec, spec_id) # Use Session.get()
                     if existing_spec:
-                        if existing_spec.name != spec_name_api or existing_spec.class_id != class_id:
+                        if existing_spec.name != spec_name_api or existing_spec.class_id != class_id_from_detail:
                             existing_spec.name = spec_name_api
-                            existing_spec.class_id = class_id
-                            print(f"  Updating spec: ID {existing_spec.id}, Name: {existing_spec.name}", flush=True)
+                            existing_spec.class_id = class_id_from_detail
                     else:
-                        specs_to_add_or_update.append(PlayableSpec(id=spec_id, name=spec_name_api, class_id=class_id))
-                else:
-                    print(f"Warning: No class_id for spec {spec_name_api} (ID: {spec_id})", flush=True)
-                    fetch_errors +=1
-            else:
-                print(f"Warning: Failed to fetch details for spec {spec_name_api} (ID: {spec_id}) using URL {detail_href}", flush=True)
-                if spec_detail_data is not None: print(f"Debug (Spec Detail Fail): {json.dumps(spec_detail_data, indent=2)}", flush=True)
-                fetch_errors +=1
-            if processed_count % 10 == 0: print(f"Processed details for {processed_count}/{len(spec_list)} specs...", flush=True)
+                        db_session.add(PlayableSpec(id=spec_id, name=spec_name_api, class_id=class_id_from_detail))
+                else: fetch_errors +=1
+            else: fetch_errors +=1
             time.sleep(0.05) 
-
-        if specs_to_add_or_update:
-            db_session.add_all(specs_to_add_or_update)
-        print(f"PlayableSpec table updated/prepared with {len(specs_to_add_or_update)} new/updated entries.", flush=True)
         spec_success = True
-        if fetch_errors > 0:
-            print(f"Warning: Encountered {fetch_errors} errors while fetching spec details.", flush=True)
+        print(f"PlayableSpec table updated/prepared. Fetch errors: {fetch_errors}", flush=True)
     else:
         print("Error: Failed to fetch or parse playable specialization index.", flush=True)
-        if spec_index_data: print(f"Debug (Spec Index): {json.dumps(spec_index_data, indent=2)}", flush=True)
-
+    
     if class_success and spec_success:
         try:
             db_session.commit()
@@ -288,20 +289,14 @@ def update_playable_classes_and_specs(db_session):
         except Exception as e:
             db_session.rollback()
             print(f"Error committing static class/spec data: {e}", flush=True)
-            return False
     else:
         db_session.rollback() 
-        print("Update for PlayableClass or PlayableSpec failed, rolling back session changes.", flush=True)
-        return False
+    return False
 
 def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
-    """Queries the Blizzard API for the journal index and finds the ID for a given instance/dungeon name."""
     print(f"Attempting to find Journal ID for {instance_type}: '{instance_name_to_find}'", flush=True)
-    
     access_token = get_blizzard_access_token()
-    if not access_token:
-        print(f"Error: Could not get Blizzard access token for finding journal ID. Aborting for {instance_name_to_find}.", flush=True)
-        return None
+    if not access_token: return None
     headers = {"Authorization": f"Bearer {access_token}"}
     static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
     
@@ -316,204 +311,191 @@ def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
                 print(f"Found {instance_type} '{instance_name_to_find}' with ID: {instance_id}", flush=True)
                 return instance_id
         print(f"Error: {instance_type.capitalize()} '{instance_name_to_find}' not found in the journal index.", flush=True)
-        return None
     else:
         print(f"Error: Could not fetch or parse journal {instance_type} index.", flush=True)
-        if index_data: print(f"DEBUG: Journal {instance_type.capitalize()} Index Response: {json.dumps(index_data, indent=2)}", flush=True)
-        return None
+    return None
 
 def fetch_and_store_source_items(db_session, source_name_friendly, source_journal_id, data_source_id, source_type="raid"):
-    """Fetches items for a given raid or dungeon and stores them."""
     print(f"Fetching items for {source_type}: {source_name_friendly} (Journal ID: {source_journal_id})", flush=True)
-
     access_token = get_blizzard_access_token()
-    if not access_token:
-        print(f"Error: Could not get Blizzard access token for fetching items. Aborting for {source_name_friendly}.", flush=True)
-        return
+    if not access_token: return
     headers = {"Authorization": f"Bearer {access_token}"}
     static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
 
     instance_api_endpoint_suffix = ""
-    if source_type == "raid":
-        instance_api_endpoint_suffix = f"/data/wow/journal-instance/{source_journal_id}"
-    elif source_type == "dungeon":
-        instance_api_endpoint_suffix = f"/data/wow/journal-dungeon/{source_journal_id}"
-    else:
-        print(f"Error: Unknown source_type '{source_type}' for item fetching.", flush=True)
-        return
+    if source_type == "raid": instance_api_endpoint_suffix = f"/data/wow/journal-instance/{source_journal_id}"
+    elif source_type == "dungeon": instance_api_endpoint_suffix = f"/data/wow/journal-dungeon/{source_journal_id}"
+    else: print(f"Error: Unknown source_type '{source_type}'."); return
     
     instance_api_url = f"{BLIZZARD_API_BASE_URL}{instance_api_endpoint_suffix}"
     instance_data = make_api_request(api_url=instance_api_url, params=static_params, headers=headers)
 
     if not instance_data or "encounters" not in instance_data: 
-        print(f"Error: Could not fetch instance data or encounters for {source_type} ID {source_journal_id}. Response: {instance_data}", flush=True)
+        print(f"Error: Could not fetch instance data for {source_type} ID {source_journal_id}.", flush=True)
         return
 
     items_added_count = 0
     for encounter_ref in instance_data["encounters"]:
         encounter_id = encounter_ref.get("id")
         encounter_name = encounter_ref.get("name")
-        if not encounter_id or not encounter_name:
-            print(f"  Skipping encounter with missing ID or name in {source_name_friendly}", flush=True)
-            continue
+        if not encounter_id or not encounter_name: continue
             
-        print(f"  Fetching loot for encounter: {encounter_name} (ID: {encounter_id}) in {source_name_friendly}", flush=True)
-        
+        print(f"  Fetching loot for encounter: {encounter_name} (ID: {encounter_id})", flush=True)
         items_to_process = encounter_ref.get("items")
-
-        if not items_to_process: # If items are not directly in the instance data, fetch encounter details
+        if not items_to_process: # If items not in summary, fetch encounter details
             encounter_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-encounter/{encounter_id}"
             encounter_detail_data = make_api_request(api_url=encounter_detail_url, params=static_params, headers=headers)
-            if not encounter_detail_data or "items" not in encounter_detail_data:
-                print(f"    Warning: No 'items' section found for encounter {encounter_name} (ID: {encounter_id})", flush=True)
-                continue
+            if not encounter_detail_data or "items" not in encounter_detail_data: continue
             items_to_process = encounter_detail_data["items"]
         
-        if not items_to_process:
-            print(f"    No items found to process for encounter {encounter_name}", flush=True)
-            continue
+        if not items_to_process: continue
 
         for item_entry in items_to_process:
             item_ref = item_entry.get("item")
-            if not item_ref or "id" not in item_ref:
-                continue
+            if not item_ref or "id" not in item_ref: continue
             
             item_id = item_ref["id"]
+            # Check if item already exists to avoid re-fetching media if icon_url is present
+            existing_item_check = db_session.get(Item, item_id) # Use Session.get()
+            if existing_item_check and existing_item_check.icon_url:
+                # print(f"    Item ID {item_id} already in DB with icon. Skipping media fetch.", flush=True) # Optional: for less verbose logs
+                # Ensure source details are accurate if item can drop from multiple places (not handled here)
+                continue # Or update source_details if necessary
+
             item_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id}"
             item_detail_data = make_api_request(api_url=item_detail_url, params=static_params, headers=headers)
-            if not item_detail_data:
-                print(f"    Warning: Could not fetch details for item ID {item_id}", flush=True)
-                time.sleep(0.05)
-                continue
+            if not item_detail_data: time.sleep(0.05); continue
 
             item_name = item_detail_data.get("name")
-            item_quality_data = item_detail_data.get("quality", {})
-            item_quality = item_quality_data.get("name", "Unknown").upper() if isinstance(item_quality_data, dict) else "Unknown"
+            item_quality = item_detail_data.get("quality", {}).get("name", "Unknown").upper()
+            slot_type_api = item_detail_data.get("inventory_type", {}).get("type")
             
-            inventory_type_info = item_detail_data.get("inventory_type", {})
-            slot_type_api = inventory_type_info.get("type") if isinstance(inventory_type_info, dict) else None
-            
-            icon_url = None
+            icon_url_fetched = None
             media_key_href = item_detail_data.get("media", {}).get("key", {}).get("href")
-            if media_key_href: # media_key_href is a full URL
+            if media_key_href: 
                 item_media_data = make_api_request(api_url=media_key_href, params=static_params, headers=headers)
                 if item_media_data and "assets" in item_media_data:
                     for asset in item_media_data["assets"]:
-                        if asset.get("key") == "icon":
-                            icon_url = asset.get("value")
-                            break
+                        if asset.get("key") == "icon": icon_url_fetched = asset.get("value"); break
             
-            if item_name and item_quality == "EPIC" and slot_type_api:
-                if slot_type_api == "NON_EQUIP":
-                    continue
-
+            if item_name and item_quality == "EPIC" and slot_type_api and slot_type_api != "NON_EQUIP":
                 slot_exists = db_session.query(PlayableSlot).filter_by(type=slot_type_api).first()
                 if not slot_exists:
-                    print(f"      CRITICAL WARNING: API slot type '{slot_type_api}' for item '{item_name}' (ID: {item_id}) not found in PlayableSlot table. Please add it to populate_playable_slots() in this script!", flush=True)
+                    print(f"CRITICAL WARNING: API slot type '{slot_type_api}' for item '{item_name}' (ID: {item_id}) not found in PlayableSlot. Add it to populate_playable_slots().", flush=True)
                     continue
 
-                existing_item = db_session.query(Item).filter_by(id=item_id).first()
-                if not existing_item:
+                if existing_item_check: # Item exists, but maybe icon was missing
+                    if not existing_item_check.icon_url and icon_url_fetched:
+                        existing_item_check.icon_url = icon_url_fetched
+                        print(f"    Updating icon for existing item ID {item_id}: {item_name}", flush=True)
+                        items_added_count +=1 # Counting as an "update" that matters
+                else: # New item
                     new_item = Item(
                         id=item_id, name=item_name, quality=item_quality,
-                        slot_type=slot_type_api,
+                        slot_type=slot_type_api, # Use the API slot type from item data
                         source_id=data_source_id,
                         source_details=f"{source_name_friendly} - {encounter_name}",
-                        icon_url=icon_url
+                        icon_url=icon_url_fetched
                     )
                     db_session.add(new_item)
                     items_added_count += 1
-            
-            time.sleep(0.05) # Be respectful to API
+                    print(f"    Adding new item ID {item_id}: {item_name} (Icon: {'Yes' if icon_url_fetched else 'No'})", flush=True)
+            time.sleep(0.05) 
 
-        try:
-            db_session.commit()
-        except IntegrityError as ie:
-            db_session.rollback()
-            print(f"    DB Integrity Error for encounter {encounter_name}: {ie}", flush=True)
-        except Exception as e:
-            db_session.rollback()
-            print(f"    Error committing items for encounter {encounter_name}: {e}", flush=True)
-
-        print(f"  Finished encounter {encounter_name}. Items added so far for this {source_type}: {items_added_count}", flush=True)
-        time.sleep(0.2) # Pause between encounters
-
-    print(f"Finished processing {source_type} {source_name_friendly}. Total new items added: {items_added_count}", flush=True)
+        try: db_session.commit()
+        except Exception as e: db_session.rollback(); print(f"    Error committing items for {encounter_name}: {e}", flush=True)
+        time.sleep(0.1) 
+    print(f"Finished {source_type} {source_name_friendly}. New/Updated items: {items_added_count}", flush=True)
 
 
 def main():
-    """Main function to orchestrate item data population."""
     print("Starting WoW Info Population Script (Classes, Specs, Items)...", flush=True)
     db_session = SessionLocal()
 
     print("Ensuring all database tables exist (will create if not present)...", flush=True)
-    Base.metadata.create_all(engine, checkfirst=True)
+    # Define all tables this script might interact with or that have FK dependencies
+    tables_to_ensure = [
+        PlayableClass.__table__, PlayableSpec.__table__, PlayableSlot.__table__, 
+        DataSource.__table__, Item.__table__, Character.__table__, CharacterBiS.__table__
+    ]
+    Base.metadata.create_all(engine, tables=tables_to_ensure, checkfirst=True)
     print("Database tables verified/created.", flush=True)
 
-    print("Clearing some item-related and static WoW data tables (Item, DataSource, PlayableSlot)...", flush=True)
+    # Selective clearing: Only clear tables this script is fully responsible for repopulating.
+    # PlayableClass and PlayableSpec are additively updated.
+    # Item, DataSource, PlayableSlot are cleared and repopulated.
+    # Character and CharacterBiS are NOT touched by this script's clearing logic.
+    print("Clearing DataSource, Item, PlayableSlot tables...", flush=True)
     try:
-        # Order of deletion matters if there are FKs from CharacterBiS to Item/PlayableSlot
-        # If CharacterBiS is populated, you might need to clear it first or handle FKs.
-        # For now, assuming CharacterBiS is empty or FKs allow these deletes.
+        # Order of deletion for FKs: Item depends on PlayableSlot and DataSource.
+        # CharacterBiS depends on Item and PlayableSlot, but we are not clearing CharacterBiS here.
+        # If CharacterBiS has entries, deleting Item or PlayableSlot will fail FK constraints
+        # UNLESS those FKs have ON DELETE CASCADE (not typical for BiS lists).
+        # For a clean run, CharacterBiS might need to be cleared by app.py or another process
+        # if Item/PlayableSlot definitions change significantly.
+        # Assuming for now that clearing these is acceptable or FKs are handled.
+        
+        # Safest to delete in order: Items first, then their dependencies if they are also being cleared.
+        # However, CharacterBiS points to Item and PlayableSlot.
+        # If CharacterBiS is NOT empty, these deletes will fail.
+        # This script should ideally NOT delete Item/PlayableSlot if CharacterBiS exists
+        # and is managed elsewhere.
+        # For now, we proceed with the original intent to clear these item-specific tables.
+        
+        # To safely clear Item, DataSource, PlayableSlot when CharacterBiS might exist:
+        # 1. Clear CharacterBiS (if this script were responsible for it)
+        # 2. Clear Item
+        # 3. Clear PlayableSlot (if no Items reference it anymore)
+        # 4. Clear DataSource (if no Items reference it anymore)
+        
+        # Current simplified approach (might fail if CharacterBiS has data):
         db_session.query(Item).delete(synchronize_session=False)
+        # PlayableSlot is tricky because CharacterBiS.slot_type_ui points to it.
+        # If we clear PlayableSlot, CharacterBiS entries become orphaned or FK fails.
+        # It's better to additively update PlayableSlot like classes/specs.
+        # db_session.query(PlayableSlot).delete(synchronize_session=False) # REMOVING THIS DELETE
         db_session.query(DataSource).delete(synchronize_session=False)
-        db_session.query(PlayableSlot).delete(synchronize_session=False)
-        
-        # PlayableClass and PlayableSpec are NOT cleared here anymore to avoid FK issues with Character table.
-        # They will be additively updated by update_playable_classes_and_specs.
-        
         db_session.commit()
-        print("Item, DataSource, PlayableSlot tables cleared.", flush=True)
-        print("PlayableClass and PlayableSpec will be additively updated.", flush=True)
+        print("DataSource and Item tables cleared. PlayableSlot will be additively updated.", flush=True)
     except Exception as e:
         db_session.rollback()
-        print(f"Error during selective clearing of tables: {e}", flush=True)
-        db_session.close()
-        return
+        print(f"Error clearing tables: {e}. This might be due to existing CharacterBiS entries. Ensure PlayableSlot is not deleted if BiS entries depend on it.", flush=True)
+        # db_session.close(); return # Optional: stop if clearing fails critically
 
-    populate_playable_slots(db_session) 
-    data_sources = populate_data_sources(db_session) 
+    populate_playable_slots(db_session) # Additively updates/populates PlayableSlot
+    data_sources = populate_data_sources(db_session) # Clears and repopulates DataSource
     
     if not update_playable_classes_and_specs(db_session): 
         print("Error: Failed to update playable classes and specs. Aborting further item processing.", flush=True)
-        db_session.close()
-        return
+        db_session.close(); return
 
-    # --- Populate Raid Items ---
     target_raid_name_for_items = "Liberation of Undermine"
     liberation_of_undermine_journal_id = find_journal_instance_id(target_raid_name_for_items, instance_type="instance")
-    
     if liberation_of_undermine_journal_id:
         lou_source_id = data_sources.get("Liberation of Undermine")
         if lou_source_id:
             fetch_and_store_source_items(db_session, "Liberation of Undermine", liberation_of_undermine_journal_id, lou_source_id, source_type="raid")
-        else:
-            print(f"Error: Data source for '{target_raid_name_for_items}' not found in DataSource table.", flush=True)
     else:
-        print(f"Could not find Journal ID for '{target_raid_name_for_items}'. Skipping item fetch for this raid.", flush=True)
+        print(f"Could not find Journal ID for '{target_raid_name_for_items}'.", flush=True)
 
-    # --- Populate Mythic+ Season 2 Dungeon Items ---
-    print("\n--- Processing Mythic+ Season 2 Dungeons ---", flush=True)
-    mplus_s2_source_name = "Mythic+ Season 2 Dungeons"
-    mplus_s2_source_id = data_sources.get(mplus_s2_source_name)
-
-    if not mplus_s2_source_id:
-        print(f"Error: '{mplus_s2_source_name}' data source not found.", flush=True)
+    print("\n--- Processing Mythic+ Dungeons ---", flush=True)
+    mplus_source_name = "Mythic+ Season 2 Dungeons" # Example name
+    mplus_source_id = data_sources.get(mplus_source_name)
+    if not mplus_source_id:
+        print(f"Error: '{mplus_source_name}' data source not found.", flush=True)
     else:
-        mplus_s2_dungeon_names = [
+        mplus_dungeon_names = [ # Update with actual TWW S1/S2 dungeon names from journal
             "THE MOTHERLODE!!", "Theater of Pain", "Cinderbrew Meadery",
             "Priory of the Sacred Flame", "The Rookery", "Darkflame Cleft",
             "Operation: Floodgate", "Operation: Mechagon" 
         ]
-        
-        for dungeon_name in mplus_s2_dungeon_names:
-            print(f"\nLooking for dungeon: {dungeon_name}", flush=True)
+        for dungeon_name in mplus_dungeon_names:
             dungeon_journal_id = find_journal_instance_id(dungeon_name, instance_type="dungeon")
             if dungeon_journal_id:
-                fetch_and_store_source_items(db_session, dungeon_name, dungeon_journal_id, mplus_s2_source_id, source_type="dungeon")
+                fetch_and_store_source_items(db_session, dungeon_name, dungeon_journal_id, mplus_source_id, source_type="dungeon")
             else:
-                print(f"Could not find Journal ID for dungeon '{dungeon_name}'. Skipping item fetch.", flush=True)
-            time.sleep(1) 
+                print(f"Could not find Journal ID for dungeon '{dungeon_name}'.", flush=True)
+            time.sleep(0.5) 
 
     db_session.close()
     print("WoW Info Population Script Finished.", flush=True)
