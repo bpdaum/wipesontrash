@@ -210,47 +210,50 @@ def fetch_wcl_report_data_for_processing(report_code, metric="dps"):
     data = make_api_request(wcl_api_v2_client, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables)
 
     actors = None
-    parsed_rankings_data = None
+    parsed_rankings_data = None # Ensure this is initialized
 
     if data and data.get('data', {}).get('reportData', {}).get('report'):
         report_content = data['data']['reportData']['report']
         if report_content.get('masterData', {}).get('actors'):
             actors = report_content['masterData']['actors']
+            print(f"DEBUG: Report {report_code}: Found {len(actors)} actors.", flush=True)
+        else:
+            print(f"DEBUG: Report {report_code}: No actors found in masterData.", flush=True)
         
-        rankings_content = report_content.get('rankings') # Renamed for clarity
-        if rankings_content:
-            parsed_rankings = None # Initialize parsed_rankings
-            try:
-                # *** MODIFIED SECTION TO HANDLE PRE-PARSED JSON ***
-                if isinstance(rankings_content, str):
-                    # If it's a string, load it as JSON
-                    parsed_rankings = json.loads(rankings_content)
-                elif isinstance(rankings_content, dict):
-                    # If it's already a dictionary, use it directly
-                    parsed_rankings = rankings_content
-                else:
-                    # If it's neither, log an error
-                    print(f"WCL Rankings content for report {report_code} is of unexpected type: {type(rankings_content)}", flush=True)
-                # *** END OF MODIFIED SECTION ***
+        rankings_content = report_content.get('rankings') 
+        print(f"DEBUG: Report {report_code}: Raw rankings_content type: {type(rankings_content)}", flush=True)
+        # print(f"DEBUG: Report {report_code}: Raw rankings_content value: {rankings_content}", flush=True) # Be careful if this is very large
 
-                if parsed_rankings and isinstance(parsed_rankings, dict) and parsed_rankings.get('data'):
+        if rankings_content:
+            parsed_rankings = None 
+            try:
+                if isinstance(rankings_content, str):
+                    parsed_rankings = json.loads(rankings_content)
+                    print(f"DEBUG: Report {report_code}: Parsed rankings_content from STR.", flush=True)
+                elif isinstance(rankings_content, dict):
+                    parsed_rankings = rankings_content
+                    print(f"DEBUG: Report {report_code}: Used rankings_content as DICT.", flush=True)
+                else:
+                    print(f"ERROR: Report {report_code}: Rankings content is of unexpected type: {type(rankings_content)}", flush=True)
+                
+                if parsed_rankings and isinstance(parsed_rankings, dict) and 'data' in parsed_rankings: # Check for 'data' key
                     parsed_rankings_data = parsed_rankings['data']
-                elif parsed_rankings: # If parsed_rankings is not None but doesn't have 'data'
-                    print(f"WCL Rankings data for report {report_code} is not in expected format (missing 'data' key). Parsed data: {parsed_rankings}", flush=True)
-                # No 'else' needed here if parsed_rankings is None, as it means it was neither str nor dict of expected type.
+                    print(f"DEBUG: Report {report_code}: Successfully extracted 'data' from parsed_rankings. Found {len(parsed_rankings_data) if parsed_rankings_data else 0} ranking entries.", flush=True)
+                elif parsed_rankings: 
+                    print(f"WARNING: Report {report_code}: Parsed rankings data is not in expected format (missing 'data' key or 'data' is None). Parsed data: {parsed_rankings}", flush=True)
+                # If parsed_rankings is None (due to unexpected type), parsed_rankings_data will remain None
             
-            except json.JSONDecodeError as je: # This will only catch if rankings_content was a string but invalid JSON
-                print(f"Error decoding WCL rankings JSON string for report {report_code}: {je}", flush=True)
-                print(f"Rankings JSON string was: {rankings_content}", flush=True)
-            except TypeError as te: # Catch type errors like the one you saw if we missed a case (should be covered now)
-                print(f"TypeError during WCL rankings processing for report {report_code}: {te}", flush=True)
-                print(f"Rankings content was: {rankings_content} (Type: {type(rankings_content)})", flush=True)
+            except json.JSONDecodeError as je: 
+                print(f"ERROR: Report {report_code}: Error decoding WCL rankings JSON string: {je}", flush=True)
+                # print(f"Rankings JSON string was: {rankings_content}", flush=True) # Already printed if it's a string
+            except TypeError as te: 
+                print(f"ERROR: Report {report_code}: TypeError during WCL rankings processing: {te}", flush=True)
             except Exception as e:
-                 print(f"Unexpected error parsing WCL rankings for report {report_code}: {e}", flush=True)
-                 print(f"Rankings content was: {rankings_content}", flush=True)
+                 print(f"ERROR: Report {report_code}: Unexpected error parsing WCL rankings: {e}", flush=True)
+        else:
+            print(f"DEBUG: Report {report_code}: No rankings_content found.", flush=True)
     else:
-        print(f"Failed to fetch or parse data for WCL report {report_code}.", flush=True)
-        if data: print(f"WCL Response (or error part): {json.dumps(data, indent=2)}", flush=True)
+        print(f"ERROR: Report {report_code}: Failed to fetch or parse report data structure. WCL Response: {json.dumps(data, indent=2) if data else 'No data'}", flush=True)
 
     return {"actors": actors, "rankings": parsed_rankings_data}
 
@@ -275,6 +278,7 @@ def process_and_store_wcl_data():
             return
         
         char_name_to_id_map = {char.name.lower(): char.id for char in characters_in_db_query}
+        print(f"DEBUG: Built char_name_to_id_map with {len(char_name_to_id_map)} active characters.", flush=True)
         
         wcl_reports_to_process = fetch_wcl_guild_reports_for_processing()
         
@@ -295,6 +299,7 @@ def process_and_store_wcl_data():
             report_code = report_data_api.get('code')
             if not report_code: continue
 
+            print(f"\n--- Processing Report Code: {report_code} ---", flush=True)
             new_report_db = WCLReport( 
                 code=report_code, title=report_data_api.get('title'),
                 start_time=report_data_api.get('start_time_dt'), end_time=report_data_api.get('end_time_dt'),
@@ -304,7 +309,7 @@ def process_and_store_wcl_data():
 
             report_details = fetch_wcl_report_data_for_processing(report_code, metric="dps")
             actors_data = report_details.get("actors")
-            rankings_data = report_details.get("rankings") # This will be None if parsing failed
+            rankings_data = report_details.get("rankings") 
 
             if actors_data:
                 successfully_processed_wcl_reports_for_attendance += 1
@@ -315,14 +320,20 @@ def process_and_store_wcl_data():
                     if matched_char_id:
                         wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=matched_char_id))
                         character_attendance_raw_counts[matched_char_id] = character_attendance_raw_counts.get(matched_char_id, 0) + 1
-            else:
-                print(f"Warning: Could not get player list for WCL report {report_code} (attendance). Actors data was: {actors_data}", flush=True)
+                    # else: # Optional: log unmatched players for attendance
+                        # print(f"DEBUG: Report {report_code}: Unmatched player for attendance: {wcl_player_name_lower}", flush=True)
 
-            if rankings_data: # Check if rankings_data is not None
+            else:
+                print(f"WARNING: Report {report_code}: Could not get player list for attendance. Actors data was: {actors_data}", flush=True)
+
+            if rankings_data: 
+                print(f"DEBUG: Report {report_code}: Processing {len(rankings_data)} ranking entries.", flush=True)
                 for rank_entry in rankings_data:
                     char_info = rank_entry.get('character', {})
                     wcl_char_name = char_info.get('name')
-                    if not wcl_char_name: continue
+                    if not wcl_char_name: 
+                        print(f"DEBUG: Report {report_code}: Skipping rank_entry with no character name: {rank_entry}", flush=True)
+                        continue
 
                     wcl_char_name_lower = wcl_char_name.lower()
                     matched_char_id = char_name_to_id_map.get(wcl_char_name_lower)
@@ -332,6 +343,7 @@ def process_and_store_wcl_data():
                             character_performance_scores[matched_char_id] = []
                         percentile = rank_entry.get('rankPercent')
                         if percentile is not None:
+                            print(f"DEBUG: Report {report_code}: Matched {wcl_char_name_lower} (ID: {matched_char_id}), adding percentile: {percentile}", flush=True)
                             character_performance_scores[matched_char_id].append(percentile)
                             wcl_performances_to_insert.append(WCLPerformance(
                                 report_code=report_code, character_id=matched_char_id,
@@ -340,11 +352,15 @@ def process_and_store_wcl_data():
                                 spec_name=rank_entry.get('spec',{}).get('name'), 
                                 metric="dps", rank_percentile=percentile
                             ))
+                        else:
+                            print(f"DEBUG: Report {report_code}: Matched {wcl_char_name_lower} (ID: {matched_char_id}), but percentile is None. Entry: {rank_entry}", flush=True)
+                    # else: # Optional: log unmatched players for performance
+                        # print(f"DEBUG: Report {report_code}: Unmatched player for performance: {wcl_char_name_lower}", flush=True)
             else:
-                # This message now correctly reflects that rankings_data might be None due to earlier parsing issues
-                print(f"Warning: Could not process rankings for WCL report {report_code}. Rankings data was: {rankings_data}", flush=True)
+                print(f"WARNING: Report {report_code}: Could not process rankings. Rankings data was None or empty after fetch.", flush=True)
             time.sleep(0.2) 
 
+        # --- DB Inserts and Updates ---
         if wcl_reports_in_db:
             print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...", flush=True)
             db_session.add_all(wcl_reports_in_db)
@@ -360,6 +376,8 @@ def process_and_store_wcl_data():
             db_session.add_all(wcl_performances_to_insert)
             db_session.commit()
             print("WCL performance records inserted.", flush=True)
+
+        print(f"\nDEBUG: character_performance_scores dictionary before updating DB: {character_performance_scores}", flush=True)
 
         if character_attendance_raw_counts and successfully_processed_wcl_reports_for_attendance > 0:
             print("Updating character attendance percentages...", flush=True)
@@ -380,12 +398,19 @@ def process_and_store_wcl_data():
             update_count = 0
             for char_id, scores in character_performance_scores.items():
                 char_to_update = db_session.query(Character).get(char_id)
-                if char_to_update and scores:
+                if char_to_update and scores: # Ensure scores list is not empty
                     avg_perf = round(sum(scores) / len(scores), 2)
+                    print(f"DEBUG: Updating char_id {char_id} with avg_perf: {avg_perf} from scores: {scores}", flush=True)
                     char_to_update.avg_wcl_performance = avg_perf
                     update_count +=1
+                elif char_to_update and not scores:
+                    print(f"DEBUG: Char_id {char_id} found in character_performance_scores, but scores list is empty. Not updating avg_wcl_performance.", flush=True)
+
             db_session.commit()
             print(f"Updated average performance for {update_count} characters.", flush=True)
+        else:
+            print("No performance scores collected for any character; avg_wcl_performance not updated.", flush=True)
+
 
     except IntegrityError as ie:
         print(f"Database Integrity Error during WCL data processing: {ie}", flush=True)
