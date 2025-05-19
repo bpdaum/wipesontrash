@@ -210,48 +210,36 @@ def fetch_wcl_report_data_for_processing(report_code, metric="dps"):
     data = make_api_request(wcl_api_v2_client, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables)
 
     actors = None
-    parsed_rankings_data = None # Ensure this is initialized
+    parsed_rankings_data = None 
 
     if data and data.get('data', {}).get('reportData', {}).get('report'):
         report_content = data['data']['reportData']['report']
         if report_content.get('masterData', {}).get('actors'):
             actors = report_content['masterData']['actors']
-            print(f"DEBUG: Report {report_code}: Found {len(actors)} actors.", flush=True)
-        else:
-            print(f"DEBUG: Report {report_code}: No actors found in masterData.", flush=True)
         
         rankings_content = report_content.get('rankings') 
-        print(f"DEBUG: Report {report_code}: Raw rankings_content type: {type(rankings_content)}", flush=True)
-        # print(f"DEBUG: Report {report_code}: Raw rankings_content value: {rankings_content}", flush=True) # Be careful if this is very large
-
+        
         if rankings_content:
             parsed_rankings = None 
             try:
                 if isinstance(rankings_content, str):
                     parsed_rankings = json.loads(rankings_content)
-                    print(f"DEBUG: Report {report_code}: Parsed rankings_content from STR.", flush=True)
                 elif isinstance(rankings_content, dict):
                     parsed_rankings = rankings_content
-                    print(f"DEBUG: Report {report_code}: Used rankings_content as DICT.", flush=True)
                 else:
                     print(f"ERROR: Report {report_code}: Rankings content is of unexpected type: {type(rankings_content)}", flush=True)
                 
-                if parsed_rankings and isinstance(parsed_rankings, dict) and 'data' in parsed_rankings: # Check for 'data' key
+                if parsed_rankings and isinstance(parsed_rankings, dict) and 'data' in parsed_rankings: 
                     parsed_rankings_data = parsed_rankings['data']
-                    print(f"DEBUG: Report {report_code}: Successfully extracted 'data' from parsed_rankings. Found {len(parsed_rankings_data) if parsed_rankings_data else 0} ranking entries.", flush=True)
                 elif parsed_rankings: 
                     print(f"WARNING: Report {report_code}: Parsed rankings data is not in expected format (missing 'data' key or 'data' is None). Parsed data: {parsed_rankings}", flush=True)
-                # If parsed_rankings is None (due to unexpected type), parsed_rankings_data will remain None
             
             except json.JSONDecodeError as je: 
                 print(f"ERROR: Report {report_code}: Error decoding WCL rankings JSON string: {je}", flush=True)
-                # print(f"Rankings JSON string was: {rankings_content}", flush=True) # Already printed if it's a string
             except TypeError as te: 
                 print(f"ERROR: Report {report_code}: TypeError during WCL rankings processing: {te}", flush=True)
             except Exception as e:
                  print(f"ERROR: Report {report_code}: Unexpected error parsing WCL rankings: {e}", flush=True)
-        else:
-            print(f"DEBUG: Report {report_code}: No rankings_content found.", flush=True)
     else:
         print(f"ERROR: Report {report_code}: Failed to fetch or parse report data structure. WCL Response: {json.dumps(data, indent=2) if data else 'No data'}", flush=True)
 
@@ -278,7 +266,7 @@ def process_and_store_wcl_data():
             return
         
         char_name_to_id_map = {char.name.lower(): char.id for char in characters_in_db_query}
-        print(f"DEBUG: Built char_name_to_id_map with {len(char_name_to_id_map)} active characters.", flush=True)
+        print(f"DEBUG: Built char_name_to_id_map with {len(char_name_to_id_map)} active characters. Sample (up to 5 keys): {list(char_name_to_id_map.keys())[:5]}", flush=True)
         
         wcl_reports_to_process = fetch_wcl_guild_reports_for_processing()
         
@@ -320,42 +308,63 @@ def process_and_store_wcl_data():
                     if matched_char_id:
                         wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=matched_char_id))
                         character_attendance_raw_counts[matched_char_id] = character_attendance_raw_counts.get(matched_char_id, 0) + 1
-                    # else: # Optional: log unmatched players for attendance
-                        # print(f"DEBUG: Report {report_code}: Unmatched player for attendance: {wcl_player_name_lower}", flush=True)
-
             else:
                 print(f"WARNING: Report {report_code}: Could not get player list for attendance. Actors data was: {actors_data}", flush=True)
 
             if rankings_data: 
-                print(f"DEBUG: Report {report_code}: Processing {len(rankings_data)} ranking entries.", flush=True)
-                for rank_entry in rankings_data:
-                    char_info = rank_entry.get('character', {})
-                    wcl_char_name = char_info.get('name')
-                    if not wcl_char_name: 
-                        print(f"DEBUG: Report {report_code}: Skipping rank_entry with no character name: {rank_entry}", flush=True)
+                print(f"DEBUG: Report {report_code}: Processing {len(rankings_data)} fight/encounter summary entries.", flush=True)
+                for fight_summary_entry in rankings_data: 
+                    encounter_info = fight_summary_entry.get('encounter', {})
+                    encounter_id = encounter_info.get('id', 0) 
+                    encounter_name = encounter_info.get('name', 'Unknown Encounter')
+
+                    roles_data = fight_summary_entry.get('roles', {})
+                    if not roles_data:
+                        print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}': No 'roles' data in this fight summary.", flush=True)
                         continue
 
-                    wcl_char_name_lower = wcl_char_name.lower()
-                    matched_char_id = char_name_to_id_map.get(wcl_char_name_lower)
-                    
-                    if matched_char_id:
-                        if matched_char_id not in character_performance_scores:
-                            character_performance_scores[matched_char_id] = []
-                        percentile = rank_entry.get('rankPercent')
-                        if percentile is not None:
-                            print(f"DEBUG: Report {report_code}: Matched {wcl_char_name_lower} (ID: {matched_char_id}), adding percentile: {percentile}", flush=True)
-                            character_performance_scores[matched_char_id].append(percentile)
-                            wcl_performances_to_insert.append(WCLPerformance(
-                                report_code=report_code, character_id=matched_char_id,
-                                encounter_id=rank_entry.get('encounter',{}).get('id', 0), 
-                                encounter_name=rank_entry.get('encounter',{}).get('name', 'Overall'),
-                                spec_name=rank_entry.get('spec',{}).get('name'), 
-                                metric="dps", rank_percentile=percentile
-                            ))
-                        else:
-                            print(f"DEBUG: Report {report_code}: Matched {wcl_char_name_lower} (ID: {matched_char_id}), but percentile is None. Entry: {rank_entry}", flush=True)
-                    # else: # Optional: log unmatched players for performance
-                        # print(f"DEBUG: Report {report_code}: Unmatched player for performance: {wcl_char_name_lower}", flush=True)
+                    for role_name, role_details in roles_data.items(): 
+                        if isinstance(role_details, dict) and 'characters' in role_details:
+                            for char_perf_entry in role_details['characters']:
+                                wcl_char_name = char_perf_entry.get('name')
+                                if not wcl_char_name:
+                                    print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}', Role '{role_name}': Skipping character entry with no name: {char_perf_entry}", flush=True)
+                                    continue
+                                
+                                wcl_char_name_lower = wcl_char_name.lower()
+                                matched_char_id = char_name_to_id_map.get(wcl_char_name_lower)
+
+                                # --- Enhanced Debugging for Name Matching ---
+                                if not matched_char_id:
+                                    print(f"DEBUG-NOMATCH: WCL char '{wcl_char_name_lower}' (from report {report_code}, enc '{encounter_name}') not found in char_name_to_id_map.", flush=True)
+                                    continue # Skip if character name from log is not in our DB map
+                                # --- End Enhanced Debugging ---
+                                
+                                # This 'if matched_char_id:' is now slightly redundant due to the 'continue' above, but harmless.
+                                if matched_char_id: 
+                                    if matched_char_id not in character_performance_scores:
+                                        character_performance_scores[matched_char_id] = []
+                                    
+                                    percentile = char_perf_entry.get('rankPercent')
+                                    spec_name = char_perf_entry.get('spec') # WCL provides spec name directly here
+
+                                    if percentile is not None:
+                                        print(f"DEBUG-MATCH&PERCENTILE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (DB ID: {matched_char_id}), Spec '{spec_name}', adding percentile: {percentile}", flush=True)
+                                        character_performance_scores[matched_char_id].append(percentile)
+                                        
+                                        wcl_performances_to_insert.append(WCLPerformance(
+                                            report_code=report_code, 
+                                            character_id=matched_char_id,
+                                            encounter_id=encounter_id, 
+                                            encounter_name=encounter_name,
+                                            spec_name=spec_name, 
+                                            metric="dps", 
+                                            rank_percentile=percentile
+                                        ))
+                                    else:
+                                        print(f"DEBUG-NOPERCENTILE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (DB ID: {matched_char_id}), Spec '{spec_name}', but rankPercent is None. Entry: {char_perf_entry}", flush=True)
+                        # else: # Optional: log if role_details is not a dict or no 'characters' key
+                            # print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}': Role '{role_name}' data is not as expected or has no characters. Details: {role_details}", flush=True)
             else:
                 print(f"WARNING: Report {report_code}: Could not process rankings. Rankings data was None or empty after fetch.", flush=True)
             time.sleep(0.2) 
@@ -383,7 +392,7 @@ def process_and_store_wcl_data():
             print("Updating character attendance percentages...", flush=True)
             update_count = 0
             for char_id, raw_count in character_attendance_raw_counts.items():
-                char_to_update = db_session.query(Character).get(char_id) 
+                char_to_update = db_session.get(Character, char_id) 
                 if char_to_update:
                     attendance_percentage = round((raw_count / successfully_processed_wcl_reports_for_attendance) * 100, 2)
                     char_to_update.raid_attendance_percentage = attendance_percentage
@@ -397,14 +406,14 @@ def process_and_store_wcl_data():
             print("Updating character average WCL performance...", flush=True)
             update_count = 0
             for char_id, scores in character_performance_scores.items():
-                char_to_update = db_session.query(Character).get(char_id)
-                if char_to_update and scores: # Ensure scores list is not empty
+                char_to_update = db_session.get(Character, char_id) 
+                if char_to_update and scores: 
                     avg_perf = round(sum(scores) / len(scores), 2)
-                    print(f"DEBUG: Updating char_id {char_id} with avg_perf: {avg_perf} from scores: {scores}", flush=True)
+                    print(f"DEBUG: Updating char_id {char_id} ({char_to_update.name}) with avg_perf: {avg_perf} from scores: {scores}", flush=True)
                     char_to_update.avg_wcl_performance = avg_perf
                     update_count +=1
                 elif char_to_update and not scores:
-                    print(f"DEBUG: Char_id {char_id} found in character_performance_scores, but scores list is empty. Not updating avg_wcl_performance.", flush=True)
+                    print(f"DEBUG: Char_id {char_id} ({char_to_update.name}) found in character_performance_scores, but scores list is empty. Not updating avg_wcl_performance.", flush=True)
 
             db_session.commit()
             print(f"Updated average performance for {update_count} characters.", flush=True)
