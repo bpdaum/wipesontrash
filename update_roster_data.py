@@ -5,16 +5,17 @@ from datetime import datetime
 import json
 
 # --- Standalone SQLAlchemy setup ---
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index, ForeignKey, Float
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, UniqueConstraint, MetaData, Index, ForeignKey, Float, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.exc import OperationalError, IntegrityError
 
 # --- Import from helper_functions ---
 try:
-    from helper_functions import get_blizzard_access_token, make_api_request
+    # Ensure these are available in your helper_functions.py or defined globally if not
+    from helper_functions import get_blizzard_access_token, make_api_request, BLIZZARD_API_BASE_URL, REGION
 except ImportError:
-    print("Error: helper_functions.py not found. Make sure it's in the same directory or Python path.", flush=True)
+    print("Error: helper_functions.py or expected variables (BLIZZARD_API_BASE_URL, REGION) not found.", flush=True)
     exit(1)
 
 # --- Database Setup ---
@@ -35,9 +36,6 @@ except Exception as e:
      exit(1)
 
 # --- Database Models ---
-# Define models that this script interacts with or are dependencies for Character.
-# PlayableClass is read from, Character is written to.
-
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
     id = Column(Integer, primary_key=True)
@@ -53,34 +51,79 @@ class Character(Base):
     level = Column(Integer)
     class_id = Column(Integer, ForeignKey('playable_class.id'))
     class_name = Column(String(50))
-    spec_name = Column(String(50)) # API Active Spec
-    main_spec_override = Column(String(50), nullable=True) # User override
-    role = Column(String(15))      # e.g., Tank, Healer, Melee DPS, Ranged DPS
-    status = Column(String(15), nullable=False, index=True) # Calculated/User Status field
+    spec_name = Column(String(50)) 
+    main_spec_override = Column(String(50), nullable=True) 
+    role = Column(String(15))      
+    status = Column(String(15), nullable=False, index=True) # Wiper, Member, Wiping Alt
     item_level = Column(Integer, index=True)
     raid_progression = Column(String(200))
     rank = Column(Integer, index=True)
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    # WCL fields will be updated by warcraft_logs.py, define them here for schema completeness if CharacterBiS depends on them
     raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
     avg_wcl_performance = Column(Float, nullable=True)
+    
+    is_active = Column(Boolean, default=True, nullable=False, index=True) # NEW COLUMN FOR SOFT DELETE
 
     playable_class = relationship("PlayableClass", back_populates="characters")
-    # Define relationships to WCL tables if they exist in your full schema,
-    # even if this script doesn't populate them, for SQLAlchemy metadata awareness.
-    # attendances = relationship("WCLAttendance", back_populates="character", cascade="all, delete-orphan")
-    # performances = relationship("WCLPerformance", back_populates="character", cascade="all, delete-orphan")
-    # bis_selections = relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
-
+    # Child relationships are defined so ORM features work if used, and for schema awareness.
+    # This script will not delete from these child tables.
+    bis_selections = relationship("CharacterBiS", back_populates="character") 
+    attendances = relationship("WCLAttendance", back_populates="character")
+    performances = relationship("WCLPerformance", back_populates="character")
 
     __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), )
-    def __repr__(self): return f'<Character {self.name}-{self.realm_slug}>'
+    def __repr__(self): return f'<Character {self.name}-{self.realm_slug} (Active: {self.is_active})>'
 
+# --- Dependent Table Models (ensure these match your actual schema) ---
+class PlayableSlot(Base):
+    __tablename__ = 'playable_slot'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    type = Column(String(50), unique=True, nullable=False, index=True)
+    name = Column(String(100), nullable=False) # For completeness if create_all is used
+    # ... other columns as in wow_info.py ...
+
+class Item(Base):
+    __tablename__ = 'item'
+    id = Column(Integer, primary_key=True) # Blizzard Item ID
+    name = Column(String(255), nullable=False, index=True) # For completeness
+    # ... other columns as in wow_info.py ...
+
+class CharacterBiS(Base):
+    __tablename__ = 'character_bis'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    slot_type_ui = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True)
+    item_id = Column(Integer, ForeignKey('item.id'), nullable=True)
+    character = relationship("Character", back_populates="bis_selections")
+    __table_args__ = (UniqueConstraint('character_id', 'slot_type_ui', name='_character_slot_ui_uc'),)
+
+class WCLReport(Base):
+    __tablename__ = 'wcl_report'
+    code = Column(String(50), primary_key=True)
+    title = Column(String(200)) # For completeness
+    # ... other columns as in warcraft_logs.py ...
+
+class WCLAttendance(Base):
+    __tablename__ = 'wcl_attendance'
+    id = Column(Integer, primary_key=True)
+    report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    character = relationship("Character", back_populates="attendances")
+    __table_args__ = ( UniqueConstraint('report_code', 'character_id', name='_report_char_uc'), )
+
+class WCLPerformance(Base):
+    __tablename__ = 'wcl_performance'
+    id = Column(Integer, primary_key=True)
+    report_code = Column(String(50), ForeignKey('wcl_report.code'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
+    encounter_id = Column(Integer, nullable=False) 
+    metric = Column(String(20)) 
+    character = relationship("Character", back_populates="performances")
+    __table_args__ = ( UniqueConstraint('report_code', 'character_id', 'encounter_id', 'metric', name='_perf_uc'), )
 
 # --- Configuration Loading ---
 GUILD_NAME = os.environ.get('GUILD_NAME')
 REALM_SLUG = os.environ.get('REALM_SLUG')
-REGION = os.environ.get('REGION', 'us').lower() # Used for API calls via helpers
 
 # --- Role Definitions ---
 TANK_SPECS = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]
@@ -96,9 +139,7 @@ RANGED_DPS_SPECS = {
     "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
 }
 
-# --- Helper function for role determination ---
 def determine_role_from_spec_and_class(spec_name, class_name):
-    """Determines a character's role based on their spec and class."""
     if not spec_name or not class_name or class_name == "N/A": return "Unknown"
     if spec_name in TANK_SPECS: return "Tank"
     if spec_name in HEALER_SPECS: return "Healer"
@@ -106,228 +147,223 @@ def determine_role_from_spec_and_class(spec_name, class_name):
         return "Melee DPS"
     if class_name in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS.get(class_name, []):
         return "Ranged DPS"
-    if spec_name: return "DPS" # Fallback for generic DPS
+    if spec_name: return "DPS" 
     return "Unknown"
 
-# --- Functions to interact with Blizzard API (using helpers) ---
+# --- Functions to interact with Blizzard API (Assumed to be correct from previous versions) ---
 def get_guild_roster_data():
-    """ Fetches the guild roster from Blizzard API using helper_functions. """
     if not GUILD_NAME or not REALM_SLUG:
         print("Error: GUILD_NAME or REALM_SLUG not configured.", flush=True)
         return None
-    access_token = get_blizzard_access_token() # From helper_functions
+    access_token = get_blizzard_access_token() 
     if not access_token: return None
-
     endpoint = f"/data/wow/guild/{REALM_SLUG.lower()}/{GUILD_NAME.lower().replace(' ', '-')}/roster"
+    api_url = f"{BLIZZARD_API_BASE_URL}{endpoint}"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    
-    print(f"Fetching Blizzard Guild Roster from: {BLIZZARD_API_BASE_URL}{endpoint}", flush=True)
-    data = make_api_request(endpoint, params, headers) # From helper_functions
-    if data: print("Successfully fetched Blizzard guild roster.", flush=True)
-    else: print("Failed to fetch Blizzard guild roster.", flush=True)
+    data = make_api_request(api_url, params, headers) 
+    if not data: print(f"Failed to fetch Blizzard guild roster from {api_url}", flush=True)
     return data
 
 def get_character_summary_data(realm_slug, character_name):
-    """ Fetches character profile summary from Blizzard API using helper_functions. """
-    access_token = get_blizzard_access_token() # From helper_functions
+    access_token = get_blizzard_access_token() 
     if not access_token: return None
-
     endpoint = f"/profile/wow/character/{realm_slug.lower()}/{character_name.lower()}"
+    api_url = f"{BLIZZARD_API_BASE_URL}{endpoint}"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    data = make_api_request(endpoint, params, headers) # From helper_functions
-    return data
+    return make_api_request(api_url, params, headers) 
 
 def get_character_raid_progression_data(realm_slug, character_name):
-    """ Fetches character raid encounters from Blizzard API using helper_functions. """
-    access_token = get_blizzard_access_token() # From helper_functions
+    access_token = get_blizzard_access_token() 
     if not access_token: return None
     endpoint = f"/profile/wow/character/{realm_slug.lower()}/{character_name.lower()}/encounters/raids"
+    api_url = f"{BLIZZARD_API_BASE_URL}{endpoint}"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"namespace": f"profile-{REGION}", "locale": "en_US"}
-    data = make_api_request(endpoint, params, headers) # From helper_functions
-    return data
+    return make_api_request(api_url, params, headers) 
 
 def summarize_raid_progression(raid_data):
-    """ Summarizes raid progression for 'Liberation of Undermine'. """
-    target_expansion_name = "The War Within"
-    target_raid_name = "Liberation of Undermine"
-    short_raid_name = "Undermine"
+    target_expansion_name = "The War Within" 
+    target_raid_name = "Liberation of Undermine" 
+    short_raid_name = "Undermine" 
     if not raid_data or 'expansions' not in raid_data: return None, -1
-    heroic_kills = -1; heroic_total = 0; mythic_kills = -1; mythic_total = 0; raid_found = False
+    heroic_kills, heroic_total, mythic_kills, mythic_total, raid_found = -1, 0, -1, 0, False
     for expansion in raid_data.get('expansions', []):
-        exp_details = expansion.get('expansion', {})
-        if exp_details.get('name') == target_expansion_name:
+        if expansion.get('expansion', {}).get('name') == target_expansion_name:
             for instance in expansion.get('instances', []):
-                instance_details = instance.get('instance', {})
-                if instance_details.get('name') == target_raid_name:
+                if instance.get('instance', {}).get('name') == target_raid_name:
                     raid_found = True
                     for mode in instance.get('modes', []):
-                        difficulty = mode.get('difficulty', {}); progress = mode.get('progress', {})
-                        difficulty_type = difficulty.get('type')
-                        if difficulty_type == "HEROIC":
-                            heroic_kills = progress.get('completed_count', 0)
-                            heroic_total = progress.get('total_count', 0)
-                        elif difficulty_type == "MYTHIC":
-                            mythic_kills = progress.get('completed_count', 0)
-                            mythic_total = progress.get('total_count', 0)
+                        progress = mode.get('progress', {})
+                        if mode.get('difficulty', {}).get('type') == "HEROIC":
+                            heroic_kills, heroic_total = progress.get('completed_count', 0), progress.get('total_count', 0)
+                        elif mode.get('difficulty', {}).get('type') == "MYTHIC":
+                            mythic_kills, mythic_total = progress.get('completed_count', 0), progress.get('total_count', 0)
                     break
-            break
+            if raid_found: break
     if not raid_found: return f"{short_raid_name}: Not Found", -1
     summary_parts = []
     if heroic_kills != -1 and heroic_total > 0: summary_parts.append(f"{heroic_kills}/{heroic_total}H")
     if mythic_kills != -1 and mythic_total > 0: summary_parts.append(f"{mythic_kills}/{mythic_total}M")
-    if not summary_parts: summary_output = f"{short_raid_name}: No H/M Data"
-    else: summary_output = f"{short_raid_name}: {' '.join(summary_parts)}"
-    hc_kills_return = 0 if heroic_kills == -1 else heroic_kills
-    return summary_output, hc_kills_return
-
+    return f"{short_raid_name}: {' '.join(summary_parts) if summary_parts else 'No H/M Data'}", \
+           (0 if heroic_kills == -1 else heroic_kills)
 
 # --- Main Database Update Function ---
 def update_character_roster():
-    """
-    Updates the Character table with the latest roster info from Blizzard API,
-    preserving user-set spec overrides and statuses.
-    """
-    print("Starting Character Roster update process...", flush=True)
+    print("Starting Character Roster update process (soft delete approach)...", flush=True)
     start_time = time.time()
     db_session = SessionLocal()
 
-    # 1. Preserve existing overrides
-    existing_spec_overrides = {}
-    existing_user_statuses = {} # Only statuses that users can set
-    user_settable_status_values = ['Wiper', 'Member', 'Wiping Alt'] # Match what app.py allows
-
     try:
-        if engine.dialect.has_table(engine.connect(), Character.__tablename__):
-            print("Fetching existing spec overrides and user-set statuses...", flush=True)
-            for char_id, spec_override, status_val in db_session.query(Character.id, Character.main_spec_override, Character.status).all():
-                if spec_override:
-                    existing_spec_overrides[char_id] = spec_override
-                if status_val in user_settable_status_values: # Only preserve if it's a user-settable one
-                    existing_user_statuses[char_id] = status_val
-            print(f"Found {len(existing_spec_overrides)} spec overrides and {len(existing_user_statuses)} user-set statuses to preserve.", flush=True)
-        else:
-            print("Character table does not exist yet, no overrides/statuses to preserve.", flush=True)
-    except Exception as e:
-        print(f"Error fetching existing overrides/statuses: {e}", flush=True)
-        # Continue, but overrides might be lost if table drop fails later
+        # Ensure all table structures exist.
+        tables_to_ensure = [
+            PlayableClass.__table__, PlayableSlot.__table__, Item.__table__, WCLReport.__table__,
+            Character.__table__, CharacterBiS.__table__, WCLAttendance.__table__, WCLPerformance.__table__
+        ]
+        Base.metadata.create_all(engine, tables=tables_to_ensure, checkfirst=True)
+        print("Ensured all relevant table structures exist.", flush=True)
 
-    # 2. Drop and recreate ONLY the Character table
-    try:
-        print(f"Attempting to drop table '{Character.__tablename__}' if it exists...", flush=True)
-        Character.__table__.drop(engine, checkfirst=True)
-        print(f"Table '{Character.__tablename__}' dropped (or did not exist).", flush=True)
-        print(f"Creating table '{Character.__tablename__}'...", flush=True)
-        # Ensure PlayableClass table exists before Character table due to ForeignKey
-        PlayableClass.metadata.create_all(engine, checkfirst=True) # Create if not exists
-        Character.__table__.create(engine, checkfirst=True)
-        print("Character table created successfully.", flush=True)
-    except Exception as e:
-        print(f"Error during Character table drop/create: {e}", flush=True)
-        db_session.close(); return
+        # 1. Fetch current guild roster from Blizzard API
+        roster_data_from_api = get_guild_roster_data()
+        if not roster_data_from_api or 'members' not in roster_data_from_api:
+            print("Error: Failed to fetch guild roster from API. Aborting update.", flush=True)
+            return
 
-    # 3. Fetch class map from DB (populated by wow_info.py)
-    local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
-    if not local_class_map:
-        print("CRITICAL ERROR: PlayableClass table is empty or not found. Run wow_info.py first. Aborting roster update.", flush=True)
-        db_session.close(); return
+        api_character_ids = set()
+        api_characters_details = {} 
 
-    # 4. Fetch and process roster
-    roster_data = get_guild_roster_data()
-    if not roster_data or 'members' not in roster_data:
-        print("Error: Failed to fetch guild roster. Aborting update.", flush=True)
-        db_session.close(); return
+        for member_entry in roster_data_from_api['members']:
+            character_info = member_entry.get('character', {})
+            char_id = character_info.get('id')
+            rank_from_api = member_entry.get('rank')
 
-    characters_to_insert = []
-    api_call_count = 0
-
-    for member_entry in roster_data['members']:
-        character_info = member_entry.get('character', {})
-        rank = member_entry.get('rank')
-        char_id = character_info.get('id')
-        char_name = character_info.get('name')
-        char_realm_slug = character_info.get('realm', {}).get('slug')
-
-        if rank is None or rank > 4 or not char_id or not char_name or not char_realm_slug:
-            continue
+            if rank_from_api is None or rank_from_api > 4 or not char_id: 
+                continue
+            
+            api_character_ids.add(char_id)
+            api_characters_details[char_id] = {
+                "name": character_info.get('name'),
+                "realm_slug": character_info.get('realm', {}).get('slug'),
+                "level": character_info.get('level'),
+                "class_id": character_info.get('playable_class', {}).get('id'),
+                "rank": rank_from_api
+            }
         
-        print(f"Processing: {char_name}-{char_realm_slug}", flush=True)
-        api_call_count +=1
+        print(f"Fetched {len(api_character_ids)} active members (rank <=4) from API.", flush=True)
 
-        class_id = character_info.get('playable_class', {}).get('id')
-        db_class_name = local_class_map.get(class_id, "Unknown")
+        # 2. Fetch existing characters from DB and their user-settable attributes
+        db_characters_query = db_session.query(Character.id, Character.main_spec_override, Character.status, Character.is_active).all()
+        db_character_map = {
+            char.id: {
+                "db_object": db_session.query(Character).get(char.id), # Get full object for update
+                "main_spec_override": char.main_spec_override,
+                "user_set_status": char.status if char.status in ['Wiper', 'Member', 'Wiping Alt'] else None,
+                "was_active": char.is_active
+            } for char in db_characters_query
+        }
+        print(f"Fetched {len(db_character_map)} characters' metadata from DB.", flush=True)
 
-        api_spec_name = None
-        role_from_api_spec = "Unknown"
-        item_level = None
-        raid_progression_summary = None
-        heroic_kills = -1
+        # 3. Get PlayableClass map
+        local_class_map = {cls.id: cls.name for cls in db_session.query(PlayableClass).all()}
+        if not local_class_map:
+             print("CRITICAL ERROR: PlayableClass map is empty. Run wow_info.py first.", flush=True)
+             return
 
-        summary_data = get_character_summary_data(char_realm_slug, char_name)
-        if summary_data:
-            item_level = summary_data.get('average_item_level')
-            active_spec = summary_data.get('active_spec', {})
-            api_spec_name = active_spec.get('name')
-            role_from_api_spec = determine_role_from_spec_and_class(api_spec_name, db_class_name)
+        api_calls_for_details = 0
 
-        prog_data = get_character_raid_progression_data(char_realm_slug, char_name)
-        if prog_data:
-            raid_progression_summary, heroic_kills = summarize_raid_progression(prog_data)
+        # 4. Process characters: update existing, insert new
+        for char_id, api_details in api_characters_details.items():
+            print(f"Processing API character: {api_details['name']}-{api_details['realm_slug']} (ID: {char_id})", flush=True)
+            api_calls_for_details += 1
+            summary_data = get_character_summary_data(api_details['realm_slug'], api_details['name'])
+            prog_data = get_character_raid_progression_data(api_details['realm_slug'], api_details['name'])
+            time.sleep(0.05) # API call delay
 
-        # Determine final spec and role (considering override)
-        spec_override = existing_spec_overrides.get(char_id)
-        effective_spec_name = spec_override if spec_override else api_spec_name
-        final_role = determine_role_from_spec_and_class(effective_spec_name, db_class_name)
+            api_spec_name, item_level = None, None
+            if summary_data:
+                item_level = summary_data.get('average_item_level')
+                api_spec_name = summary_data.get('active_spec', {}).get('name')
+            
+            raid_progression_summary, heroic_kills = (None, -1)
+            if prog_data:
+                raid_progression_summary, heroic_kills = summarize_raid_progression(prog_data)
 
-        # Determine status
-        calculated_status = "Member"
-        if item_level is None or item_level < 650: calculated_status = "Wiping Alt"
-        elif heroic_kills > 6: calculated_status = "Wiper"
-        elif heroic_kills >= 0 and heroic_kills <= 6: calculated_status = "Member"
+            db_class_name = local_class_map.get(api_details['class_id'], "Unknown")
+            
+            spec_override = db_character_map.get(char_id, {}).get('main_spec_override')
+            effective_spec_name = spec_override if spec_override else api_spec_name
+            final_role = determine_role_from_spec_and_class(effective_spec_name, db_class_name)
+
+            calculated_status_for_active = "Member"
+            if item_level is None or item_level < 650: calculated_status_for_active = "Wiping Alt"
+            elif heroic_kills > 6 : calculated_status_for_active = "Wiper"
+            elif 0 <= heroic_kills <= 6: calculated_status_for_active = "Member"
+            
+            user_set_status = db_character_map.get(char_id, {}).get('user_set_status')
+            final_status = user_set_status if user_set_status else calculated_status_for_active
+
+            character_data = db_character_map.get(char_id)
+            if character_data and character_data["db_object"]:
+                char_to_update = character_data["db_object"]
+                print(f"  Updating existing character: {char_to_update.name}", flush=True)
+                char_to_update.name, char_to_update.realm_slug = api_details['name'], api_details['realm_slug']
+                char_to_update.level, char_to_update.class_id = api_details['level'], api_details['class_id']
+                char_to_update.class_name, char_to_update.spec_name = db_class_name, api_spec_name
+                char_to_update.role, char_to_update.status = final_role, final_status
+                char_to_update.item_level, char_to_update.raid_progression = item_level, raid_progression_summary
+                char_to_update.rank, char_to_update.is_active = api_details['rank'], True
+                char_to_update.last_updated = datetime.utcnow()
+            else:
+                print(f"  Inserting new character: {api_details['name']}", flush=True)
+                new_char = Character(
+                    id=char_id, name=api_details['name'], realm_slug=api_details['realm_slug'],
+                    level=api_details['level'], class_id=api_details['class_id'], class_name=db_class_name,
+                    spec_name=api_spec_name, main_spec_override=spec_override, 
+                    role=final_role, status=final_status, item_level=item_level,
+                    raid_progression=raid_progression_summary, rank=api_details['rank'],
+                    is_active=True, last_updated=datetime.utcnow()
+                )
+                db_session.add(new_char)
         
-        final_status = existing_user_statuses.get(char_id, calculated_status)
+        # 5. Mark characters no longer in API roster (but in DB) as inactive
+        db_character_ids = set(db_character_map.keys())
+        ids_to_deactivate = db_character_ids - api_character_ids
+        
+        for char_id_to_deactivate in ids_to_deactivate:
+            character_data = db_character_map.get(char_id_to_deactivate)
+            if character_data and character_data["db_object"] and character_data["was_active"]: # Only deactivate if previously active
+                char_to_deactivate_obj = character_data["db_object"]
+                print(f"  Marking character as inactive: {char_to_deactivate_obj.name} (ID: {char_id_to_deactivate})", flush=True)
+                char_to_deactivate_obj.is_active = False
+                # Note: rank, item_level, api_spec_name, raid_progression for inactive members will become stale.
+                # Status is preserved if it was user-set, otherwise it might reflect their last active state.
+                char_to_deactivate_obj.last_updated = datetime.utcnow()
+        
+        db_session.commit()
+        print("Character data updated (soft delete approach). Child table data preserved.", flush=True)
 
-        characters_to_insert.append(Character(
-            id=char_id, name=char_name, realm_slug=char_realm_slug, level=character_info.get('level'),
-            class_id=class_id, class_name=db_class_name,
-            spec_name=api_spec_name, # Store the spec from API
-            main_spec_override=spec_override, # Apply preserved override
-            role=final_role, # Role based on effective spec
-            status=final_status, # Apply preserved or calculated status
-            item_level=item_level,
-            raid_progression=raid_progression_summary,
-            rank=rank,
-            # WCL fields are not handled by this script
-            raid_attendance_percentage=None, # Will be updated by warcraft_logs.py
-            avg_wcl_performance=None      # Will be updated by warcraft_logs.py
-        ))
-        time.sleep(0.1) # API call delay
-
-    try:
-        if characters_to_insert:
-            db_session.add_all(characters_to_insert)
-            db_session.commit()
-            print(f"Successfully updated/inserted {len(characters_to_insert)} characters.", flush=True)
-        else:
-            print("No characters to update or insert.", flush=True)
-    except Exception as e:
-        print(f"Error committing character data: {e}", flush=True)
+    except OperationalError as oe:
         db_session.rollback()
+        print(f"DATABASE OPERATIONAL ERROR: {oe}", flush=True)
+    except Exception as e:
+        db_session.rollback()
+        print(f"UNEXPECTED ERROR during character update: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
     finally:
         db_session.close()
+        print("Database session closed.", flush=True)
 
-    print(f"Character Roster update finished in {round(time.time() - start_time, 2)} seconds. Made {api_call_count} Blizzard API calls for character details.", flush=True)
-
+    print(f"Character Roster update finished in {round(time.time() - start_time, 2)} seconds. Made {api_calls_for_details} Blizzard API calls for character details.", flush=True)
 
 if __name__ == "__main__":
     required_vars = ['BLIZZARD_CLIENT_ID', 'BLIZZARD_CLIENT_SECRET', 'GUILD_NAME', 'REALM_SLUG', 'REGION', 'DATABASE_URL']
-    print(f"Checking environment variables for update_roster_data.py...", flush=True)
+    print("Checking environment variables...", flush=True)
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     if missing_vars:
-        print(f"Error: Missing required environment variables: {', '.join(missing_vars)}", flush=True)
+        print(f"Error: Missing env vars: {', '.join(missing_vars)}", flush=True)
         exit(1)
-    else:
-        print("All required environment variables found.", flush=True)
-        update_character_roster()
+    
+    print("All required environment variables found.", flush=True)
+    update_character_roster()
