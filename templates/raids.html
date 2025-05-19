@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
+<html lang="en" class=""> <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ guild_name }} - Raid Calendar</title>
@@ -8,68 +7,160 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" xintegrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f7fafc; }
+        /* Base Variables for Theming (Consistent across pages) */
+        :root {
+            --color-bg-primary: #f7fafc;      /* Tailwind gray-100 */
+            --color-bg-secondary: #ffffff;    /* white */
+            --color-bg-tertiary: #f3f4f6;     /* gray-100/50 for calendar headers, other month */
+            --color-bg-hover: #edf2f7;        /* gray-200 for hover states */
+            --color-text-primary: #1f2937;    /* gray-800/900 */
+            --color-text-secondary: #4b5563;  /* gray-700/600 */
+            --color-text-muted: #9ca3af;      /* gray-400/500 for other month text */
+            --color-border-primary: #e5e7eb;  /* gray-200/300 for calendar grid */
+            --color-nav-bg: #6B1A51;
+            --color-nav-text: #ffffff;
+            --color-nav-hover-bg: #561541;
+            --color-button-primary-bg: #6B1A51; /* Same as nav for consistency */
+            --color-button-primary-text: #ffffff;
+            --color-button-primary-hover-bg: #561541;
+            --color-calendar-raid-day-bg: #fef3c7; /* amber-100 */
+            --color-report-link-bg: #6B1A51;
+            --color-report-link-text: #ffffff;
+            --color-report-link-hover-bg: #862165; /* Slightly lighter purple */
+        }
+
+        html.dark {
+            --color-bg-primary: #1a202c;      /* gray-900 */
+            --color-bg-secondary: #2d3748;    /* gray-800 */
+            --color-bg-tertiary: #374151;     /* gray-700 for calendar headers */
+            --color-bg-hover: #4a5568;        /* gray-700 for hover */
+            --color-text-primary: #f7fafc;    /* gray-100 */
+            --color-text-secondary: #d1d5db;  /* gray-300/400 */
+            --color-text-muted: #6b7280;      /* gray-500/600 */
+            --color-border-primary: #4b5563;  /* gray-600/700 */
+            --color-nav-bg: #4A0E35;
+            --color-nav-text: #e2e8f0;
+            --color-nav-hover-bg: #380B28;
+            --color-button-primary-bg: #4A0E35;
+            --color-button-primary-hover-bg: #380B28;
+            --color-calendar-raid-day-bg: #4a3a1a; /* Darker amber tone */
+            --color-report-link-bg: #862165;
+            --color-report-link-hover-bg: #6B1A51;
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--color-bg-primary);
+            color: var(--color-text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        /* Navbar Styling */
+        .navbar {
+            background-color: var(--color-nav-bg);
+            color: var(--color-nav-text);
+        }
+        .nav-link {
+            color: var(--color-nav-text);
+        }
+        .nav-link:hover, .nav-link-active {
+            background-color: var(--color-nav-hover-bg);
+        }
+        .dark-mode-toggle:hover {
+             background-color: var(--color-nav-hover-bg);
+        }
+
+        /* Main Content Card (Calendar Container) */
+        .calendar-container-card { /* Renamed to avoid conflict if .content-card is used elsewhere */
+            background-color: var(--color-bg-secondary);
+            border: 1px solid var(--color-border-primary);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        /* Calendar Specific Styling */
         .calendar-container { max-width: 900px; margin: auto; }
         .calendar-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; }
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background-color: #e5e7eb; border: 1px solid #e5e7eb; }
-        .calendar-day-header { background-color: #f3f4f6; padding: 0.5rem; text-align: center; font-weight: 600; font-size: 0.875rem; color: #4b5563;}
-        .calendar-day { background-color: #fff; min-height: 120px; padding: 0.5rem; font-size: 0.875rem; position: relative; }
-        .calendar-day.other-month { background-color: #f9fafb; color: #9ca3af; }
-        .calendar-day .day-number { font-weight: 500; margin-bottom: 0.25rem; }
-        .calendar-day.is-raid-day { background-color: #fef3c7; /* amber-100 for Wed/Fri */ }
-        .report-link {
-            display: block;
-            font-size: 0.75rem;
-            padding: 0.2rem 0.4rem;
-            margin-bottom: 0.25rem;
-            background-color: #6B1A51; /* Custom purple */
-            color: white;
-            border-radius: 0.25rem;
-            text-decoration: none;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            transition: background-color 0.2s ease;
+        .calendar-grid { 
+            display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; 
+            background-color: var(--color-border-primary); 
+            border: 1px solid var(--color-border-primary); 
         }
-        .report-link:hover { background-color: #862165; }
+        .calendar-day-header { 
+            background-color: var(--color-bg-tertiary); 
+            padding: 0.5rem; text-align: center; font-weight: 600; 
+            font-size: 0.875rem; color: var(--color-text-secondary);
+        }
+        .calendar-day { 
+            background-color: var(--color-bg-secondary); /* Day cell background */
+            min-height: 120px; padding: 0.5rem; font-size: 0.875rem; 
+            position: relative; color: var(--color-text-primary); /* Day number color */
+        }
+        .calendar-day.other-month { 
+            background-color: var(--color-bg-tertiary); /* Slightly different for other month days */
+            color: var(--color-text-muted); 
+        }
+        .calendar-day .day-number { font-weight: 500; margin-bottom: 0.25rem; }
+        .calendar-day.is-raid-day { 
+            background-color: var(--color-calendar-raid-day-bg); 
+        }
+        .report-link {
+            display: block; font-size: 0.75rem; padding: 0.2rem 0.4rem;
+            margin-bottom: 0.25rem; background-color: var(--color-report-link-bg);
+            color: var(--color-report-link-text); border-radius: 0.25rem;
+            text-decoration: none; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; transition: background-color 0.2s ease;
+        }
+        .report-link:hover { background-color: var(--color-report-link-hover-bg); }
+        
         .nav-btn {
-            background-color: #6B1A51; color: white; padding: 0.5rem 1rem; border-radius: 0.375rem;
+            background-color: var(--color-button-primary-bg); 
+            color: var(--color-button-primary-text); 
+            padding: 0.5rem 1rem; border-radius: 0.375rem;
             cursor: pointer; transition: background-color 0.2s ease;
         }
-        .nav-btn:hover { background-color: #862165; }
-        .month-year-display { font-size: 1.5rem; font-weight: 600; color: #1f2937; }
+        .nav-btn:hover { background-color: var(--color-button-primary-hover-bg); }
+        .month-year-display { 
+            font-size: 1.5rem; font-weight: 600; 
+            color: var(--color-text-primary); 
+        }
+
+        /* Footer */
+        .footer-text {
+            color: var(--color-text-muted);
+        }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
+<body>
 
-    <nav class="text-white p-4 shadow-md" style="background-color: #6B1A51;">
+    <nav class="navbar p-4 shadow-md">
         <div class="container mx-auto flex flex-wrap justify-between items-center">
             <div class="flex items-center space-x-3 mb-2 sm:mb-0">
                  <img src="{{ url_for('static', filename='images/wot_logo.png') }}"
                       alt="{{ guild_name }} Logo"
-                      class="h-8 w-8 rounded-full border-2 border-white">
+                      class="h-8 w-8 rounded-full border-2 border-white dark:border-gray-300">
                  <h1 class="text-xl font-semibold">{{ guild_name }} Portal</h1>
             </div>
-            <div class="flex space-x-2">
-                <a href="{{ url_for('home') }}" class="px-3 py-2 rounded hover:bg-gray-600">Home</a>
-                <a href="{{ url_for('roster_page') }}" class="px-3 py-2 rounded hover:bg-gray-600">Roster</a>
-                <a href="{{ url_for('raids_page') }}" class="px-3 py-2 rounded bg-gray-700 font-medium hover:bg-gray-600">Raids</a>
-                <a href="{{ url_for('loot_page') }}" class="px-3 py-2 rounded hover:bg-gray-600">Loot</a>
+            <div class="flex items-center space-x-2">
+                <a href="{{ url_for('home') }}" class="nav-link px-3 py-2 rounded">Home</a>
+                <a href="{{ url_for('roster_page') }}" class="nav-link px-3 py-2 rounded">Roster</a>
+                <a href="{{ url_for('raids_page') }}" class="nav-link px-3 py-2 rounded nav-link-active font-medium">Raids</a>
+                <a href="{{ url_for('loot_page') }}" class="nav-link px-3 py-2 rounded">Loot</a>
+                <button id="darkModeToggle" title="Toggle Dark Mode" class="dark-mode-toggle p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-white">
+                    <i class="fas fa-sun text-yellow-400"></i> <i class="fas fa-moon text-indigo-400 hidden"></i> </button>
             </div>
         </div>
     </nav>
 
     <main class="container mx-auto mt-8 p-4">
-        <div class="bg-white p-6 rounded-lg shadow-lg calendar-container">
+        <div class="calendar-container-card p-6 rounded-lg shadow-lg calendar-container">
             <div class="calendar-header">
                 <button id="prevMonthBtn" class="nav-btn">&lt; Prev</button>
                 <h2 id="monthYearDisplay" class="month-year-display"></h2>
                 <button id="nextMonthBtn" class="nav-btn">Next &gt;</button>
             </div>
-            <div class="calendar-grid">
-                <div class="calendar-day-header">Sun</div>
+            <div class="calendar-grid"> <div class="calendar-day-header">Sun</div>
                 <div class="calendar-day-header">Mon</div>
                 <div class="calendar-day-header">Tue</div>
                 <div class="calendar-day-header">Wed</div>
@@ -82,11 +173,46 @@
         </div>
     </main>
 
-    <footer class="text-center text-gray-500 mt-8 pb-4">
+    <footer class="text-center footer-text mt-8 pb-4">
         &copy; {{ guild_name }} - {{ current_year }}
     </footer>
 
     <script>
+        // Dark Mode Toggle Script (Consistent across pages)
+        document.addEventListener('DOMContentLoaded', function () {
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const htmlElement = document.documentElement; 
+            const sunIcon = darkModeToggle.querySelector('.fa-sun');
+            const moonIcon = darkModeToggle.querySelector('.fa-moon');
+
+            function applyTheme(isDark) {
+                if (isDark) {
+                    htmlElement.classList.add('dark');
+                    sunIcon.classList.add('hidden');
+                    moonIcon.classList.remove('hidden');
+                } else {
+                    htmlElement.classList.remove('dark');
+                    sunIcon.classList.remove('hidden');
+                    moonIcon.classList.add('hidden');
+                }
+            }
+
+            let currentTheme = localStorage.getItem('theme');
+            if (currentTheme) {
+                applyTheme(currentTheme === 'dark');
+            } else {
+                applyTheme(false); 
+                localStorage.setItem('theme', 'light');
+            }
+
+            darkModeToggle.addEventListener('click', () => {
+                const isDarkMode = htmlElement.classList.contains('dark');
+                applyTheme(!isDarkMode);
+                localStorage.setItem('theme', !isDarkMode ? 'dark' : 'light');
+            });
+        });
+
+        // Raids Page Specific JavaScript
         const reportsByDate = JSON.parse('{{ reports_by_date_json | safe }}' || '{}');
         const calendarDaysContainer = document.getElementById('calendarDays');
         const monthYearDisplay = document.getElementById('monthYearDisplay');
@@ -101,11 +227,15 @@
 
             const firstDayOfMonth = new Date(year, month, 1).getDay(); // 0 for Sunday, 1 for Monday...
             const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const daysInPrevMonth = new Date(year, month, 0).getDate();
 
-            // Add empty cells for days before the first of the month
+
+            // Add empty cells for days before the first of the month (from previous month)
             for (let i = 0; i < firstDayOfMonth; i++) {
                 const emptyCell = document.createElement('div');
                 emptyCell.classList.add('calendar-day', 'other-month');
+                // Optionally display previous month's day numbers
+                // emptyCell.innerHTML = `<div class="day-number">${daysInPrevMonth - firstDayOfMonth + 1 + i}</div>`;
                 calendarDaysContainer.appendChild(emptyCell);
             }
 
@@ -122,7 +252,7 @@
                 const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
                 // Highlight Wednesdays (3) and Fridays (5) - JS getDay() is 0-6 Sun-Sat
-                if (dateObj.getDay() === 3 || dateObj.getDay() === 5) {
+                if (dateObj.getDay() === 3 || dateObj.getDay() === 5) { // Wednesday or Friday
                     dayCell.classList.add('is-raid-day');
                 }
 
@@ -138,6 +268,17 @@
                     });
                 }
                 calendarDaysContainer.appendChild(dayCell);
+            }
+            
+            // Add empty cells for days after the last of the month (from next month)
+            const totalCells = firstDayOfMonth + daysInMonth;
+            const remainingCells = (totalCells % 7 === 0) ? 0 : 7 - (totalCells % 7);
+            for (let i = 0; i < remainingCells; i++) {
+                const emptyCell = document.createElement('div');
+                emptyCell.classList.add('calendar-day', 'other-month');
+                // Optionally display next month's day numbers
+                // emptyCell.innerHTML = `<div class="day-number">${i + 1}</div>`;
+                calendarDaysContainer.appendChild(emptyCell);
             }
         }
 
