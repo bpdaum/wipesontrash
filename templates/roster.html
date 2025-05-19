@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
+<html lang="en" class=""> <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ guild_name }} - Roster</title>
@@ -10,123 +9,229 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" xintegrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
-        /* Base styles */
-        body { font-family: 'Inter', sans-serif; background-color: #f7fafc; /* gray-100 */ }
+        /* Base Variables for Theming (Consistent across pages) */
+        :root {
+            --color-bg-primary: #f7fafc;      /* Tailwind gray-100 */
+            --color-bg-secondary: #ffffff;    /* white */
+            --color-bg-tertiary: #f7fafc;     /* gray-100 for table headers, etc. */
+            --color-bg-hover: #edf2f7;        /* gray-200 for hover states */
+            --color-text-primary: #1a202c;    /* gray-900 */
+            --color-text-secondary: #4a5568;  /* gray-700 */
+            --color-text-muted: #a0aec0;      /* gray-500 for N/A, sort arrows */
+            --color-text-link: #2b6cb0;       /* blue-700 */
+            --color-text-link-hover: #2c5282; /* blue-800 */
+            --color-border-primary: #e2e8f0;  /* gray-300 */
+            --color-border-secondary: #cbd5e0;/* gray-400 for input borders */
+            --color-nav-bg: #6B1A51;
+            --color-nav-text: #ffffff;
+            --color-nav-hover-bg: #561541;
+            --color-button-save-bg: #38a169;    /* green-600 */
+            --color-button-save-text: #ffffff;
+            --color-button-save-border: #2f855a; /* green-700 */
+            --color-button-cancel-bg: #e53e3e;  /* red-600 */
+            --color-button-cancel-text: #ffffff;
+            --color-button-cancel-border: #c53030;/* red-700 */
+            --color-error-bg: #fed7d7;        /* red-200 */
+            --color-error-border: #f56565;    /* red-500 */
+            --color-error-text: #c53030;      /* red-700 */
+        }
+
+        html.dark {
+            --color-bg-primary: #1a202c;      /* gray-900 */
+            --color-bg-secondary: #2d3748;    /* gray-800 */
+            --color-bg-tertiary: #2d3748;     /* gray-800 for table headers */
+            --color-bg-hover: #4a5568;        /* gray-700 for hover */
+            --color-text-primary: #f7fafc;    /* gray-100 */
+            --color-text-secondary: #a0aec0;  /* gray-500 */
+            --color-text-muted: #718096;      /* gray-600 */
+            --color-text-link: #63b3ed;       /* blue-400 */
+            --color-text-link-hover: #90cdf4; /* blue-300 */
+            --color-border-primary: #4a5568;  /* gray-700 */
+            --color-border-secondary: #718096;/* gray-600 for input borders */
+            --color-nav-bg: #4A0E35;
+            --color-nav-text: #e2e8f0;
+            --color-nav-hover-bg: #380B28;
+            --color-button-save-bg: #2f855a;    /* green-700 */
+            --color-button-save-border: #276749; /* green-800 */
+            --color-button-cancel-bg: #c53030;  /* red-700 */
+            --color-button-cancel-border: #9b2c2c;/* red-800 */
+            --color-error-bg: #4a2427;        /* Dark red */
+            --color-error-border: #c53030;    /* red-700 */
+            --color-error-text: #fbd5d5;      /* Light red */
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--color-bg-primary);
+            color: var(--color-text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        /* Navbar Styling */
+        .navbar {
+            background-color: var(--color-nav-bg);
+            color: var(--color-nav-text);
+        }
+        .nav-link {
+            color: var(--color-nav-text);
+        }
+        .nav-link:hover, .nav-link-active {
+            background-color: var(--color-nav-hover-bg);
+        }
+        .dark-mode-toggle:hover {
+             background-color: var(--color-nav-hover-bg);
+        }
+
+        /* Main Content Card */
+        .content-card {
+            background-color: var(--color-bg-secondary);
+            border: 1px solid var(--color-border-primary);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+         .content-card h2, .content-card .filter-toggle-label {
+             color: var(--color-text-primary);
+        }
+        .content-card .text-gray-500 { /* For load duration text */
+            color: var(--color-text-muted);
+        }
+
+
+        /* Table Styling */
         th {
-            text-align: left; padding: 0.5rem 0.75rem; background-color: #f7fafc; /* gray-100 */
-            border-bottom: 2px solid #e2e8f0; /* gray-300 */ font-weight: 600; /* Semibold */
+            text-align: left; padding: 0.5rem 0.75rem; 
+            background-color: var(--color-bg-tertiary);
+            border-bottom: 2px solid var(--color-border-primary); 
+            font-weight: 600;
             white-space: nowrap;
+            color: var(--color-text-primary);
         }
-        /* Clickable sortable headers */
         th.sortable { cursor: pointer; position: relative; }
-        th.sortable:hover { background-color: #edf2f7; /* gray-200 */ }
-        /* Sort arrows */
+        th.sortable:hover { background-color: var(--color-bg-hover); }
+        
         .sort-arrow {
-            font-size: 0.8em; margin-left: 0.3em; color: #a0aec0; /* gray-500 */ position: absolute;
-            right: 0.5rem; top: 50%; transform: translateY(-50%); width: 1em; text-align: center;
+            color: var(--color-text-muted); 
         }
-        .sort-arrow.asc::after { content: '\25B2'; } /* Up arrow ▲ */
-        .sort-arrow.desc::after { content: '\25BC'; } /* Down arrow ▼ */
-        /* Table cell styles */
-        td { padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; /* gray-300 */ vertical-align: middle; }
+        
+        td { 
+            padding: 0.5rem 0.75rem; 
+            border-bottom: 1px solid var(--color-border-primary); 
+            vertical-align: middle; 
+            color: var(--color-text-secondary); /* Default text for cells */
+        }
         tr:last-child td { border-bottom: none; }
-        /* Utility styles */
-        .na-value { color: #a0aec0; /* gray-500 */ font-style: italic; }
-        .armory-link { color: #2b6cb0; /* blue-700 */ text-decoration: none; }
-        .armory-link:hover { color: #2c5282; /* blue-800 */ text-decoration: underline; }
+        
+        .na-value { color: var(--color-text-muted); font-style: italic; }
+        .armory-link { color: var(--color-text-link); text-decoration: none; }
+        .armory-link:hover { color: var(--color-text-link-hover); text-decoration: underline; }
+        
         .role-icon { font-size: 1.1rem; width: 1.5em; text-align: center; display: inline-block; }
-        /* Updated Role Colors */
-        .role-tank { color: #2563eb; } /* blue-600 */
-        .role-healer { color: #16a34a; } /* green-600 */
-        .role-melee-dps { color: #dc2626; } /* red-600 */
-        .role-ranged-dps { color: #f59e0b; } /* amber-500 */
+        .role-tank { color: #2563eb; } 
+        .role-healer { color: #16a34a; } 
+        .role-melee-dps { color: #dc2626; } 
+        .role-ranged-dps { color: #f59e0b; } 
         .role-dps { color: #c53030; } 
-        .role-unknown { color: #a0aec0; } 
+        .role-unknown { color: var(--color-text-muted); } 
 
 
-        /* Styles for Editing (shared for spec and status) */
-        .display-value { display: inline-block; margin-right: 5px;}
+        /* Editing Controls */
+        .display-value { display: inline-block; margin-right: 5px; color: var(--color-text-primary); }
         .edit-btn {
-            cursor: pointer; color: #a0aec0; font-size: 0.8em; vertical-align: middle; display: inline-block;
-            padding: 1px 3px; border-radius: 3px; margin-left: 4px;
+            cursor: pointer; color: var(--color-text-muted); font-size: 0.8em; vertical-align: middle; 
+            display: inline-block; padding: 1px 3px; border-radius: 3px; margin-left: 4px;
         }
-        .edit-btn:hover { color: #4a5568; background-color: #e2e8f0;}
+        .edit-btn:hover { color: var(--color-text-primary); background-color: var(--color-bg-hover);}
         .edit-control { 
-            display: none; padding: 2px 4px; border: 1px solid #cbd5e0; border-radius: 4px;
-            font-size: 0.9em; vertical-align: middle; margin-left: 5px; max-width: 150px;
+            display: none; padding: 2px 4px; border: 1px solid var(--color-border-secondary); 
+            border-radius: 4px; font-size: 0.9em; vertical-align: middle; margin-left: 5px; 
+            max-width: 150px;
+            background-color: var(--color-bg-secondary); /* Input background */
+            color: var(--color-text-primary); /* Input text color */
         }
         .edit-container { display: inline-block; } 
-        .save-btn, .cancel-btn {
-            display: none; margin-left: 5px; padding: 1px 4px; font-size: 0.8em; border-radius: 3px; cursor: pointer;
-            vertical-align: middle; border: 1px solid transparent;
+        .save-btn { 
+            background-color: var(--color-button-save-bg); color: var(--color-button-save-text); 
+            border-color: var(--color-button-save-border);
         }
-        .save-btn { background-color: #38a169; color: white; border-color: #2f855a;}
-        .save-btn:hover { background-color: #2f855a; }
-        .cancel-btn { background-color: #e53e3e; color: white; border-color: #c53030;}
-        .cancel-btn:hover { background-color: #c53030; }
-        .update-status { font-size: 0.8em; margin-left: 5px; font-style: italic; color: #4a5568; }
+        .save-btn:hover { filter: brightness(0.9); }
+        .cancel-btn { 
+            background-color: var(--color-button-cancel-bg); color: var(--color-button-cancel-text); 
+            border-color: var(--color-button-cancel-border);
+        }
+        .cancel-btn:hover { filter: brightness(0.9); }
+        .save-btn, .cancel-btn {
+            display: none; margin-left: 5px; padding: 1px 4px; font-size: 0.8em; 
+            border-radius: 3px; cursor: pointer; vertical-align: middle; border-width: 1px;
+        }
+        .update-status { font-size: 0.8em; margin-left: 5px; font-style: italic; color: var(--color-text-secondary); }
 
         /* Status Text Styling */
         .status-wiper { color: #b7791f; font-weight: 500;} /* amber-700 */
+        html.dark .status-wiper { color: #f6e05e; } /* yellow-400 for dark */
         .status-member { color: #38a169; } /* green-600 */
+        html.dark .status-member { color: #68d391; } /* green-400 for dark */
         .status-wiping-alt { color: #718096; } /* gray-600 */
+        html.dark .status-wiping-alt { color: #a0aec0; } /* gray-500 for dark */
 
         /* Filter Toggle Styling */
-        .filter-toggle-label {
-            display: flex;
-            align-items: center;
-            cursor: pointer;
-            font-size: 0.875rem; /* text-sm */
-            color: #4a5563; /* gray-700 */
-        }
         .filter-toggle-label input[type="checkbox"] {
-            appearance: none;
-            -webkit-appearance: none;
-            height: 1.25rem; /* h-5 */
-            width: 1.25rem; /* w-5 */
-            border: 2px solid #cbd5e0; /* border-gray-300 */
-            border-radius: 0.25rem; /* rounded */
-            margin-right: 0.5rem; /* mr-2 */
-            position: relative;
-            outline: none;
+            appearance: none; -webkit-appearance: none; height: 1.25rem; width: 1.25rem; 
+            border: 2px solid var(--color-border-secondary); border-radius: 0.25rem; 
+            margin-right: 0.5rem; position: relative; outline: none;
             transition: background-color 0.2s ease, border-color 0.2s ease;
+            background-color: var(--color-bg-secondary); /* Checkbox background */
         }
         .filter-toggle-label input[type="checkbox"]:checked {
-            background-color: #6B1A51; /* Custom purple */
-            border-color: #6B1A51;
+            background-color: var(--color-nav-bg); /* Use nav color for checked state */
+            border-color: var(--color-nav-bg);
         }
         .filter-toggle-label input[type="checkbox"]:checked::after {
-            content: '\2713'; /* Checkmark */
-            font-size: 0.875rem;
-            color: white;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
+            content: '\2713'; font-size: 0.875rem; color: var(--color-nav-text);
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        }
+        
+        /* Error Message Styling */
+        .error-alert {
+            background-color: var(--color-error-bg);
+            border: 1px solid var(--color-error-border);
+            color: var(--color-error-text);
+        }
+        .error-alert strong {
+            color: var(--color-text-primary); /* Make "Error:" stand out more */
+        }
+        html.dark .error-alert strong {
+             color: var(--color-text-primary);
+        }
+
+
+        /* Footer */
+        .footer-text {
+            color: var(--color-text-muted);
         }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
+<body>
 
-    <nav class="text-white p-4 shadow-md" style="background-color: #6B1A51;">
+    <nav class="navbar p-4 shadow-md">
         <div class="container mx-auto flex flex-wrap justify-between items-center">
             <div class="flex items-center space-x-3 mb-2 sm:mb-0">
                  <img src="{{ url_for('static', filename='images/wot_logo.png') }}"
                       alt="{{ guild_name }} Logo"
-                      class="h-8 w-8 rounded-full border-2 border-white">
+                      class="h-8 w-8 rounded-full border-2 border-white dark:border-gray-300">
                  <h1 class="text-xl font-semibold">{{ guild_name }} Portal</h1>
             </div>
-            <div class="flex space-x-2">
-                <a href="/" class="px-3 py-2 rounded hover:bg-gray-600">Home</a>
-                <a href="/roster" class="px-3 py-2 rounded bg-gray-700 font-medium hover:bg-gray-600">Roster</a>
-                <a href="/raids" class="px-3 py-2 rounded hover:bg-gray-600">Raids</a>
-                <a href="/loot" class="px-3 py-2 rounded hover:bg-gray-600">Loot</a>
+            <div class="flex items-center space-x-2">
+                <a href="/" class="nav-link px-3 py-2 rounded">Home</a>
+                <a href="/roster" class="nav-link px-3 py-2 rounded nav-link-active font-medium">Roster</a>
+                <a href="/raids" class="nav-link px-3 py-2 rounded">Raids</a>
+                <a href="/loot" class="nav-link px-3 py-2 rounded">Loot</a>
+                <button id="darkModeToggle" title="Toggle Dark Mode" class="dark-mode-toggle p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-white">
+                    <i class="fas fa-sun text-yellow-400"></i> <i class="fas fa-moon text-indigo-400 hidden"></i> </button>
             </div>
         </div>
     </nav>
 
     <main class="container mx-auto mt-8 p-4">
-        <div class="bg-white p-6 rounded-lg shadow-lg">
+        <div class="content-card p-6 rounded-lg shadow-lg">
             <div class="flex justify-between items-center mb-4">
                  <h2 class="text-2xl font-bold">Guild Roster</h2>
                  {% if load_duration %}
@@ -137,10 +242,11 @@
             <div class="mb-4">
                 <label for="statusFilter" class="filter-toggle-label">
                     <input type="checkbox" id="statusFilter" checked>
-                    Show Only "Wiper" Status </label>
+                    Show Only "Wiper" Status 
+                </label>
             </div>
             {% if error_message %}
-            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+            <div class="error-alert px-4 py-3 rounded relative mb-4" role="alert">
                 <strong class="font-bold">Error:</strong>
                 <span class="block sm:inline">{{ error_message }}</span>
             </div>
@@ -160,7 +266,9 @@
                             <th class="sortable" data-column-index="6" data-sort-type="string">Status <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="7" data-sort-type="string">Progression <span class="sort-arrow"></span></th>
                             <th class="sortable" data-column-index="8" data-sort-type="number">Attendance <span class="sort-arrow"></span></th>
-                            <th class="sortable" data-column-index="9" data-sort-type="number">Avg Perf <span class="sort-arrow"></span></th> <th class="sortable" data-column-index="10" data-sort-type="number">Rank <span class="sort-arrow"></span></th> </tr>
+                            <th class="sortable" data-column-index="9" data-sort-type="number">Avg Perf <span class="sort-arrow"></span></th>
+                            <th class="sortable" data-column-index="10" data-sort-type="number">Rank <span class="sort-arrow"></span></th>
+                        </tr>
                     </thead>
                     <tbody id="rosterBody">
                         {% for member in members %}
@@ -232,7 +340,8 @@
                                     {{ "%.1f%%" | format(member.raid_attendance_percentage) }}
                                 {% endif %}
                             </td>
-                            <td> {% if member.avg_wcl_performance is none %}
+                            <td> 
+                                {% if member.avg_wcl_performance is none %}
                                     <span class="na-value">N/A</span>
                                 {% else %}
                                     {{ "%.2f" | format(member.avg_wcl_performance) }}
@@ -245,19 +354,52 @@
                 </table>
             </div>
             {% elif not error_message %}
-            <p>No active members found matching rank (<= 4) and item level (>= 600) in the database.</p>
+            <p class="text-secondary">No active members found matching rank (<= 4) and item level (>= 600) in the database.</p>
             {% endif %}
         </div>
     </main>
 
-    <footer class="text-center text-gray-500 mt-8 pb-4">
+    <footer class="text-center footer-text mt-8 pb-4">
         &copy; {{ guild_name }} - {{ current_year }}
     </footer>
 
     <script>
-        const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
+        // Dark Mode Toggle Script (Consistent across pages)
+        document.addEventListener('DOMContentLoaded', function () {
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const htmlElement = document.documentElement; 
+            const sunIcon = darkModeToggle.querySelector('.fa-sun');
+            const moonIcon = darkModeToggle.querySelector('.fa-moon');
 
-        // --- Role Determination Logic ---
+            function applyTheme(isDark) {
+                if (isDark) {
+                    htmlElement.classList.add('dark');
+                    sunIcon.classList.add('hidden');
+                    moonIcon.classList.remove('hidden');
+                } else {
+                    htmlElement.classList.remove('dark');
+                    sunIcon.classList.remove('hidden');
+                    moonIcon.classList.add('hidden');
+                }
+            }
+
+            let currentTheme = localStorage.getItem('theme');
+            if (currentTheme) {
+                applyTheme(currentTheme === 'dark');
+            } else {
+                applyTheme(false); 
+                localStorage.setItem('theme', 'light');
+            }
+
+            darkModeToggle.addEventListener('click', () => {
+                const isDarkMode = htmlElement.classList.contains('dark');
+                applyTheme(!isDarkMode);
+                localStorage.setItem('theme', !isDarkMode ? 'dark' : 'light');
+            });
+        });
+
+        // Roster Page Specific JavaScript
+        const allSpecsByClass = JSON.parse('{{ all_specs_by_class | safe }}' || '{}');
         const tankSpecs = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"];
         const healerSpecs = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"];
         const meleeDpsSpecs = {
@@ -272,10 +414,7 @@
         };
 
         function getRoleFromSpec(specName, className) {
-            // console.log("[JS getRoleFromSpec] Input - Spec:", specName, "Class:", className);
-            if (!specName || specName === 'N/A') {
-                return 'Unknown';
-            }
+            if (!specName || specName === 'N/A') return 'Unknown';
             if (tankSpecs.includes(specName)) return 'Tank';
             if (healerSpecs.includes(specName)) return 'Healer';
             if (className && meleeDpsSpecs[className] && meleeDpsSpecs[className].includes(specName)) return 'Melee DPS';
@@ -284,22 +423,18 @@
             return 'Unknown';
         }
 
-        // --- UI Update Functions ---
         function updateRoleIcon(tableRow, newRole) {
             const roleCell = tableRow.querySelector('.role-cell');
-            if (!roleCell) { console.error("Role cell not found for row", tableRow); return; }
+            if (!roleCell) return;
             const icon = roleCell.querySelector('i');
-            if (!icon) { console.error("Icon element not found in role cell", roleCell); return; }
-
+            if (!icon) return;
             let iconClass = 'fa-question', colorClass = 'role-unknown', title = 'Unknown/N/A';
             const roleLower = newRole ? newRole.toLowerCase() : 'unknown';
-
             if (roleLower === 'melee dps') { iconClass = 'fa-gavel'; colorClass = 'role-melee-dps'; title = 'Melee DPS'; }
             else if (roleLower === 'ranged dps') { iconClass = 'fa-wand-sparkles'; colorClass = 'role-ranged-dps'; title = 'Ranged DPS'; }
             else if (roleLower === 'healer') { iconClass = 'fa-briefcase-medical'; colorClass = 'role-healer'; title = 'Healer'; }
             else if (roleLower === 'tank') { iconClass = 'fa-shield-halved'; colorClass = 'role-tank'; title = 'Tank'; }
             else if (roleLower === 'dps') { iconClass = 'fa-khanda'; colorClass = 'role-dps'; title = 'DPS'; }
-
             icon.className = `role-icon fa-solid ${iconClass} ${colorClass}`; 
             icon.setAttribute('title', title);
         }
@@ -307,24 +442,21 @@
         function updateStatusDisplay(displaySpan, newStatus) { 
              const innerSpan = displaySpan.querySelector('span');
              if (!innerSpan) return;
-             innerSpan.className = ''; // Clear existing status classes
+             innerSpan.className = ''; 
              if (newStatus) {
-                 const statusClass = 'status-' + newStatus.toLowerCase().replace(/\s+/g, '-'); // e.g., status-wiping-alt
+                 const statusClass = 'status-' + newStatus.toLowerCase().replace(/\s+/g, '-'); 
                  innerSpan.classList.add(statusClass);
              }
              innerSpan.textContent = newStatus || 'Unknown';
         }
 
-
-        // --- Main Script Logic ---
         document.addEventListener('DOMContentLoaded', function() {
             const table = document.getElementById('rosterTable');
             const tableBody = document.getElementById('rosterBody');
-            if (!table || !tableBody) { console.error("Roster table or body not found!"); return; }
+            if (!table || !tableBody) return;
             const headers = table.querySelectorAll('th.sortable');
-            let currentSort = { column: -1, ascending: true }; // Default to no sort
+            let currentSort = { column: -1, ascending: true };
 
-            // Sorting Event Listeners
             headers.forEach(header => { 
                 header.addEventListener('click', function() {
                     const columnIndex = parseInt(this.dataset.columnIndex);
@@ -336,7 +468,6 @@
                 });
             });
 
-            // Editing Event Listeners
             tableBody.addEventListener('click', function(event) { 
                 if (event.target.classList.contains('edit-spec-btn')) { startEdit(event.target, 'spec'); }
                 else if (event.target.classList.contains('spec-save-btn')) { saveEdit(event.target, 'spec'); }
@@ -346,15 +477,12 @@
                 else if (event.target.classList.contains('status-cancel-btn')) { cancelEdit(event.target, 'status'); }
             });
 
-            // Status Filter (renamed from wiperFilter for clarity)
             const statusFilterCheckbox = document.getElementById('statusFilter');
             if (statusFilterCheckbox) {
-                applyStatusFilter(); // Apply on load
+                applyStatusFilter();
                 statusFilterCheckbox.addEventListener('change', applyStatusFilter);
             }
 
-
-            // Generic Editing Functions
             function startEdit(editButton, type) { 
                 const td = editButton.closest('td');
                 const tr = editButton.closest('tr');
@@ -369,21 +497,18 @@
                 if (type === 'spec') {
                     const classId = tr.dataset.classId;
                     const specsForClass = allSpecsByClass[classId] || [];
-                    select.innerHTML = '<option value="">-- Use API Spec --</option>'; // Option to clear override
+                    select.innerHTML = '<option value="">-- Use API Spec --</option>'; 
                     specsForClass.forEach(spec => {
                         const option = document.createElement('option');
                         option.value = spec.name; option.textContent = spec.name;
-                        // Select if it's the current override, or if it's the API spec and no override exists
                         if (currentDisplayedValue === spec.name && !displaySpan.querySelector('.na-value')) { 
                             option.selected = true; 
                         }
                         select.appendChild(option);
                     });
-                     // If currentDisplayedValue is "N/A" or empty (meaning API spec is used and it's N/A, or override is cleared)
                     if (currentDisplayedValue === "N/A" || currentDisplayedValue === "" || displaySpan.querySelector('.na-value')) {
-                        select.value = ""; // Select the "-- Use API Spec --" option
+                        select.value = ""; 
                     }
-
                 } else if (type === 'status') {
                      Array.from(select.options).forEach(option => { option.selected = (option.value === currentDisplayedValue); });
                 }
@@ -409,14 +534,14 @@
                 const select = td.querySelector(`.${type}-select`);
                 const statusSpan = td.querySelector(`.${type}-update-status`);
                 const characterId = tr.dataset.characterId;
-                const selectedValue = select.value; // For spec, "" means clear override
+                const selectedValue = select.value; 
 
                 if (!characterId) { console.error("Character ID not found for save."); return; }
-                statusSpan.textContent = 'Saving...'; statusSpan.style.color = '#4a5568';
+                statusSpan.textContent = 'Saving...'; statusSpan.style.color = 'var(--color-text-secondary)';
                 let endpoint = ''; let payload = {};
                 if (type === 'spec') {
                     endpoint = '/update_spec';
-                    payload = { character_id: parseInt(characterId), spec_name: selectedValue }; // Send selectedValue directly
+                    payload = { character_id: parseInt(characterId), spec_name: selectedValue }; 
                 } else if (type === 'status') {
                     endpoint = '/update_status';
                     payload = { character_id: parseInt(characterId), status: selectedValue };
@@ -435,31 +560,28 @@
                 })
                 .then(data => {
                     if (data.success) {
-                        statusSpan.textContent = 'Saved!'; statusSpan.style.color = 'green';
+                        statusSpan.textContent = 'Saved!'; statusSpan.style.color = 'var(--color-button-save-bg)';
                         const displaySpan = td.querySelector(`.${type}-display`);
                         if (type === 'spec') {
-                            // Use display_spec from server response which correctly reflects override or API spec
                             displaySpan.innerHTML = data.display_spec !== "N/A" ? data.display_spec : '<span class="na-value">N/A</span>';
                             const className = tr.dataset.className; 
                             const newRole = getRoleFromSpec(data.display_spec, className); 
                             updateRoleIcon(tr, newRole);
                         } else if (type === 'status') {
                              updateStatusDisplay(displaySpan, selectedValue);
-                             tr.dataset.status = selectedValue; // Update data-status for filter
-                             applyStatusFilter(); // Re-apply filter if status changed
+                             tr.dataset.status = selectedValue; 
+                             applyStatusFilter(); 
                         }
                         setTimeout(() => { cancelEdit(saveButton, type); statusSpan.textContent = ''; }, 1500);
                     } else { throw new Error(data.message || "Unknown error saving data."); }
                 })
                 .catch(error => {
                     console.error(`Error updating ${type}:`, error);
-                    statusSpan.textContent = `Error: ${error.message}`; statusSpan.style.color = 'red';
+                    statusSpan.textContent = `Error: ${error.message}`; statusSpan.style.color = 'var(--color-error-text)';
                 });
             }
+        }); 
 
-        }); // End DOMContentLoaded
-
-        // --- Sorting Functions ---
         function sortTable(columnIndex, sortType, ascending) { 
             const tableBody = document.getElementById('rosterBody');
              if (!tableBody) return;
@@ -470,13 +592,11 @@
                 if (!cellA || !cellB) return 0;
                 let valueA, valueB;
 
-                // Handle role column specifically by title attribute of the icon
                 if (columnIndex === 2) { 
                     const iconA = cellA.querySelector('i'); const iconB = cellB.querySelector('i');
                     valueA = iconA ? iconA.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                     valueB = iconB ? iconB.getAttribute('title') || 'Unknown/N/A' : 'Unknown/N/A';
                 } else { 
-                    // For other columns, try to get text from display-value or na-value, then fallback to cell's textContent
                     const displayValueA = cellA.querySelector('.display-value span') || cellA.querySelector('.display-value') || cellA.querySelector('.na-value');
                     const displayValueB = cellB.querySelector('.display-value span') || cellB.querySelector('.display-value') || cellB.querySelector('.na-value');
                     valueA = displayValueA ? displayValueA.textContent.trim() : cellA.textContent.trim();
@@ -487,16 +607,15 @@
                 const isValueBNa = valueB === 'N/A' || valueB === 'Unknown/N/A';
 
                 if (sortType === 'number') {
-                    // For N/A values in numeric columns, treat them as -Infinity or Infinity to sort them at ends
                     let numA = isValueANa ? (ascending ? Infinity : -Infinity) : parseFloat(valueA.replace('%',''));
                     let numB = isValueBNa ? (ascending ? Infinity : -Infinity) : parseFloat(valueB.replace('%',''));
-                    if (isNaN(numA)) numA = ascending ? Infinity : -Infinity; // Handle non-numeric strings after N/A check
+                    if (isNaN(numA)) numA = ascending ? Infinity : -Infinity; 
                     if (isNaN(numB)) numB = ascending ? Infinity : -Infinity;
                     return ascending ? numA - numB : numB - numA;
-                } else { // String sort
+                } else { 
                     if (isValueANa && isValueBNa) return 0; 
-                    if (isValueANa) return 1; // N/A always at the end for string sort (ascending)
-                    if (isValueBNa) return -1;
+                    if (isValueANa) return ascending ? 1 : -1; // N/A sorting: at the end if ascending, at the start if descending
+                    if (isValueBNa) return ascending ? -1 : 1;
                     
                     valueA = valueA.toLowerCase(); 
                     valueB = valueB.toLowerCase(); 
@@ -518,25 +637,24 @@
                 }
              });
         }
-        // --- Status Filter Function ---
         function applyStatusFilter() {
             const statusFilterCheckbox = document.getElementById('statusFilter');
             const rosterTableBody = document.getElementById('rosterBody');
             if (!rosterTableBody || !statusFilterCheckbox) return;
             
-            const showOnlyWipers = statusFilterCheckbox.checked; // Assuming 'Wiper' is the target status
+            const showOnlyWipers = statusFilterCheckbox.checked; 
             const rows = rosterTableBody.querySelectorAll('tr');
 
             rows.forEach(row => {
-                const status = row.dataset.status; // Get status from data-attribute
+                const status = row.dataset.status; 
                 if (showOnlyWipers) {
-                    if (status === 'Wiper') { // Check against the specific status
+                    if (status === 'Wiper') { 
                         row.style.display = '';
                     } else {
                         row.style.display = 'none';
                     }
                 } else {
-                    row.style.display = ''; // Show all if filter is off
+                    row.style.display = ''; 
                 }
             });
         }

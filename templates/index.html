@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
+<html lang="en" class=""> <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ guild_name }} - Guild Portal</title>
@@ -8,27 +7,100 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" xintegrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f7fafc; /* gray-100 */ }
+        /* Base Variables for Theming */
+        :root {
+            --color-bg-primary: #f7fafc; /* gray-100 */
+            --color-bg-secondary: #ffffff; /* white */
+            --color-text-primary: #1a202c; /* gray-900 */
+            --color-text-secondary: #4a5568; /* gray-700 */
+            --color-text-muted: #718096; /* gray-600 */
+            --color-border-primary: #e2e8f0; /* gray-300 */
+            --color-nav-bg: #6B1A51; /* Original purple */
+            --color-nav-text: #ffffff;
+            --color-nav-hover-bg: #561541; /* Darker purple for hover */
+            --color-kpi-icon-heroic: #a0aec0; /* gray-500 */
+            --color-kpi-icon-mythic: #9f7aea; /* purple-500 */
+            --color-kpi-value: #1a202c; /* gray-900 */
+            --color-kpi-label: #718096; /* gray-600 */
+        }
+
+        html.dark {
+            --color-bg-primary: #1a202c;    /* gray-900 */
+            --color-bg-secondary: #2d3748;  /* gray-800 */
+            --color-text-primary: #f7fafc;  /* gray-100 */
+            --color-text-secondary: #a0aec0;/* gray-500 */
+            --color-text-muted: #718096;    /* gray-600 */
+            --color-border-primary: #4a5568;/* gray-700 */
+            --color-nav-bg: #4A0E35; /* Darker purple for dark mode nav */
+            --color-nav-text: #e2e8f0; /* Lighter text for dark nav */
+            --color-nav-hover-bg: #380B28;
+            --color-kpi-icon-heroic: #718096; /* Darker gray for dark */
+            --color-kpi-icon-mythic: #b794f4; /* Lighter purple for dark */
+            --color-kpi-value: #f7fafc; /* gray-100 */
+            --color-kpi-label: #a0aec0; /* gray-500 */
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--color-bg-primary);
+            color: var(--color-text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        /* Navbar Styling */
+        .navbar {
+            background-color: var(--color-nav-bg);
+            color: var(--color-nav-text);
+        }
+        .nav-link {
+            color: var(--color-nav-text);
+        }
+        .nav-link:hover, .nav-link-active {
+            background-color: var(--color-nav-hover-bg);
+        }
+        .dark-mode-toggle:hover {
+             background-color: var(--color-nav-hover-bg);
+        }
+
+        /* Card Styling */
+        .content-card {
+            background-color: var(--color-bg-secondary);
+            border: 1px solid var(--color-border-primary);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        .content-card h2 {
+             color: var(--color-text-primary);
+        }
+        .content-card p, .content-card div {
+             color: var(--color-text-secondary);
+        }
+         .content-card .font-semibold {
+            color: var(--color-text-primary); /* Ensure important text stands out */
+        }
+
+
         /* Custom styles for KPI cards */
         .kpi-card {
-            background-color: white;
+            background-color: var(--color-bg-secondary);
             padding: 1.5rem; /* p-6 */
             border-radius: 0.5rem; /* rounded-lg */
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); /* shadow-lg */
             text-align: center;
+            border: 1px solid var(--color-border-primary);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
         }
         .kpi-value {
             font-size: 2.25rem; /* text-4xl */
             font-weight: 700; /* font-bold */
             line-height: 1.2;
-            color: #1a202c; /* gray-900 */
+            color: var(--color-kpi-value);
         }
         .kpi-label {
             margin-top: 0.5rem; /* mt-2 */
             font-size: 0.875rem; /* text-sm */
-            color: #718096; /* gray-600 */
+            color: var(--color-kpi-label);
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
@@ -42,63 +114,67 @@
         .role-healer { color: #2f855a; } /* green-700 */
         .role-tank { color: #2b6cb0; } /* blue-700 */
         /* Progression icon colors */
-        .prog-heroic { color: #a0aec0; } /* gray-500 */
-        .prog-mythic { color: #9f7aea; } /* purple-500 */
+        .prog-heroic { color: var(--color-kpi-icon-heroic); }
+        .prog-mythic { color: var(--color-kpi-icon-mythic); }
+
+        /* Footer */
+        .footer-text {
+            color: var(--color-text-muted);
+        }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
-
-    <nav class="text-white p-4 shadow-md" style="background-color: #6B1A51;">
+<body> <nav class="navbar p-4 shadow-md">
         <div class="container mx-auto flex flex-wrap justify-between items-center">
             <div class="flex items-center space-x-3 mb-2 sm:mb-0">
                  <img src="{{ url_for('static', filename='images/wot_logo.png') }}"
                       alt="{{ guild_name }} Logo"
-                      class="h-8 w-8 rounded-full border-2 border-white">
+                      class="h-8 w-8 rounded-full border-2 border-white dark:border-gray-300">
                  <h1 class="text-xl font-semibold">{{ guild_name }} Portal</h1>
             </div>
-            <div class="flex space-x-2">
-                <a href="/" class="px-3 py-2 rounded bg-gray-700 font-medium hover:bg-gray-600">Home</a>
-                <a href="/roster" class="px-3 py-2 rounded hover:bg-gray-600">Roster</a>
-                <a href="/raids" class="px-3 py-2 rounded hover:bg-gray-600">Raids</a>
-                <a href="/loot" class="px-3 py-2 rounded hover:bg-gray-600">Loot</a>
+            <div class="flex items-center space-x-2">
+                <a href="/" class="nav-link px-3 py-2 rounded nav-link-active font-medium">Home</a>
+                <a href="/roster" class="nav-link px-3 py-2 rounded">Roster</a>
+                <a href="/raids" class="nav-link px-3 py-2 rounded">Raids</a>
+                <a href="/loot" class="nav-link px-3 py-2 rounded">Loot</a>
+                <button id="darkModeToggle" title="Toggle Dark Mode" class="dark-mode-toggle p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-white">
+                    <i class="fas fa-sun text-yellow-400"></i> <i class="fas fa-moon text-indigo-400 hidden"></i> </button>
             </div>
         </div>
     </nav>
 
     <main class="container mx-auto mt-8 p-4 space-y-8">
 
-        <div class="bg-white p-6 rounded-lg shadow-lg">
-            <h2 class="text-2xl font-bold mb-4 text-gray-900">Welcome to the {{ guild_name }} Portal!</h2>
-            <p class="text-gray-700">This is your central hub for guild information, roster management, raid schedules, and more. Check back often for updates!</p>
+        <div class="content-card p-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-bold mb-4">Welcome to the {{ guild_name }} Portal!</h2>
+            <p>This is your central hub for guild information, roster management, raid schedules, and more. Check back often for updates!</p>
         </div>
 
-        <div class="bg-white p-6 rounded-lg shadow-lg">
-            <h2 class="text-2xl font-bold mb-4 text-gray-900">About Us</h2>
-            <div class="space-y-3 text-gray-700">
+        <div class="content-card p-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-bold mb-4">About Us</h2>
+            <div class="space-y-3">
                 <p> <span class="font-semibold">{{ guild_name }}</span> is a casual raiding guild proudly calling <span class="font-medium">Area 52 (US)</span> home. We focus on enjoying the game together while making steady progress through current content. </p>
                 <p> Our main raid nights are <span class="font-medium">Wednesdays and Fridays</span> from <span class="font-medium">8:00 PM to 11:00 PM Central Time (CT)</span>. We also host optional alt raids on Saturdays for those interested. </p>
                 <p> Beyond raiding, many of our members actively push Mythic+ keys throughout the week. Whether you're looking for organized raiding or pushing keys with guildmates, you'll find like-minded players here. </p>
             </div>
         </div>
 
-        <div class="bg-white p-6 rounded-lg shadow-lg text-center">
-            <h2 class="text-2xl font-bold mb-4 text-gray-900">Raid Schedule</h2>
-            <p class="text-xl text-gray-800 font-semibold">
+        <div class="content-card p-6 rounded-lg shadow-lg text-center">
+            <h2 class="text-2xl font-bold mb-4">Raid Schedule</h2>
+            <p class="text-xl font-semibold">
                 Wednesdays & Fridays
             </p>
-            <p class="text-lg text-gray-600">
+            <p class="text-lg">
                 8:00 PM - 11:00 PM CST
             </p>
-             <p class="text-sm text-gray-500 mt-2">
-                (Optional Alt Raid Saturdays)
+             <p class="text-sm mt-2"> (Optional Alt Raid Saturdays)
              </p>
         </div>
-        <div class="bg-white p-6 rounded-lg shadow-lg space-y-6">
-            <h2 class="text-2xl font-bold text-gray-900">Raid Status (Wipers)</h2>
+        <div class="content-card p-6 rounded-lg shadow-lg space-y-6">
+            <h2 class="text-2xl font-bold">Raid Status (Wipers)</h2>
 
             {# Progression Row #}
             <div>
-                <h3 class="text-lg font-semibold mb-4 text-gray-800">Progression</h3>
+                <h3 class="text-lg font-semibold mb-4">Progression</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                      <div class="kpi-card">
                          <div class="kpi-icon prog-heroic"><i class="fas fa-trophy"></i></div>
@@ -115,8 +191,7 @@
 
             {# Current Roster Row #}
             <div>
-                 <h3 class="text-lg font-semibold mb-4 text-gray-800">Current Roster</h3>
-                 {# Grid layout for 4 KPI cards (Tanks, Healers, Melee DPS, Ranged DPS) #}
+                 <h3 class="text-lg font-semibold mb-4">Current Roster</h3>
                  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
                      <div class="kpi-card">
                          <div class="kpi-icon role-tank"><i class="fas fa-shield-halved"></i></div>
@@ -128,9 +203,8 @@
                          <div class="kpi-value">{{ raid_status_counts.Healer | default(0) }}</div>
                          <div class="kpi-label">Healers</div>
                      </div>
-                     {# MODIFIED: Melee DPS Card Icon #}
                      <div class="kpi-card">
-                         <div class="kpi-icon role-melee-dps"><i class="fas fa-gavel"></i></div> {# Changed from fa-swords to fa-gavel #}
+                         <div class="kpi-icon role-melee-dps"><i class="fas fa-gavel"></i></div> 
                          <div class="kpi-value">{{ raid_status_counts['Melee DPS'] | default(0) }}</div>
                          <div class="kpi-label">Melee DPS</div>
                      </div>
@@ -142,11 +216,54 @@
                  </div>
             </div>
         </div>
-        </main>
+    </main>
 
-    <footer class="text-center text-gray-500 mt-8 pb-4">
+    <footer class="text-center footer-text mt-8 pb-4">
         &copy; {{ guild_name }} - {{ current_year }}
     </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const htmlElement = document.documentElement; // Target <html> for 'dark' class
+            const sunIcon = darkModeToggle.querySelector('.fa-sun');
+            const moonIcon = darkModeToggle.querySelector('.fa-moon');
+
+            // Function to apply theme and update icon
+            function applyTheme(isDark) {
+                if (isDark) {
+                    htmlElement.classList.add('dark');
+                    sunIcon.classList.add('hidden');
+                    moonIcon.classList.remove('hidden');
+                } else {
+                    htmlElement.classList.remove('dark');
+                    sunIcon.classList.remove('hidden');
+                    moonIcon.classList.add('hidden');
+                }
+            }
+
+            // Load saved theme from localStorage or use system preference
+            let currentTheme = localStorage.getItem('theme');
+            if (currentTheme) {
+                applyTheme(currentTheme === 'dark');
+            } else {
+                // Optional: Check system preference if no theme is saved
+                // const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                // applyTheme(prefersDark);
+                // localStorage.setItem('theme', prefersDark ? 'dark' : 'light'); 
+                // For now, default to light if nothing is set
+                applyTheme(false); 
+                localStorage.setItem('theme', 'light');
+            }
+
+            // Event listener for the toggle button
+            darkModeToggle.addEventListener('click', () => {
+                const isDarkMode = htmlElement.classList.contains('dark');
+                applyTheme(!isDarkMode);
+                localStorage.setItem('theme', !isDarkMode ? 'dark' : 'light');
+            });
+        });
+    </script>
 
 </body>
 </html>
