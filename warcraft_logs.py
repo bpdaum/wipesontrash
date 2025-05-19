@@ -39,9 +39,8 @@ except Exception as e:
      exit(1)
 
 # --- Database Models ---
-# Define all models that this script interacts with or that are related for schema integrity
-
-class PlayableClass(Base): # Needed for Character relationship
+# Ensure these definitions are consistent with other scripts if they share the same database.
+class PlayableClass(Base): 
     __tablename__ = 'playable_class'
     id = Column(Integer, primary_key=True)
     name = Column(String(50), unique=True, nullable=False)
@@ -51,18 +50,18 @@ class Character(Base):
     __tablename__ = 'character'
     id = Column(Integer, primary_key=True) # Blizzard Character ID
     name = Column(String(100), nullable=False)
-    realm_slug = Column(String(100), nullable=False) # For matching with Blizzard API data if needed
-    class_id = Column(Integer, ForeignKey('playable_class.id')) # For linking to PlayableClass
-    class_name = Column(String(50)) # Populated by update_roster_data.py
-    # Add other fields if needed for context, but this script primarily updates WCL fields
+    realm_slug = Column(String(100), nullable=False) 
+    class_id = Column(Integer, ForeignKey('playable_class.id')) 
+    class_name = Column(String(50)) 
     raid_attendance_percentage = Column(Float, default=0.0, nullable=True)
     avg_wcl_performance = Column(Float, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True) # Assuming soft delete model
 
     attendances = relationship("WCLAttendance", back_populates="character", cascade="all, delete-orphan")
     performances = relationship("WCLPerformance", back_populates="character", cascade="all, delete-orphan")
     playable_class = relationship("PlayableClass", back_populates="characters")
 
-    __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), ) # Ensure this matches other scripts
+    __table_args__ = ( UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'), ) 
     def __repr__(self): return f'<Character DB ID: {self.id} Name: {self.name}>'
 
 
@@ -96,7 +95,7 @@ class WCLPerformance(Base):
     encounter_id = Column(Integer, nullable=False)
     encounter_name = Column(String(100))
     spec_name = Column(String(50))
-    metric = Column(String(20))
+    metric = Column(String(20)) # Ensure this matches your unique constraint if it includes metric
     rank_percentile = Column(Float)
     report = relationship("WCLReport", back_populates="performances")
     character = relationship("Character", back_populates="performances")
@@ -106,13 +105,7 @@ class WCLPerformance(Base):
 
 # --- Configuration Loading ---
 WCL_GUILD_ID = os.environ.get('WCL_GUILD_ID')
-# REGION is used by helper_functions if it makes Blizzard API calls (not directly by this script's WCL part)
-REGION = os.environ.get('REGION', 'us').lower()
-
-
-# --- Warcraft Logs API Endpoints (already in helper_functions but good to have here for context) ---
-# WCL_TOKEN_URL = "https://www.warcraftlogs.com/oauth/token"
-# WCL_API_ENDPOINT = "https://www.warcraftlogs.com/api/v2/client"
+REGION = os.environ.get('REGION', 'us').lower() # Used by helper_functions if it makes Blizzard API calls
 
 # --- Timezone ---
 CENTRAL_TZ = pytz.timezone('America/Chicago')
@@ -120,11 +113,7 @@ CENTRAL_TZ = pytz.timezone('America/Chicago')
 
 # --- WCL Data Fetching Functions ---
 
-def fetch_wcl_guild_reports_for_processing(limit=50): # Fetch more to ensure we find 8 valid ones
-    """
-    Fetches recent raid reports for the guild from WCL API,
-    filters for the last 8 raid nights on Wed/Fri in Central Time that are for "Liberation of Undermine".
-    """
+def fetch_wcl_guild_reports_for_processing(limit=50):
     if not WCL_GUILD_ID:
         print("Error: WCL_GUILD_ID not set.", flush=True)
         return None
@@ -134,7 +123,7 @@ def fetch_wcl_guild_reports_for_processing(limit=50): # Fetch more to ensure we 
         print(f"Error: WCL_GUILD_ID '{WCL_GUILD_ID}' is not valid.", flush=True)
         return None
 
-    access_token = get_wcl_access_token() # From helper_functions
+    access_token = get_wcl_access_token() 
     if not access_token: return None
 
     query = f"""
@@ -154,8 +143,8 @@ def fetch_wcl_guild_reports_for_processing(limit=50): # Fetch more to ensure we 
     }}
     """
     headers = {"Authorization": f"Bearer {access_token}"}
-    # Using WCL_API_ENDPOINT from helper_functions
-    data = make_api_request(os.environ.get("WCL_API_ENDPOINT", "https://www.warcraftlogs.com/api/v2/client"), params=None, headers=headers, is_wcl=True, wcl_query=query)
+    wcl_api_v2_client = os.environ.get("WCL_API_ENDPOINT", "https://www.warcraftlogs.com/api/v2/client")
+    data = make_api_request(wcl_api_v2_client, params=None, headers=headers, is_wcl=True, wcl_query=query)
 
 
     if not data or not data.get('data', {}).get('reportData', {}).get('reports', {}).get('data'):
@@ -168,7 +157,7 @@ def fetch_wcl_guild_reports_for_processing(limit=50): # Fetch more to ensure we 
 
     filtered_reports = []
     all_reports.sort(key=lambda r: r.get('startTime', 0), reverse=True)
-    target_raid_name_wcl = "Liberation of Undermine"
+    target_raid_name_wcl = "Liberation of Undermine" # Ensure this matches zone name in WCL
 
     for report in all_reports:
         if not report:
@@ -183,7 +172,7 @@ def fetch_wcl_guild_reports_for_processing(limit=50): # Fetch more to ensure we 
         utc_dt = datetime.fromtimestamp(start_time_ms / 1000, tz=pytz.utc)
         ct_dt = utc_dt.astimezone(CENTRAL_TZ)
 
-        is_raid_day = ct_dt.weekday() == 2 or ct_dt.weekday() == 4 # Wednesday or Friday
+        is_raid_day = ct_dt.weekday() == 2 or ct_dt.weekday() == 4 # Wednesday (2) or Friday (4)
         is_target_raid = target_raid_name_wcl.lower() in zone_name.lower()
 
         if is_raid_day and is_target_raid:
@@ -191,18 +180,19 @@ def fetch_wcl_guild_reports_for_processing(limit=50): # Fetch more to ensure we 
              report['end_time_dt'] = datetime.fromtimestamp(report.get('endTime', 0) / 1000, tz=pytz.utc) if report.get('endTime') else None
              filtered_reports.append(report)
              print(f"  -> Keeping Report: {report['code']} - {report['title']} (Zone: {zone_name}, Started: {ct_dt.strftime('%Y-%m-%d %H:%M %Z')})", flush=True)
-             if len(filtered_reports) == 8:
-                 break
-    print(f"Filtered down to {len(filtered_reports)} relevant Wed/Fri WCL reports for '{target_raid_name_wcl}'.", flush=True)
-    return filtered_reports
+             if len(filtered_reports) >= 8: # Get at least 8, can be more if multiple on same day
+                 break # Or adjust logic if exactly 8 most recent nights are needed
+    print(f"Filtered down to {len(filtered_reports)} relevant Wed/Fri WCL reports for '{target_raid_name_wcl}'. Taking up to 8.", flush=True)
+    return filtered_reports[:8] # Ensure we only process up to 8
 
 
 def fetch_wcl_report_data_for_processing(report_code, metric="dps"):
     """Fetches player actors (for attendance) and rankings for a specific WCL report."""
     if not report_code: return None
-    access_token = get_wcl_access_token() # From helper_functions
+    access_token = get_wcl_access_token() 
     if not access_token: return None
 
+    # *** CORRECTED GraphQL Query ***
     query = f"""
     query ReportDetails($reportCode: String!) {{
       reportData {{
@@ -214,16 +204,18 @@ def fetch_wcl_report_data_for_processing(report_code, metric="dps"):
               server
             }}
           }}
-          rankings(playerMetric: {metric}, compare: Parses) {{
-            # This field returns a JSON string, so no sub-selection here.
-          }}
+          rankings(playerMetric: {metric}, compare: Parses) 
+          # Removed {{}} from rankings as it's a scalar returning a JSON string.
+          # The comment below was a good hint!
+          # This field returns a JSON string, so no sub-selection here.
         }}
       }}
     }}
     """
     graphql_variables = {"reportCode": report_code}
     headers = {"Authorization": f"Bearer {access_token}"}
-    data = make_api_request(os.environ.get("WCL_API_ENDPOINT", "https://www.warcraftlogs.com/api/v2/client"), params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables)
+    wcl_api_v2_client = os.environ.get("WCL_API_ENDPOINT", "https://www.warcraftlogs.com/api/v2/client")
+    data = make_api_request(wcl_api_v2_client, params=None, headers=headers, is_wcl=True, wcl_query=query, wcl_variables=graphql_variables)
 
     actors = None
     parsed_rankings_data = None
@@ -233,14 +225,14 @@ def fetch_wcl_report_data_for_processing(report_code, metric="dps"):
         if report_content.get('masterData', {}).get('actors'):
             actors = report_content['masterData']['actors']
         
-        rankings_json_string = report_content.get('rankings') # This is a JSON string
+        rankings_json_string = report_content.get('rankings') 
         if rankings_json_string:
             try:
-                parsed_rankings = json.loads(rankings_json_string) # Parse the string
+                parsed_rankings = json.loads(rankings_json_string) 
                 if parsed_rankings and isinstance(parsed_rankings, dict) and parsed_rankings.get('data'):
                     parsed_rankings_data = parsed_rankings['data']
                 else:
-                    print(f"WCL Rankings data for report {report_code} is not in expected format after parsing JSON.", flush=True)
+                    print(f"WCL Rankings data for report {report_code} is not in expected format after parsing JSON. Data: {parsed_rankings}", flush=True)
             except json.JSONDecodeError as je:
                 print(f"Error decoding WCL rankings JSON for report {report_code}: {je}", flush=True)
                 print(f"Rankings JSON string was: {rankings_json_string}", flush=True)
@@ -255,67 +247,54 @@ def fetch_wcl_report_data_for_processing(report_code, metric="dps"):
 
 # --- Main Processing Function ---
 def process_and_store_wcl_data():
+    start_time = time.time() # *** Initialize start_time HERE ***
     print("Starting WCL data processing and storage...", flush=True)
     db_session = SessionLocal()
 
     try:
-        # Clear WCL-specific tables before inserting new data for the processed reports
         print("Clearing WCL-specific tables (WCLPerformance, WCLAttendance, WCLReport)...", flush=True)
-        # We need to be careful here. If we only fetch 8 reports, we should only clear data related to those 8.
-        # For simplicity now, and because we re-fetch the latest 8, let's clear all.
-        # A more advanced approach would be to only delete records for reports being reprocessed.
+        # This deletes ALL records. Consider if more targeted deletion is needed based on reports being processed.
         db_session.query(WCLPerformance).delete(synchronize_session=False)
         db_session.query(WCLAttendance).delete(synchronize_session=False)
         db_session.query(WCLReport).delete(synchronize_session=False)
         db_session.commit()
         print("WCL-specific tables cleared.", flush=True)
 
-        # Fetch characters from DB to map names to IDs
-        # Only fetch characters that could potentially be in logs (e.g., based on status or if they exist)
-        # For simplicity, fetch all characters that might have their attendance/perf updated.
-        # The update_roster_data.py script is the source of truth for the Character table.
-        # This script *updates* Character records.
-        characters_in_db = db_session.query(Character.id, Character.name, Character.realm_slug).all()
-        if not characters_in_db:
-            print("No characters found in the database. Run update_roster_data.py first.", flush=True)
-            db_session.close()
+        characters_in_db_query = db_session.query(Character.id, Character.name, Character.realm_slug, Character.is_active).filter(Character.is_active == True).all()
+        if not characters_in_db_query:
+            print("No active characters found in the database. Ensure update_roster_data.py has run and characters are active.", flush=True)
+            # db_session.close() # Already in finally
             return
         
-        # Create a map of Name-RealmSlug to Character ID for easier lookup
-        # Note: WCL names might not include realm, so primary matching will be by name.
-        # This could be an issue with duplicate names across realms if your guild has that.
-        char_name_to_id_map = {char.name.lower(): char.id for char in characters_in_db}
-        # More robust mapping might involve realm as well if WCL provides it consistently for actors
-        # char_name_realm_to_id_map = {(char.name.lower(), char.realm_slug.lower()): char.id for char in characters_in_db}
-
-
+        # Using a case-insensitive match for names if WCL names might vary in case
+        char_name_to_id_map = {char.name.lower(): char.id for char in characters_in_db_query}
+        
         wcl_reports_to_process = fetch_wcl_guild_reports_for_processing()
         
         if not wcl_reports_to_process:
             print("No relevant WCL reports found to process.", flush=True)
-            db_session.close()
+            # db_session.close() # Already in finally
             return
 
         wcl_reports_in_db = []
         wcl_attendances_to_insert = []
         wcl_performances_to_insert = []
-        character_attendance_raw_counts = {} # {character_db_id: raw_attendance_count}
-        character_performance_scores = {}    # {character_db_id: [score1, score2, ...]}
+        character_attendance_raw_counts = {} 
+        character_performance_scores = {}    
         
         successfully_processed_wcl_reports_for_attendance = 0
-        successfully_processed_wcl_reports_for_performance = 0
-
+        
         print(f"Processing {len(wcl_reports_to_process)} WCL reports for attendance & performance...", flush=True)
-        for report_data in wcl_reports_to_process:
-            report_code = report_data.get('code')
+        for report_data_api in wcl_reports_to_process: # Renamed to avoid conflict
+            report_code = report_data_api.get('code')
             if not report_code: continue
 
-            new_report = WCLReport(
-                code=report_code, title=report_data.get('title'),
-                start_time=report_data.get('start_time_dt'), end_time=report_data.get('end_time_dt'),
-                owner_name=report_data.get('owner', {}).get('name')
+            new_report_db = WCLReport( # Renamed to avoid conflict
+                code=report_code, title=report_data_api.get('title'),
+                start_time=report_data_api.get('start_time_dt'), end_time=report_data_api.get('end_time_dt'),
+                owner_name=report_data_api.get('owner', {}).get('name')
             )
-            wcl_reports_in_db.append(new_report)
+            wcl_reports_in_db.append(new_report_db)
 
             report_details = fetch_wcl_report_data_for_processing(report_code, metric="dps")
             actors_data = report_details.get("actors")
@@ -326,20 +305,15 @@ def process_and_store_wcl_data():
                 player_names_in_log = {actor.get('name').lower() for actor in actors_data if actor.get('name')}
                 
                 for wcl_player_name_lower in player_names_in_log:
-                    # Attempt to find matching character in our DB
-                    # This simple name match might need refinement if players have alts with same name on different realms
-                    # or if WCL names differ slightly from Blizzard names.
                     matched_char_id = char_name_to_id_map.get(wcl_player_name_lower)
                     if matched_char_id:
                         wcl_attendances_to_insert.append(WCLAttendance(report_code=report_code, character_id=matched_char_id))
                         character_attendance_raw_counts[matched_char_id] = character_attendance_raw_counts.get(matched_char_id, 0) + 1
-                    # else:
-                        # print(f"  Unmatched WCL player for attendance: {wcl_player_name_lower} in report {report_code}", flush=True)
             else:
                 print(f"Warning: Could not get player list for WCL report {report_code} (attendance).", flush=True)
 
             if rankings_data:
-                successfully_processed_wcl_reports_for_performance +=1
+                # successfully_processed_wcl_reports_for_performance +=1 # Not used for calculation, can remove
                 for rank_entry in rankings_data:
                     char_info = rank_entry.get('character', {})
                     wcl_char_name = char_info.get('name')
@@ -356,23 +330,19 @@ def process_and_store_wcl_data():
                             character_performance_scores[matched_char_id].append(percentile)
                             wcl_performances_to_insert.append(WCLPerformance(
                                 report_code=report_code, character_id=matched_char_id,
-                                encounter_id=rank_entry.get('encounter',{}).get('id', 0),
+                                encounter_id=rank_entry.get('encounter',{}).get('id', 0), # Use 0 if no ID
                                 encounter_name=rank_entry.get('encounter',{}).get('name', 'Overall'),
-                                spec_name=rank_entry.get('spec',{}).get('name'), # WCL spec name
+                                spec_name=rank_entry.get('spec',{}).get('name'), 
                                 metric="dps", rank_percentile=percentile
                             ))
-                    # else:
-                        # print(f"  Unmatched WCL player for performance: {wcl_char_name} in report {report_code}", flush=True)
-
             else:
                 print(f"Warning: Could not get rankings for WCL report {report_code}.", flush=True)
-            time.sleep(0.2) # Be respectful to WCL API
+            time.sleep(0.2) 
 
-        # Batch insert WCL data
         if wcl_reports_in_db:
             print(f"\nInserting {len(wcl_reports_in_db)} WCL reports...", flush=True)
             db_session.add_all(wcl_reports_in_db)
-            db_session.commit() # Commit reports first due to FK constraints
+            db_session.commit() 
             print("WCL reports inserted.", flush=True)
         if wcl_attendances_to_insert:
             print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...", flush=True)
@@ -385,21 +355,19 @@ def process_and_store_wcl_data():
             db_session.commit()
             print("WCL performance records inserted.", flush=True)
 
-        # Update Character table with aggregated data
-        if character_attendance_raw_counts:
+        if character_attendance_raw_counts and successfully_processed_wcl_reports_for_attendance > 0:
             print("Updating character attendance percentages...", flush=True)
             update_count = 0
-            if successfully_processed_wcl_reports_for_attendance > 0:
-                for char_id, raw_count in character_attendance_raw_counts.items():
-                    char_to_update = db_session.query(Character).get(char_id)
-                    if char_to_update:
-                        attendance_percentage = round((raw_count / successfully_processed_wcl_reports_for_attendance) * 100, 2)
-                        char_to_update.raid_attendance_percentage = attendance_percentage
-                        update_count += 1
-                db_session.commit()
-                print(f"Updated attendance percentage for {update_count} characters based on {successfully_processed_wcl_reports_for_attendance} successfully processed reports.", flush=True)
-            else:
-                print("No WCL reports were successfully processed for attendance details; cannot calculate attendance percentage.", flush=True)
+            for char_id, raw_count in character_attendance_raw_counts.items():
+                char_to_update = db_session.query(Character).get(char_id) # Fetch by primary key
+                if char_to_update:
+                    attendance_percentage = round((raw_count / successfully_processed_wcl_reports_for_attendance) * 100, 2)
+                    char_to_update.raid_attendance_percentage = attendance_percentage
+                    update_count += 1
+            db_session.commit()
+            print(f"Updated attendance percentage for {update_count} characters based on {successfully_processed_wcl_reports_for_attendance} reports.", flush=True)
+        else:
+            print("No WCL reports successfully processed for attendance details or no attendance data; cannot calculate attendance percentage.", flush=True)
 
         if character_performance_scores:
             print("Updating character average WCL performance...", flush=True)
@@ -418,6 +386,8 @@ def process_and_store_wcl_data():
         db_session.rollback()
     except Exception as e:
         print(f"Error during WCL data processing: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
         db_session.rollback()
     finally:
         db_session.close()
@@ -428,13 +398,6 @@ def process_and_store_wcl_data():
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    # This script is intended to be run separately, e.g., via a scheduler
-    # It assumes that update_roster_data.py has already run and populated the Character table.
-    # It also assumes populate_item_db.py has run to create PlayableClass, PlayableSpec tables.
-    
-    # Ensure all tables are created if they don't exist (idempotent)
-    # This is important if this script is run before update_roster_data.py has a chance to create all tables
-    # or if a table was manually dropped.
     print("Ensuring all database tables exist (as defined in this script's models)...", flush=True)
     Base.metadata.create_all(engine, checkfirst=True)
     print("Database tables verified/created.", flush=True)
