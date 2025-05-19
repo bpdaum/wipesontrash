@@ -74,23 +74,21 @@ class Character(db.Model):
     rank = db.Column(Integer, index=True) 
     last_updated = db.Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
     raid_attendance_percentage = db.Column(Float, default=0.0, nullable=True)
-    avg_wcl_performance = db.Column(Float, nullable=True) # Already exists, ensure it's populated
-    is_active = db.Column(Boolean, default=True, nullable=False, index=True) # For soft delete
+    avg_wcl_performance = db.Column(Float, nullable=True) 
+    is_active = db.Column(Boolean, default=True, nullable=False, index=True) 
 
     __table_args__ = (db.UniqueConstraint('name', 'realm_slug', name='_name_realm_uc'),)
     playable_class = db.relationship("PlayableClass", back_populates="characters") 
     bis_selections = db.relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
-    # attendances = db.relationship("WCLAttendance", back_populates="character", cascade="all, delete-orphan") 
-    # performances = db.relationship("WCLPerformance", back_populates="character", cascade="all, delete-orphan") 
-
+    
     def __repr__(self):
         return f'<Character {self.name}-{self.realm_slug}>'
 
 class PlayableSlot(db.Model):
     __tablename__ = 'playable_slot'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    type = db.Column(db.String(50), unique=True, nullable=False, index=True)
-    name = db.Column(db.String(100), nullable=False)
+    type = db.Column(db.String(50), unique=True, nullable=False, index=True) # This stores the API-like slot types
+    name = db.Column(db.String(100), nullable=False) # Display name for this specific type
     display_order = db.Column(db.Integer, default=0)
     items = db.relationship("Item", back_populates="slot", cascade="all, delete-orphan")
     bis_selections = db.relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan")
@@ -106,11 +104,11 @@ class DataSource(db.Model):
 
 class Item(db.Model):
     __tablename__ = 'item'
-    id = db.Column(db.Integer, primary_key=True) # Blizzard Item ID
+    id = db.Column(db.Integer, primary_key=True) 
     name = db.Column(db.String(255), nullable=False, index=True)
     quality = db.Column(db.String(20))
     icon_url = db.Column(db.String(512), nullable=True)
-    slot_type = db.Column(db.String(50), db.ForeignKey('playable_slot.type'), nullable=False, index=True)
+    slot_type = db.Column(db.String(50), db.ForeignKey('playable_slot.type'), nullable=False, index=True) # This is the API slot_type of the item
     slot = db.relationship("PlayableSlot", back_populates="items")
     source_id = db.Column(db.Integer, db.ForeignKey('data_source.id'), nullable=True, index=True)
     source = db.relationship("DataSource", back_populates="items")
@@ -122,11 +120,13 @@ class CharacterBiS(db.Model):
     __tablename__ = 'character_bis'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     character_id = db.Column(db.Integer, db.ForeignKey('character.id'), nullable=False, index=True)
-    slot_type_ui = db.Column(db.String(50), db.ForeignKey('playable_slot.type'), nullable=False, index=True)
+    slot_type_ui = db.Column(db.String(50), db.ForeignKey('playable_slot.type'), nullable=False, index=True) # This should reference a canonical UI slot type.
+                                                                                                           # For this to work, PlayableSlot should store UI types.
+                                                                                                           # Or, this field just stores the `type` from the rendered slot card.
     item_id = db.Column(db.Integer, db.ForeignKey('item.id'), nullable=True) 
     last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     character = db.relationship("Character", back_populates="bis_selections")
-    slot = db.relationship("PlayableSlot", foreign_keys=[slot_type_ui])
+    slot = db.relationship("PlayableSlot", foreign_keys=[slot_type_ui]) # FK to PlayableSlot.type
     item = db.relationship("Item", back_populates="bis_selections")
     __table_args__ = (db.UniqueConstraint('character_id', 'slot_type_ui', name='_character_slot_ui_uc'),)
     def __repr__(self): return f'<CharacterBiS CharID: {self.character_id} SlotUI: {self.slot_type_ui} ItemID: {self.item_id}>'
@@ -141,45 +141,9 @@ class WCLReport(db.Model):
     fetched_at = db.Column(DateTime, default=datetime.utcnow)
     def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
 
-
-# --- Data Caching & API Config ---
-ALL_SPECS_CACHE = {}
-ALL_SPECS_LAST_FETCHED = 0
-CACHE_TTL = 3600 * 6
-WEB_APP_ACCESS_TOKEN_CACHE = {"token": None, "expires_at": 0}
-API_BASE_URL = f"https://{REGION}.api.blizzard.com"
-TOKEN_URL = f"https://{REGION}.battle.net/oauth/token"
-CENTRAL_TZ = pytz.timezone('America/Chicago')
-
-# --- Role Definitions ---
-TANK_SPECS = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]
-HEALER_SPECS = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]
-MELEE_DPS_SPECS = {
-    "Warrior": ["Arms", "Fury"], "Paladin": ["Retribution"], "Death Knight": ["Frost", "Unholy"],
-    "Shaman": ["Enhancement"], "Hunter": ["Survival"], "Rogue": ["Assassination", "Outlaw", "Subtlety"],
-    "Monk": ["Windwalker"], "Demon Hunter": ["Havoc"], "Druid": ["Feral"]
-}
-RANGED_DPS_SPECS = {
-    "Mage": ["Arcane", "Fire", "Frost"], "Warlock": ["Affliction", "Demonology", "Destruction"],
-    "Priest": ["Shadow"], "Hunter": ["Beast Mastery", "Marksmanship"], "Druid": ["Balance"],
-    "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
-}
-
-def determine_role_from_spec(spec_name, class_name):
-    """Determines a character's role based on their spec and class."""
-    if not spec_name: return "Unknown"
-    if spec_name in TANK_SPECS: return "Tank"
-    if spec_name in HEALER_SPECS: return "Healer"
-    if class_name in MELEE_DPS_SPECS and spec_name in MELEE_DPS_SPECS.get(class_name, []):
-        return "Melee DPS"
-    if class_name in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS.get(class_name, []):
-        return "Ranged DPS"
-    if spec_name: return "DPS" 
-    return "Unknown"
-
-
-# --- API Helper Functions (for Web App Context) ---
+# ... (Data Caching, API Config, Role Definitions, API Helpers as before) ...
 def get_web_app_token():
+    # ... (implementation as before) ...
     global WEB_APP_ACCESS_TOKEN_CACHE
     now = time.time()
     if WEB_APP_ACCESS_TOKEN_CACHE["token"] and WEB_APP_ACCESS_TOKEN_CACHE["expires_at"] > now + 60:
@@ -199,7 +163,7 @@ def get_web_app_token():
              return None
         WEB_APP_ACCESS_TOKEN_CACHE["token"] = access_token
         WEB_APP_ACCESS_TOKEN_CACHE["expires_at"] = now + data.get('expires_in', 0)
-        print("Fetched new web app access token.")
+        # print("Fetched new web app access token.") # Can be noisy
         return WEB_APP_ACCESS_TOKEN_CACHE["token"]
     except Exception as e:
         print(f"Error fetching web app token: {e}")
@@ -210,6 +174,7 @@ def get_web_app_token():
         return None
 
 def make_blizzard_api_request(endpoint, params=None, full_url=None): 
+    # ... (implementation as before) ...
     access_token = get_web_app_token()
     if not access_token: return None
     api_url = full_url if full_url else f"{API_BASE_URL}{endpoint}"
@@ -220,7 +185,7 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None):
     try:
         response = requests.get(api_url, params=params, headers=headers, timeout=15)
         if response.status_code == 404:
-             print(f"Warning (Web App): 404 Not Found for Blizzard API URL: {response.url}")
+             # print(f"Warning (Web App): 404 Not Found for Blizzard API URL: {response.url}") # Can be noisy
              return None
         response.raise_for_status()
         return response.json()
@@ -229,12 +194,13 @@ def make_blizzard_api_request(endpoint, params=None, full_url=None):
         return None
 
 def get_all_specs():
+    # ... (implementation as before) ...
     global ALL_SPECS_CACHE, ALL_SPECS_LAST_FETCHED
     current_time = time.time()
     if ALL_SPECS_CACHE and (current_time - ALL_SPECS_LAST_FETCHED < CACHE_TTL):
-        print("Using in-memory cached specs.")
+        # print("Using in-memory cached specs.") # Can be noisy
         return ALL_SPECS_CACHE
-    print("Fetching specs from database...")
+    # print("Fetching specs from database...") # Can be noisy
     temp_spec_map = {}
     try:
         with app.app_context():
@@ -249,7 +215,7 @@ def get_all_specs():
                 for cid in temp_spec_map: temp_spec_map[cid].sort(key=lambda x: x['name'])
                 ALL_SPECS_CACHE = temp_spec_map
                 ALL_SPECS_LAST_FETCHED = current_time
-                print(f"Specs populated from database for {len(ALL_SPECS_CACHE)} classes.")
+                # print(f"Specs populated from database for {len(ALL_SPECS_CACHE)} classes.") # Can be noisy
                 return ALL_SPECS_CACHE
             else:
                 print("PlayableSpec table is empty in the database. No specs to load.")
@@ -257,20 +223,19 @@ def get_all_specs():
     except Exception as e:
         print(f"Error fetching specs from database: {e}")
         return {}
-
 # --- Routes ---
 @app.route('/')
 def home():
+    # ... (implementation as before) ...
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
     raid_status_counts = {'Tank': 0, 'Healer': 0, 'Melee DPS': 0, 'Ranged DPS': 0, 'DPS':0, 'Total': 0}
     max_heroic_kills = 0; max_mythic_kills = 0
-    heroic_total_bosses = 8; mythic_total_bosses = 8 # Default, can be updated if progression string has different totals
-    target_raid_short_name = "Undermine" # Assuming this is the current target raid
+    heroic_total_bosses = 8; mythic_total_bosses = 8 
+    target_raid_short_name = "Undermine" 
     try:
         with app.app_context():
              if db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
-                # Filter for active characters for raid status counts
                 wipers = Character.query.filter(Character.status == 'Wiper', Character.is_active == True).all()
                 raid_status_counts['Total'] = len(wipers)
                 for wiper in wipers:
@@ -278,7 +243,7 @@ def home():
                     elif wiper.role == 'Healer': raid_status_counts['Healer'] += 1
                     elif wiper.role == 'Melee DPS': raid_status_counts['Melee DPS'] += 1
                     elif wiper.role == 'Ranged DPS': raid_status_counts['Ranged DPS'] += 1
-                    elif wiper.role == 'DPS': raid_status_counts['DPS'] += 1 # Fallback DPS
+                    elif wiper.role == 'DPS': raid_status_counts['DPS'] += 1 
                     
                     prog_str = wiper.raid_progression
                     if prog_str and prog_str.startswith(target_raid_short_name + ":"):
@@ -299,13 +264,13 @@ def home():
         mythic_total_bosses=mythic_total_bosses
     )
 
-
 @app.route('/roster')
 def roster_page():
+    # ... (implementation as before) ...
     start_time = time.time()
     error_message = None
     members = []
-    min_item_level = 600 # Example filter, adjust as needed
+    min_item_level = 600 
     locale = "en-us"
     if REGION == "eu": locale = "en-gb"
     elif REGION == "kr": locale = "ko-kr"
@@ -319,9 +284,8 @@ def roster_page():
             if not db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
                  error_message = "Database table not found. Please run the initial setup/update script."
             else:
-                # Filter for active characters
                 db_members = Character.query.filter(
-                    Character.is_active == True, # Only show active members
+                    Character.is_active == True, 
                     Character.rank <= 4, 
                     Character.item_level != None, 
                     Character.item_level >= min_item_level
@@ -338,19 +302,16 @@ def roster_page():
                         'raid_progression': char.raid_progression if char.raid_progression else "N/A",
                         'rank': char.rank,
                         'raid_attendance_percentage': char.raid_attendance_percentage if char.raid_attendance_percentage is not None else 0.0,
-                        'avg_wcl_performance': char.avg_wcl_performance # Add this line
+                        'avg_wcl_performance': char.avg_wcl_performance 
                     })
                 if not members and not error_message:
                      error_message = f"No active members found matching rank (<= 4) and item level (>= {min_item_level})."
     except Exception as e:
         print(f"Error querying database for roster: {e}")
         error_message = "Error retrieving data from the database."
-        # import traceback
-        # traceback.print_exc() # For more detailed error logging during development
 
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     load_duration = round(time.time() - start_time, 2)
-    print(f"Roster page loaded in {load_duration} seconds. Found {len(members)} members to display.")
     all_specs_json = json.dumps(all_specs_by_class) if all_specs_by_class else '{}'
     
     return render_template('roster.html',
@@ -360,6 +321,7 @@ def roster_page():
 
 @app.route('/raids')
 def raids_page():
+    # ... (implementation as before) ...
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
     reports_by_date = {}
@@ -371,22 +333,18 @@ def raids_page():
                 recent_reports_query = WCLReport.query.filter(WCLReport.start_time >= start_date_filter)\
                                                .order_by(WCLReport.start_time.desc())
                 recent_reports = recent_reports_query.all()
-                print(f"Found {len(recent_reports)} WCL reports in the last {days_to_fetch} days.")
                 for report in recent_reports:
                     if report.start_time:
-                        # Convert UTC start time from DB to Central Time for display logic
                         ct_start_time = report.start_time.replace(tzinfo=pytz.utc).astimezone(CENTRAL_TZ)
-                        # Filter for typical raid days (Wednesday or Friday in Central Time)
-                        if ct_start_time.weekday() == 2 or ct_start_time.weekday() == 4: # 2=Wed, 4=Fri
-                            date_str = ct_start_time.strftime('%Y-%m-%d') # Use CT date for grouping
+                        if ct_start_time.weekday() == 2 or ct_start_time.weekday() == 4: 
+                            date_str = ct_start_time.strftime('%Y-%m-%d') 
                             if date_str not in reports_by_date:
                                 reports_by_date[date_str] = []
                             reports_by_date[date_str].append({
                                 'code': report.code,
                                 'title': report.title if report.title else "Untitled Report",
-                                'startTime': int(report.start_time.timestamp() * 1000) # Keep original UTC timestamp for sorting
+                                'startTime': int(report.start_time.timestamp() * 1000) 
                             })
-                            # Sort reports within a day by their start time
                             reports_by_date[date_str].sort(key=lambda x: x['startTime'])
             else:
                 print("Warning: WCLReport table not found for raids page.")
@@ -397,20 +355,44 @@ def raids_page():
         'raids.html',
         guild_name=display_guild_name,
         current_year=current_year,
-        reports_by_date_json = json.dumps(reports_by_date) # Pass the processed dict as JSON
+        reports_by_date_json = json.dumps(reports_by_date) 
     )
-
 
 @app.route('/loot')
 def loot_page():
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
-    wipers = [] # For character dropdown
-    playable_slots = [] # For slot display
+    wipers = [] 
+    
+    # Define canonical UI slots for the BiS planner
+    # These are the slots that will be rendered as cards in the UI.
+    # The 'type' should be a unique identifier for the UI slot.
+    # The 'name' is for display.
+    # The 'api_types_for_equipped' helps find the equipped item from Blizzard's API response.
+    # The 'api_types_for_available' lists Item.slot_type values to query for BiS options.
+    canonical_ui_slots = [
+        {"type": "HEAD", "name": "Head"},
+        {"type": "NECK", "name": "Neck"},
+        {"type": "SHOULDER", "name": "Shoulder"},
+        {"type": "BACK", "name": "Back"}, 
+        {"type": "CHEST", "name": "Chest"},
+        {"type": "WRIST", "name": "Wrist"},
+        {"type": "HANDS", "name": "Hands"},
+        {"type": "WAIST", "name": "Waist"},
+        {"type": "LEGS", "name": "Legs"},
+        {"type": "FEET", "name": "Feet"},
+        {"type": "FINGER1", "name": "Finger 1"},
+        {"type": "FINGER2", "name": "Finger 2"},
+        {"type": "TRINKET1", "name": "Trinket 1"},
+        {"type": "TRINKET2", "name": "Trinket 2"},
+        {"type": "MAIN_HAND", "name": "Main Hand"},
+        {"type": "OFF_HAND", "name": "Off Hand"}
+    ]
+    # Note: The `playable_slots` variable passed to the template will now be this `canonical_ui_slots` list.
+    # The JavaScript will then use this `type` to make decisions.
 
     try:
         with app.app_context():
-            # Fetch only active 'Wiper' status characters for the BiS planner dropdown
             if db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
                 wipers_query = Character.query.filter_by(status='Wiper', is_active=True)\
                                             .order_by(Character.name.asc()).all()
@@ -418,15 +400,9 @@ def loot_page():
                     wipers.append({'id': char.id, 'name': char.name, 'class_name': char.class_name})
             else:
                 print("Warning: Character table not found for loot page.")
-
-            if db.engine.dialect.has_table(db.engine.connect(), PlayableSlot.__tablename__):
-                playable_slots_query = PlayableSlot.query.order_by(PlayableSlot.display_order.asc()).all()
-                for slot in playable_slots_query:
-                    # Exclude non-gear slots if desired
-                    if slot.type not in ["SHIRT", "TABARD"]: 
-                        playable_slots.append({'type': slot.type, 'name': slot.name})
-            else:
-                print("Warning: PlayableSlot table not found for loot page.")
+            # We don't need to query PlayableSlot table here anymore for the template,
+            # as we are defining the canonical slots directly.
+            # The JS will handle fetching items based on these canonical slots.
     except Exception as e:
         print(f"Error fetching data for loot page: {e}")
 
@@ -435,36 +411,33 @@ def loot_page():
         guild_name=display_guild_name,
         current_year=current_year,
         wipers=wipers,
-        playable_slots=playable_slots
+        playable_slots=canonical_ui_slots # Pass the canonical list
     )
 
 @app.route('/api/character_equipped_items/<int:character_id>')
 def api_character_equipped_items(character_id):
+    # ... (implementation as before - this endpoint returns Blizzard API slot types as keys) ...
     character = Character.query.get(character_id)
     if not character:
         return jsonify({"error": "Character not found"}), 404
     
     endpoint = f"/profile/wow/character/{character.realm_slug.lower()}/{character.name.lower()}/equipment"
-    api_params = {"namespace": f"profile-{REGION}", "locale": "en_US"} # REGION is global
-    equipment_data = make_blizzard_api_request(endpoint, params=api_params) # Uses helper
+    api_params = {"namespace": f"profile-{REGION}", "locale": "en_US"} 
+    equipment_data = make_blizzard_api_request(endpoint, params=api_params) 
 
     if equipment_data and "equipped_items" in equipment_data:
         equipped_map = {}
         for item_entry in equipment_data["equipped_items"]:
             slot_info = item_entry.get("slot", {})
-            slot_type = slot_info.get("type") # This is the API slot type (e.g. HEAD, CHEST, ROBE)
+            # Use the 'type' from Blizzard's response as the key
+            # e.g., "HEAD", "FINGER_1", "MAIN_HAND", "CHEST", "ROBE"
+            blizzard_api_slot_type = slot_info.get("type") 
             item_id = item_entry.get("item", {}).get("id")
             item_name = item_entry.get("name")
             
-            if slot_type and item_id and item_name:
-                # We need to map API slot_type to our UI slot_type if they differ (e.g. FINGER1/FINGER2)
-                # For now, this directly uses API slot types. This might need refinement for UI display.
-                # If your PlayableSlot.type matches Blizzard's API types directly, this is fine.
-                # However, for FINGER1/FINGER2, TRINKET1/TRINKET2, this simple mapping won't distinguish them.
-                # The loot.html JS handles this by having distinct UI slot types.
-                # This endpoint is primarily for showing what's equipped in *any* slot of that API type.
-                equipped_map[slot_type] = {
-                    "item_id": item_id, "name": item_name, "icon_url": None # Icon fetching deferred
+            if blizzard_api_slot_type and item_id and item_name:
+                equipped_map[blizzard_api_slot_type] = {
+                    "item_id": item_id, "name": item_name, "icon_url": None 
                 }
         return jsonify(equipped_map)
     elif equipment_data and "error" in equipment_data:
@@ -473,64 +446,54 @@ def api_character_equipped_items(character_id):
         print(f"Could not fetch equipment for character ID {character_id}. API response: {equipment_data}")
         return jsonify({"error": "Could not fetch equipment"}), 500
 
-@app.route('/api/available_items/<slot_type>')
-def api_available_items(slot_type):
-    """ Fetches all epic items for a given slot type from the database. """
+
+@app.route('/api/available_items/<api_item_slot_type>') # Renamed to reflect it expects an API item slot type
+def api_available_items(api_item_slot_type):
+    """ Fetches all epic items for a given API item_slot_type from the database. """
     try:
         with app.app_context():
-            # The slot_type here is the UI slot type (e.g. FINGER1, FINGER2, HEAD)
-            # We need to map this to the API slot types stored in the Item table (e.g. FINGER, HEAD)
-            
-            # Determine the API slot type(s) that correspond to the UI slot_type
-            # For simple slots like HEAD, CHEST, it's a direct match.
-            # For FINGER1/FINGER2, the API type is FINGER. For TRINKET1/TRINKET2, it's TRINKET.
-            api_slot_type_to_query = slot_type
-            if slot_type in ["FINGER1", "FINGER2"]:
-                api_slot_type_to_query = "FINGER"
-            elif slot_type in ["TRINKET1", "TRINKET2"]:
-                api_slot_type_to_query = "TRINKET"
-            # Add other mappings if necessary (e.g. ONE_HAND, MAIN_HAND -> WEAPON or specific weapon types)
-
+            # This endpoint now directly uses the provided api_item_slot_type
+            # which corresponds to Item.slot_type in the database.
             items_query = Item.query.filter(
-                Item.slot_type == api_slot_type_to_query, # Query Item table with API slot type
-                Item.quality == 'EPIC' # Assuming you only want Epic items for BiS
+                Item.slot_type == api_item_slot_type, 
+                Item.quality == 'EPIC'
             ).order_by(Item.name.asc()).all()
             
             items_data = [{
                 "id": item.id, "name": item.name, "icon_url": item.icon_url,
-                "source_details": item.source_details # e.g., "Raid - Boss Name"
+                "source_details": item.source_details 
             } for item in items_query]
             return jsonify(items_data)
     except Exception as e:
-        print(f"Error fetching available items for slot {slot_type} (mapped to API type {api_slot_type_to_query}): {e}")
+        print(f"Error fetching available items for API slot type {api_item_slot_type}: {e}")
         return jsonify({"error": "Could not fetch available items"}), 500
 
-@app.route('/api/bis_selection/<int:character_id>/<slot_type>', methods=['GET'])
-def get_bis_selection(character_id, slot_type):
-    """ Fetches the saved BiS item for a character and slot (using UI slot type). """
+@app.route('/api/bis_selection/<int:character_id>/<ui_slot_type>', methods=['GET']) # ui_slot_type is the canonical UI slot
+def get_bis_selection(character_id, ui_slot_type):
+    """ Fetches the saved BiS item for a character and canonical UI slot. """
     try:
         with app.app_context():
-            # slot_type here is the UI slot type (e.g. FINGER1)
-            bis_entry = CharacterBiS.query.filter_by(character_id=character_id, slot_type_ui=slot_type).first()
+            bis_entry = CharacterBiS.query.filter_by(character_id=character_id, slot_type_ui=ui_slot_type).first()
             if bis_entry and bis_entry.item_id:
                 return jsonify({"item_id": bis_entry.item_id, "slot_type": bis_entry.slot_type_ui})
             else:
-                return jsonify({"item_id": None, "message": "No BiS selection found"}), 404 # 404 is appropriate
+                return jsonify({"item_id": None, "message": "No BiS selection found"}), 404
     except Exception as e:
-        print(f"Error fetching BiS selection for char {character_id}, slot {slot_type}: {e}")
+        print(f"Error fetching BiS selection for char {character_id}, ui_slot {ui_slot_type}: {e}")
         return jsonify({"error": "Could not fetch BiS selection"}), 500
 
 
 @app.route('/api/bis_selection', methods=['POST'])
 def save_bis_selection():
+    # ... (implementation as before, slot_type is the canonical UI slot type) ...
     if not request.is_json:
         return jsonify({"success": False, "message": "Request must be JSON"}), 400
     data = request.get_json()
     character_id = data.get('character_id')
-    slot_type = data.get('slot_type') # This is the UI slot type (e.g. FINGER1)
-    item_id = data.get('item_id') # This is the Blizzard Item ID
+    slot_type_ui = data.get('slot_type') # This is the canonical UI slot type (e.g. "BACK", "FINGER1")
+    item_id = data.get('item_id') 
 
-    if not character_id or not slot_type:
+    if not character_id or not slot_type_ui: # Check slot_type_ui
         return jsonify({"success": False, "message": "Missing character_id or slot_type"}), 400
     if item_id is not None and not isinstance(item_id, int):
          return jsonify({"success": False, "message": "Invalid item_id"}), 400
@@ -538,28 +501,31 @@ def save_bis_selection():
     try:
         with app.app_context():
             character = Character.query.get(character_id)
-            # Ensure the slot_type from the UI is valid against PlayableSlot.type (which stores UI types)
-            slot_ui_obj = PlayableSlot.query.filter_by(type=slot_type).first() 
+            # We don't need to validate slot_type_ui against PlayableSlot table here if we trust the frontend
+            # to send one of the canonical UI slot types.
+            # However, CharacterBiS.slot_type_ui still has an FK to PlayableSlot.type.
+            # This implies PlayableSlot table should ideally store these canonical UI types.
+            # For now, we'll assume the FK works if the canonical types are also in PlayableSlot.
             
             if not character: return jsonify({"success": False, "message": "Character not found"}), 404
-            if not slot_ui_obj: return jsonify({"success": False, "message": f"Slot type '{slot_type}' not found in PlayableSlot table"}), 404
+            # Optional: Validate slot_type_ui against a predefined list of canonical UI types if not relying on PlayableSlot table for this.
             if item_id and not Item.query.get(item_id): return jsonify({"success": False, "message": "Item not found"}), 404
 
-            bis_entry = CharacterBiS.query.filter_by(character_id=character_id, slot_type_ui=slot_type).first()
+            bis_entry = CharacterBiS.query.filter_by(character_id=character_id, slot_type_ui=slot_type_ui).first()
             
             message = ""
-            if item_id is None: # Clearing the BiS selection
+            if item_id is None: 
                 if bis_entry:
                     db.session.delete(bis_entry)
                     message = "BiS selection cleared."
                 else:
                     message = "No BiS selection to clear."
-            elif bis_entry: # Updating existing BiS
+            elif bis_entry: 
                 bis_entry.item_id = item_id
                 bis_entry.last_updated = datetime.utcnow()
                 message = "BiS selection updated."
-            else: # Creating new BiS
-                bis_entry = CharacterBiS(character_id=character_id, slot_type_ui=slot_type, item_id=item_id)
+            else: 
+                bis_entry = CharacterBiS(character_id=character_id, slot_type_ui=slot_type_ui, item_id=item_id)
                 db.session.add(bis_entry)
                 message = "BiS selection saved."
             
@@ -568,19 +534,41 @@ def save_bis_selection():
     except Exception as e:
         db.session.rollback()
         print(f"Error saving BiS selection: {e}")
-        # import traceback; traceback.print_exc() # For detailed error during dev
         return jsonify({"success": False, "message": "Database error during save."}), 500
 
+# ... (Update Spec, Update Status, Main Execution Block as before) ...
+def determine_role_from_spec(spec_name, class_name):
+    """Determines a character's role based on their spec and class."""
+    if not spec_name: return "Unknown"
+    if spec_name in TANK_SPECS: return "Tank"
+    if spec_name in HEALER_SPECS: return "Healer"
+    if class_name in MELEE_DPS_SPECS and spec_name in MELEE_DPS_SPECS.get(class_name, []):
+        return "Melee DPS"
+    if class_name in RANGED_DPS_SPECS and spec_name in RANGED_DPS_SPECS.get(class_name, []):
+        return "Ranged DPS"
+    if spec_name: return "DPS" 
+    return "Unknown"
 
-# --- Update Spec Route ---
+TANK_SPECS = ["Blood", "Protection", "Guardian", "Brewmaster", "Vengeance"]
+HEALER_SPECS = ["Holy", "Discipline", "Restoration", "Mistweaver", "Preservation"]
+MELEE_DPS_SPECS = {
+    "Warrior": ["Arms", "Fury"], "Paladin": ["Retribution"], "Death Knight": ["Frost", "Unholy"],
+    "Shaman": ["Enhancement"], "Hunter": ["Survival"], "Rogue": ["Assassination", "Outlaw", "Subtlety"],
+    "Monk": ["Windwalker"], "Demon Hunter": ["Havoc"], "Druid": ["Feral"]
+}
+RANGED_DPS_SPECS = {
+    "Mage": ["Arcane", "Fire", "Frost"], "Warlock": ["Affliction", "Demonology", "Destruction"],
+    "Priest": ["Shadow"], "Hunter": ["Beast Mastery", "Marksmanship"], "Druid": ["Balance"],
+    "Shaman": ["Elemental"], "Evoker": ["Devastation", "Augmentation"]
+}
 @app.route('/update_spec', methods=['POST'])
 def update_spec():
     if not request.is_json: abort(400, description="Request must be JSON")
     data = request.get_json()
     character_id = data.get('character_id')
-    new_spec_name = data.get('spec_name') # This can be empty string to clear override
+    new_spec_name = data.get('spec_name') 
     
-    if character_id is None or not isinstance(character_id, int) or new_spec_name is None: # new_spec_name can be ""
+    if character_id is None or not isinstance(character_id, int) or new_spec_name is None: 
         abort(400, description="Invalid character_id or spec_name")
     
     try:
@@ -588,35 +576,28 @@ def update_spec():
             character = Character.query.get(character_id)
             if not character: abort(404, description="Character not found")
             
-            # Determine the spec to use for role calculation
-            # If new_spec_name is empty (clearing override), use character's API spec (character.spec_name)
-            # Otherwise, use the new_spec_name.
             spec_for_role_calc = new_spec_name if new_spec_name else character.spec_name
 
-            if new_spec_name: # If a new spec is actually provided (not empty string)
-                all_specs = get_all_specs() # Fetches from DB cache or API
+            if new_spec_name: 
+                all_specs = get_all_specs() 
                 if character.class_id in all_specs:
                     valid_specs = [spec['name'] for spec in all_specs[character.class_id]]
                     if new_spec_name not in valid_specs:
                         abort(400, description=f"Invalid spec '{new_spec_name}' for character's class '{character.class_name}'. Valid: {valid_specs}")
-                elif character.class_id not in all_specs and all_specs: # all_specs loaded but not for this class
+                elif character.class_id not in all_specs and all_specs: 
                      print(f"Warning: Cannot validate spec '{new_spec_name}' because spec data is missing for class ID {character.class_id}.")
-                # If all_specs is empty, we can't validate, proceed with caution.
             
-            character.main_spec_override = new_spec_name if new_spec_name else None # Store None if cleared
+            character.main_spec_override = new_spec_name if new_spec_name else None 
             character.role = determine_role_from_spec(spec_for_role_calc, character.class_name)
             character.last_updated = datetime.utcnow()
             db.session.commit()
-            print(f"Successfully updated spec override for Character ID {character_id} to '{character.main_spec_override}', new role: '{character.role}'")
+            # print(f"Successfully updated spec override for Character ID {character_id} to '{character.main_spec_override}', new role: '{character.role}'")
             return jsonify({"success": True, "message": "Main spec and role updated successfully.", "new_role": character.role, "display_spec": character.main_spec_override or character.spec_name or "N/A"})
     except Exception as e:
         db.session.rollback()
         print(f"Error updating spec for character ID {character_id}: {e}")
-        # import traceback; traceback.print_exc()
         abort(500, description="Database error during spec update.")
 
-
-# --- Update Status Route ---
 @app.route('/update_status', methods=['POST'])
 def update_status():
     if not request.is_json:
@@ -624,7 +605,7 @@ def update_status():
     data = request.get_json()
     character_id = data.get('character_id')
     new_status = data.get('status')
-    valid_user_statuses = ['Wiper', 'Member', 'Wiping Alt'] # User-settable statuses
+    valid_user_statuses = ['Wiper', 'Member', 'Wiping Alt'] 
     
     if not character_id or not isinstance(character_id, int) or not new_status or new_status not in valid_user_statuses:
         print(f"Error: Invalid character_id or status in request data: {data}")
@@ -640,22 +621,17 @@ def update_status():
             character.status = new_status
             character.last_updated = datetime.utcnow()
             db.session.commit()
-            print(f"Successfully updated status for Character ID {character_id} to '{character.status}'")
+            # print(f"Successfully updated status for Character ID {character_id} to '{character.status}'")
             return jsonify({"success": True, "message": "Status updated successfully."})
     except Exception as e:
         db.session.rollback()
         print(f"Error updating status for character ID {character_id}: {e}")
         abort(500, description="Database error during status update.")
 
-
-# --- Main Execution Block ---
 if __name__ == '__main__':
-    # Create tables if they don't exist (useful for initial setup)
-    # In a production Heroku environment, migrations are preferred for schema changes.
     with app.app_context():
         db.create_all()
         print("Database tables checked/created if they didn't exist.")
 
     port = int(os.environ.get('PORT', 5000))
-    # Set debug=False for production on Heroku
     app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')

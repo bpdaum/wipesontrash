@@ -1,6 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
+<html lang="en" class=""> <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ guild_name }} - BiS Planner</title>
@@ -8,98 +7,182 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" xintegrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f7fafc; /* gray-100 */ }
-        .nav-link-active {
-            background-color: #4a5568; /* gray-700 for active link */
+        /* Base Variables for Theming (Consistent across pages) */
+        :root {
+            --color-bg-primary: #f7fafc;      /* Tailwind gray-100 */
+            --color-bg-secondary: #ffffff;    /* white */
+            --color-bg-input: #ffffff;        /* Background for select inputs */
+            --color-text-primary: #1a202c;    /* gray-900 */
+            --color-text-secondary: #4a5568;  /* gray-700 */
+            --color-text-muted: #a0aec0;      /* gray-500 for N/A, placeholder text */
+            --color-text-label: #4a5563;      /* gray-700 for labels */
+            --color-border-primary: #e2e8f0;  /* gray-300 for card borders */
+            --color-border-input: #cbd5e0;    /* gray-400 for select input borders */
+            --color-nav-bg: #6B1A51;
+            --color-nav-text: #ffffff;
+            --color-nav-hover-bg: #561541;
+            --color-item-icon-bg: #edf2f7;    /* gray-200 for item icon placeholder */
+            --color-item-icon-border: #e2e8f0;/* gray-300 */
+            --color-status-saving: #4a5568;   /* Default text color for saving status */
+            --color-status-saved: #38a169;    /* green-600 */
+            --color-status-error: #e53e3e;    /* red-600 */
         }
+
+        html.dark {
+            --color-bg-primary: #1a202c;      /* gray-900 */
+            --color-bg-secondary: #2d3748;    /* gray-800 */
+            --color-bg-input: #4a5568;        /* gray-700 for select input background */
+            --color-text-primary: #f7fafc;    /* gray-100 */
+            --color-text-secondary: #a0aec0;  /* gray-500 */
+            --color-text-muted: #718096;      /* gray-600 */
+            --color-text-label: #cbd5e0;      /* gray-400 for labels */
+            --color-border-primary: #4a5568;  /* gray-700 */
+            --color-border-input: #718096;    /* gray-600 for select input borders */
+            --color-nav-bg: #4A0E35;
+            --color-nav-text: #e2e8f0;
+            --color-nav-hover-bg: #380B28;
+            --color-item-icon-bg: #4a5568;    /* gray-700 */
+            --color-item-icon-border: #718096;/* gray-600 */
+            --color-status-saving: #a0aec0;   /* gray-500 */
+            --color-status-saved: #68d391;    /* green-400 */
+            --color-status-error: #fc8181;    /* red-400 */
+        }
+
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--color-bg-primary);
+            color: var(--color-text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        /* Navbar Styling */
+        .navbar {
+            background-color: var(--color-nav-bg);
+            color: var(--color-nav-text);
+        }
+        .nav-link {
+            color: var(--color-nav-text);
+        }
+        .nav-link:hover, .nav-link-active {
+            background-color: var(--color-nav-hover-bg);
+        }
+        .dark-mode-toggle:hover {
+             background-color: var(--color-nav-hover-bg);
+        }
+
+        /* Main Content Card */
+        .content-card {
+            background-color: var(--color-bg-secondary);
+            border: 1px solid var(--color-border-primary);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+         .content-card h2 {
+             color: var(--color-text-primary);
+        }
+        .content-card p { /* For placeholder text if slots not loaded */
+             color: var(--color-text-secondary);
+        }
+
+        /* Loot Page Specific Styles */
         .slot-container {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); /* Responsive grid */
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
             gap: 1rem;
         }
         .slot-card {
-            background-color: #fff;
-            border: 1px solid #e2e8f0; /* gray-300 */
-            border-radius: 0.5rem; /* rounded-lg */
+            background-color: var(--color-bg-secondary); /* Use secondary for card background */
+            border: 1px solid var(--color-border-primary);
+            border-radius: 0.5rem; 
             padding: 1rem;
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
         }
         .slot-name {
             font-weight: 600;
-            color: #2d3748; /* gray-800 */
+            color: var(--color-text-primary); 
             margin-bottom: 0.5rem;
-            border-bottom: 1px solid #e2e8f0;
+            border-bottom: 1px solid var(--color-border-primary);
             padding-bottom: 0.5rem;
         }
         .item-display {
             font-size: 0.875rem;
-            color: #4a5563; /* gray-700 */
-            min-height: 40px; /* Ensure space even if empty */
+            color: var(--color-text-secondary); 
+            min-height: 40px; 
             display: flex;
             align-items: center;
             margin-bottom: 0.5rem;
         }
         .item-icon {
-            width: 32px;
-            height: 32px;
-            margin-right: 0.5rem;
-            border: 1px solid #e2e8f0;
+            width: 32px; height: 32px; margin-right: 0.5rem;
+            border: 1px solid var(--color-item-icon-border);
             border-radius: 0.25rem;
-            background-color: #edf2f7; /* gray-200 placeholder */
-            display: inline-block;
-            object-fit: cover; /* Ensure icon fits well */
+            background-color: var(--color-item-icon-bg); 
+            display: inline-block; object-fit: cover; 
         }
-        .bis-select {
+        .bis-select, .character-select {
             width: 100%;
             padding: 0.5rem;
-            border: 1px solid #cbd5e0; /* border-gray-300 */
-            border-radius: 0.375rem; /* rounded-md */
+            border: 1px solid var(--color-border-input);
+            border-radius: 0.375rem; 
             font-size: 0.875rem;
-            background-color: #fff;
-        }
-        .character-select-label {
-            font-weight: 500;
-            color: #2d3748; /* gray-800 */
-            margin-bottom: 0.25rem;
+            background-color: var(--color-bg-input);
+            color: var(--color-text-primary); /* Text color for select */
         }
         .character-select {
-            width: 100%;
-            max-width: 400px; /* Limit width of character select */
-            padding: 0.625rem; /* p-2.5 */
-            border: 1px solid #cbd5e0;
-            border-radius: 0.375rem;
-            font-size: 0.875rem;
-            margin-bottom: 1.5rem; /* mb-6 */
+            max-width: 400px; 
+            margin-bottom: 1.5rem; 
+        }
+        .select-label { /* Generic label for selects */
+            display: block;
+            font-size: 0.875rem; /* text-sm */
+            font-weight: 500; /* font-medium */
+            color: var(--color-text-label);
+            margin-bottom: 0.25rem;
+        }
+        .update-status { 
+            font-size: 0.75rem; 
+            font-style: italic; 
+            margin-top: 0.5rem; /* Adjusted margin */
+            display: block; /* Make it block to take full width below select */
+        }
+        /* Specific colors for update status, applied via JS */
+        .status-saving { color: var(--color-status-saving); }
+        .status-saved { color: var(--color-status-saved); }
+        .status-error { color: var(--color-status-error); }
+
+        /* Footer */
+        .footer-text {
+            color: var(--color-text-muted);
         }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800">
-
-    <nav class="text-white p-4 shadow-md" style="background-color: #6B1A51;">
+<body>
+    <nav class="navbar p-4 shadow-md">
         <div class="container mx-auto flex flex-wrap justify-between items-center">
             <div class="flex items-center space-x-3 mb-2 sm:mb-0">
                  <img src="{{ url_for('static', filename='images/wot_logo.png') }}"
                       alt="{{ guild_name }} Logo"
-                      class="h-8 w-8 rounded-full border-2 border-white">
+                      class="h-8 w-8 rounded-full border-2 border-white dark:border-gray-300">
                  <h1 class="text-xl font-semibold">{{ guild_name }} Portal</h1>
             </div>
-            <div class="flex space-x-2">
-                <a href="{{ url_for('home') }}" class="px-3 py-2 rounded hover:bg-gray-600">Home</a>
-                <a href="{{ url_for('roster_page') }}" class="px-3 py-2 rounded hover:bg-gray-600">Roster</a>
-                <a href="{{ url_for('raids_page') }}" class="px-3 py-2 rounded hover:bg-gray-600">Raids</a>
-                <a href="{{ url_for('loot_page') }}" class="px-3 py-2 rounded nav-link-active font-medium">Loot</a>
+            <div class="flex items-center space-x-2">
+                <a href="{{ url_for('home') }}" class="nav-link px-3 py-2 rounded">Home</a>
+                <a href="{{ url_for('roster_page') }}" class="nav-link px-3 py-2 rounded">Roster</a>
+                <a href="{{ url_for('raids_page') }}" class="nav-link px-3 py-2 rounded">Raids</a>
+                <a href="{{ url_for('loot_page') }}" class="nav-link px-3 py-2 rounded nav-link-active font-medium">Loot</a>
+                <button id="darkModeToggle" title="Toggle Dark Mode" class="dark-mode-toggle p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-white">
+                    <i class="fas fa-sun text-yellow-400"></i> <i class="fas fa-moon text-indigo-400 hidden"></i> </button>
             </div>
         </div>
     </nav>
 
     <main class="container mx-auto mt-8 p-4">
-        <div class="bg-white p-6 rounded-lg shadow-lg">
-            <h2 class="text-2xl font-bold mb-6 text-gray-900">Best-in-Slot Planner</h2>
+        <div class="content-card p-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-bold mb-6">Best-in-Slot Planner</h2>
 
             <div class="mb-6">
-                <label for="characterSelect" class="block text-sm font-medium text-gray-700 mb-1">Select Character:</label>
+                <label for="characterSelect" class="select-label">Select Character:</label>
                 <select id="characterSelect" class="character-select">
                     <option value="">-- Select a Wiper --</option>
                     {% for wiper in wipers %}
@@ -109,84 +192,144 @@
             </div>
 
             <div id="gearSlotsContainer" class="slot-container">
-                {# Slots will be populated by JavaScript #}
-                {% if playable_slots %}
-                    {% for slot in playable_slots %}
-                        <div class="slot-card" data-slot-type="{{ slot.type }}">
-                            <h3 class="slot-name">{{ slot.name }}</h3>
-                            <div class="mb-2">
-                                <p class="text-xs text-gray-500 mb-1">Equipped:</p>
-                                <div class="item-display equipped-item-display" id="equipped-{{ slot.type }}">
-                                    <img src="https://placehold.co/32x32/CCCCCC/999999?text=?" alt="Equipped Item" class="item-icon equipped-item-icon">
-                                    <span class="equipped-item-name">None</span>
-                                </div>
-                            </div>
-                            <div>
-                                <label for="bis-{{ slot.type }}" class="block text-xs text-gray-500 mb-1">Best in Slot:</label>
-                                <select id="bis-{{ slot.type }}" class="bis-select" data-slot-type="{{ slot.type }}">
-                                    <option value="">-- Select BiS --</option>
-                                    {# BiS options will be populated by JavaScript #}
-                                </select>
-                            </div>
-                             <span class="update-status text-xs italic mt-2" id="status-{{ slot.type }}"></span>
-                        </div>
-                    {% endfor %}
-                {% else %}
-                    <p class="text-gray-500">Playable slots not loaded. Please run the item database population script.</p>
-                {% endif %}
-            </div>
+                </div>
+             {% if not playable_slots %} 
+                <p>Playable slot configuration not found.</p>
+            {% endif %}
         </div>
     </main>
 
-    <footer class="text-center text-gray-500 mt-8 pb-4">
+    <footer class="text-center footer-text mt-8 pb-4">
         &copy; {{ guild_name }} - {{ current_year }}
     </footer>
 
     <script>
-        // Pass data from Flask to JavaScript
-        const playableSlots = {{ playable_slots | tojson | safe }};
+        // Dark Mode Toggle Script
+        document.addEventListener('DOMContentLoaded', function () {
+            const darkModeToggle = document.getElementById('darkModeToggle');
+            const htmlElement = document.documentElement; 
+            const sunIcon = darkModeToggle.querySelector('.fa-sun');
+            const moonIcon = darkModeToggle.querySelector('.fa-moon');
+            function applyTheme(isDark) {
+                if (isDark) {
+                    htmlElement.classList.add('dark');
+                    sunIcon.classList.add('hidden');
+                    moonIcon.classList.remove('hidden');
+                } else {
+                    htmlElement.classList.remove('dark');
+                    sunIcon.classList.remove('hidden');
+                    moonIcon.classList.add('hidden');
+                }
+            }
+            let currentTheme = localStorage.getItem('theme');
+            if (currentTheme) {
+                applyTheme(currentTheme === 'dark');
+            } else {
+                applyTheme(false); 
+                localStorage.setItem('theme', 'light');
+            }
+            darkModeToggle.addEventListener('click', () => {
+                const isDarkMode = htmlElement.classList.contains('dark');
+                applyTheme(!isDarkMode);
+                localStorage.setItem('theme', !isDarkMode ? 'dark' : 'light');
+            });
+        });
+
+        // Loot Page Specific JavaScript
+        const canonicalUiSlots = {{ playable_slots | tojson | safe }}; 
         const characterSelect = document.getElementById('characterSelect');
         const gearSlotsContainer = document.getElementById('gearSlotsContainer');
 
+        // Mapping from Canonical UI Slot Type to Blizzard API slot types for *EQUIPPED* items
+        // These are the keys used in the response from /api/character_equipped_items/
+        // Note: Blizzard uses FINGER_1, FINGER_2, TRINKET_1, TRINKET_2 for specific equipped slots.
+        const canonicalUiToEquippedApiSlotTypes = {
+            "HEAD": ["HEAD"], "NECK": ["NECK"], "SHOULDER": ["SHOULDER"],
+            "BACK": ["BACK", "CLOAK"], "CHEST": ["CHEST", "ROBE"], "WRIST": ["WRIST"],
+            "HANDS": ["HANDS", "HAND"], "WAIST": ["WAIST"], "LEGS": ["LEGS"], "FEET": ["FEET"],
+            "FINGER1": ["FINGER_1"], "FINGER2": ["FINGER_2"], 
+            "TRINKET1": ["TRINKET_1"], "TRINKET2": ["TRINKET_2"],
+            "MAIN_HAND": ["MAIN_HAND", "TWOHWEAPON"], // TWOHWEAPON often occupies MAIN_HAND
+            "OFF_HAND": ["OFF_HAND"] // If MAIN_HAND has a 2H, OFF_HAND might be empty or have a cosmetic.
+                                     // If 1H in MAIN_HAND, OFF_HAND can be SHIELD, HOLDABLE, or another WEAPON.
+        };
+
+        // Mapping from Canonical UI Slot Type to API Item.slot_type(s) for *AVAILABLE BiS* items
+        // These are the values stored in your Item.slot_type column.
+        const canonicalUiToApiItemTypes = {
+            "HEAD": ["HEAD"], "NECK": ["NECK"], "SHOULDER": ["SHOULDER"],
+            "BACK": ["BACK", "CLOAK"], "CHEST": ["CHEST", "ROBE"], "WRIST": ["WRIST"],
+            "HANDS": ["HANDS", "HAND"], "WAIST": ["WAIST"], "LEGS": ["LEGS"], "FEET": ["FEET"],
+            "FINGER1": ["FINGER"], "FINGER2": ["FINGER"], 
+            "TRINKET1": ["TRINKET"], "TRINKET2": ["TRINKET"],
+            "MAIN_HAND": ["MAIN_HAND", "WEAPON", "ONE_HAND", "TWOHWEAPON"], // Consolidated for BiS options
+            "OFF_HAND": ["OFF_HAND", "SHIELD", "HOLDABLE", "WEAPON", "ONE_HAND"] // Consolidated for BiS options
+        };
+
+        function generateSlotCards() {
+            gearSlotsContainer.innerHTML = ''; 
+            if (!canonicalUiSlots || canonicalUiSlots.length === 0) {
+                gearSlotsContainer.innerHTML = '<p class="text-center col-span-full">No gear slots configured to display.</p>';
+                return;
+            }
+            canonicalUiSlots.forEach(slot => {
+                const slotCard = `
+                    <div class="slot-card" data-slot-type="${slot.type}">
+                        <h3 class="slot-name">${slot.name}</h3>
+                        <div class="mb-2">
+                            <p class="select-label text-xs mb-1">Equipped:</p>
+                            <div class="item-display equipped-item-display" id="equipped-${slot.type}">
+                                <img src="https://placehold.co/32x32/CCCCCC/999999?text=?" alt="Equipped Item" class="item-icon equipped-item-icon">
+                                <span class="equipped-item-name">None</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label for="bis-${slot.type}" class="select-label text-xs mb-1">Best in Slot:</label>
+                            <select id="bis-${slot.type}" class="bis-select" data-slot-type="${slot.type}">
+                                <option value="">-- Select BiS --</option>
+                            </select>
+                        </div>
+                        <span class="update-status text-xs italic mt-2" id="status-${slot.type}"></span>
+                    </div>
+                `;
+                gearSlotsContainer.insertAdjacentHTML('beforeend', slotCard);
+            });
+        }
+
+
         document.addEventListener('DOMContentLoaded', function() {
-            // Event listener for character selection
+            generateSlotCards(); 
+
             characterSelect.addEventListener('change', function() {
                 const characterId = this.value;
-                const selectedOption = this.options[this.selectedIndex];
-                const className = selectedOption.dataset.className;
-
                 if (characterId) {
-                    console.log(`Character selected: ID=${characterId}, Class=${className}`);
                     loadCharacterGear(characterId);
                 } else {
-                    // Clear gear display if no character is selected
-                    clearGearDisplay();
+                    clearGearDisplay(); 
                 }
             });
 
-            // Event listeners for BiS dropdown changes (delegated)
             gearSlotsContainer.addEventListener('change', function(event) {
                 if (event.target.classList.contains('bis-select')) {
                     const characterId = characterSelect.value;
-                    const slotType = event.target.dataset.slotType;
+                    const uiSlotType = event.target.dataset.slotType; 
                     const itemId = event.target.value;
-                    const statusSpan = document.getElementById(`status-${slotType}`);
+                    const statusSpan = document.getElementById(`status-${uiSlotType}`);
 
-                    if (characterId && slotType && itemId) {
-                        saveBisSelection(characterId, slotType, itemId, statusSpan);
-                    } else if (characterId && slotType && itemId === "") { // Clearing BiS
-                        saveBisSelection(characterId, slotType, null, statusSpan); // Send null or handle differently
+                    if (characterId && uiSlotType) { 
+                        saveBisSelection(characterId, uiSlotType, itemId === "" ? null : itemId, statusSpan);
                     }
                 }
             });
         });
 
         function clearGearDisplay() {
-            playableSlots.forEach(slot => {
+            canonicalUiSlots.forEach(slot => {
                 const equippedItemDiv = document.getElementById(`equipped-${slot.type}`);
                 if (equippedItemDiv) {
                     equippedItemDiv.querySelector('.equipped-item-name').textContent = 'None';
                     equippedItemDiv.querySelector('.equipped-item-icon').src = 'https://placehold.co/32x32/CCCCCC/999999?text=?';
+                    equippedItemDiv.querySelector('.equipped-item-icon').alt = 'No item equipped';
                 }
                 const bisSelect = document.getElementById(`bis-${slot.type}`);
                 if (bisSelect) {
@@ -198,41 +341,54 @@
         }
 
         async function loadCharacterGear(characterId) {
-            console.log(`Fetching equipped items for character ID: ${characterId}`);
             try {
                 const response = await fetch(`/api/character_equipped_items/${characterId}`);
                 if (!response.ok) {
-                    const errorData = await response.json();
+                    const errorData = await response.json().catch(() => ({ error: "Unknown error fetching equipment" }));
                     console.error(`Error fetching equipped items: ${response.status}`, errorData.error);
-                    clearGearDisplay(); // Clear on error
-                    // Optionally display an error message to the user
+                    clearGearDisplay(); 
                     return;
                 }
-                const equippedItems = await response.json();
-                console.log("Equipped items data:", equippedItems);
+                const equippedItemsByApiSlot = await response.json(); 
 
-                // Populate equipped items and then BiS dropdowns
-                playableSlots.forEach(slot => {
-                    const equippedItemDiv = document.getElementById(`equipped-${slot.type}`);
+                canonicalUiSlots.forEach(uiSlot => {
+                    const equippedItemDiv = document.getElementById(`equipped-${uiSlot.type}`);
                     const equippedItemNameSpan = equippedItemDiv.querySelector('.equipped-item-name');
                     const equippedItemIconImg = equippedItemDiv.querySelector('.equipped-item-icon');
-                    const bisSelect = document.getElementById(`bis-${slot.type}`);
-
-                    const equippedItem = equippedItems[slot.type];
-                    if (equippedItem) {
-                        equippedItemNameSpan.textContent = equippedItem.name;
-                        // For now, icon URL is not fetched from Blizzard API in the backend
-                        // equippedItemIconImg.src = equippedItem.icon_url || 'https://placehold.co/32x32/CCCCCC/999999?text=?';
-                        // We'll need to fetch item media separately if we want actual icons
-                        // For now, let's use a placeholder or remove the icon display
-                        equippedItemIconImg.alt = equippedItem.name;
+                    
+                    let finalEquippedItem = null;
+                    let equippedItemId = null;
+                    // Use canonicalUiToEquippedApiSlotTypes for looking up equipped items
+                    const relevantApiTypesForEquipped = canonicalUiToEquippedApiSlotTypes[uiSlot.type] || [uiSlot.type.toUpperCase()];
+                    
+                    for (const apiType of relevantApiTypesForEquipped) {
+                        if (equippedItemsByApiSlot[apiType]) {
+                            finalEquippedItem = equippedItemsByApiSlot[apiType];
+                            break; 
+                        }
+                    }
+                    // Special handling for weapons: if MAIN_HAND is a TWOHWEAPON, OFF_HAND should show nothing from API.
+                    if (uiSlot.type === "OFF_HAND" && equippedItemsByApiSlot["MAIN_HAND"] && canonicalUiToEquippedApiSlotTypes["MAIN_HAND"].includes("TWOHWEAPON")) {
+                        const mainHandItem = equippedItemsByApiSlot["MAIN_HAND"];
+                        // A simple check: if the main hand item's API slot type suggests it's two-handed
+                        // This might need refinement based on actual Item.slot_type of the main hand item if available
+                        // For now, if MAIN_HAND is TWOHWEAPON from Blizzard API, we assume OFF_HAND is empty.
+                        // The Blizzard API returns TWOHWEAPON in the MAIN_HAND slot.
+                        if (equippedItemsByApiSlot["TWOHWEAPON"] && equippedItemsByApiSlot["TWOHWEAPON"].item_id === mainHandItem.item_id) {
+                             finalEquippedItem = null; // Effectively clear off-hand if main is 2H
+                        }
+                    }
+                    
+                    if (finalEquippedItem) {
+                        equippedItemNameSpan.textContent = finalEquippedItem.name;
+                        equippedItemIconImg.alt = finalEquippedItem.name; 
+                        equippedItemId = finalEquippedItem.item_id;
                     } else {
                         equippedItemNameSpan.textContent = 'None';
                         equippedItemIconImg.src = 'https://placehold.co/32x32/CCCCCC/999999?text=?';
                         equippedItemIconImg.alt = 'No item equipped';
                     }
-                    // After populating equipped, load BiS options for this slot
-                    loadBisOptions(slot.type, equippedItem ? equippedItem.item_id : null, characterId);
+                    loadBisOptions(uiSlot.type, equippedItemId, characterId); 
                 });
 
             } catch (error) {
@@ -241,112 +397,132 @@
             }
         }
 
-        async function loadBisOptions(slotType, equippedItemId, characterId) {
-            const bisSelect = document.getElementById(`bis-${slotType}`);
+        async function loadBisOptions(uiSlotType, equippedItemId, characterId) { 
+            const bisSelect = document.getElementById(`bis-${uiSlotType}`);
             if (!bisSelect) return;
 
-            console.log(`Loading BiS options for slot: ${slotType}, Character ID: ${characterId}`);
+            // Use canonicalUiToApiItemTypes for fetching available BiS options
+            const apiItemTypesToQuery = canonicalUiToApiItemTypes[uiSlotType] || [uiSlotType.toUpperCase()];
+            let allAvailableItems = [];
+            let itemIdsProcessed = new Set();
 
             try {
-                // Fetch available items for this slot from our DB cache
-                const itemsResponse = await fetch(`/api/available_items/${slotType}`);
-                if (!itemsResponse.ok) throw new Error(`Failed to fetch available items for ${slotType}`);
-                const availableItems = await itemsResponse.json();
+                const fetchPromises = apiItemTypesToQuery.map(apiType =>
+                    fetch(`/api/available_items/${apiType}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                console.error(`Failed to fetch available items for API type ${apiType} (UI slot ${uiSlotType})`);
+                                return [];
+                            }
+                            return response.json();
+                        })
+                );
 
-                // Fetch current BiS selection for this character and slot
-                const currentBisResponse = await fetch(`/api/bis_selection/${characterId}/${slotType}`);
+                const itemGroups = await Promise.all(fetchPromises);
+                itemGroups.forEach(group => {
+                    group.forEach(item => {
+                        if (!itemIdsProcessed.has(item.id)) {
+                            allAvailableItems.push(item);
+                            itemIdsProcessed.add(item.id);
+                        }
+                    });
+                });
+                
+                allAvailableItems.sort((a, b) => a.name.localeCompare(b.name));
+
+                const currentBisResponse = await fetch(`/api/bis_selection/${characterId}/${uiSlotType}`);
                 let currentBisItemId = null;
                 if (currentBisResponse.ok) {
                     const bisData = await currentBisResponse.json();
                     if (bisData && bisData.item_id) {
                         currentBisItemId = bisData.item_id;
                     }
-                } else if (currentBisResponse.status !== 404) { // 404 is fine, means no selection yet
-                    console.warn(`Failed to fetch current BiS for ${slotType}`);
+                } else if (currentBisResponse.status !== 404) { 
+                    console.warn(`Failed to fetch current BiS for ${uiSlotType}, status: ${currentBisResponse.status}`);
                 }
 
+                bisSelect.innerHTML = '<option value="">-- Select BiS --</option>'; 
+                
+                const equippedItemDiv = document.getElementById(`equipped-${uiSlotType}`);
+                const equippedItemName = equippedItemDiv.querySelector('.equipped-item-name').textContent;
 
-                bisSelect.innerHTML = '<option value="">-- Select BiS --</option>'; // Default empty option
-                // Add currently equipped item as an option if it exists and is not already in availableItems (by ID)
-                const equippedItemDisplay = document.getElementById(`equipped-${slotType}`);
-                const equippedItemName = equippedItemDisplay.querySelector('.equipped-item-name').textContent;
-
+                // Add equipped item to dropdown if it exists and isn't already in the fetched list
                 if (equippedItemId && equippedItemName !== 'None') {
-                     // Check if equipped item is already in the list from the DB
-                    const equippedInAvailable = availableItems.some(item => item.id === equippedItemId);
+                    const equippedInAvailable = allAvailableItems.some(item => item.id === equippedItemId);
                     if (!equippedInAvailable) {
                         const equippedOption = document.createElement('option');
                         equippedOption.value = equippedItemId;
-                        equippedOption.textContent = `${equippedItemName} (Equipped)`;
+                        equippedOption.textContent = `${equippedItemName} (Equipped)`; // Mark as equipped
                         bisSelect.appendChild(equippedOption);
                     }
                 }
 
-
-                availableItems.forEach(item => {
+                allAvailableItems.forEach(item => {
                     const option = document.createElement('option');
                     option.value = item.id;
                     option.textContent = item.name;
                     if (item.source_details) {
                         option.textContent += ` (${item.source_details})`;
                     }
+                    // If this item is the equipped one (already handled if it wasn't in the main list)
+                    // we can add the (Equipped) tag here too for items that *are* in the main list.
+                    if (item.id === equippedItemId) {
+                         if (!option.textContent.includes("(Equipped)")) { // Avoid double-tagging
+                            option.textContent += ` (Equipped)`;
+                         }
+                    }
                     bisSelect.appendChild(option);
                 });
 
-                // Set the selected value for the BiS dropdown
                 if (currentBisItemId) {
                     bisSelect.value = currentBisItemId;
-                } else if (equippedItemId) { // Default to equipped if no BiS is saved
-                    bisSelect.value = equippedItemId;
+                } else if (equippedItemId) { 
+                    bisSelect.value = equippedItemId; // Default to equipped if no BiS saved
                 }
 
-
             } catch (error) {
-                console.error(`Error loading BiS options for ${slotType}:`, error);
+                console.error(`Error loading BiS options for UI slot ${uiSlotType}:`, error);
                 bisSelect.innerHTML = '<option value="">Error loading items</option>';
             }
         }
 
-        async function saveBisSelection(characterId, slotType, itemId, statusSpan) {
-            console.log(`Saving BiS: CharID=${characterId}, Slot=${slotType}, ItemID=${itemId}`);
+        async function saveBisSelection(characterId, uiSlotType, itemId, statusSpan) { 
             statusSpan.textContent = 'Saving...';
-            statusSpan.style.color = '#4a5563'; // Default text color
+            statusSpan.className = 'update-status status-saving'; 
 
             try {
                 const response = await fetch('/api/bis_selection', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        // Add CSRF token if/when implemented
-                    },
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', },
                     body: JSON.stringify({
                         character_id: parseInt(characterId),
-                        slot_type: slotType,
-                        item_id: itemId ? parseInt(itemId) : null // Send null if clearing selection
+                        slot_type: uiSlotType, 
+                        item_id: itemId ? parseInt(itemId) : null 
                     })
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ description: "Unknown error" }));
-                    throw new Error(errorData.description || `HTTP error ${response.status}`);
+                    const errorData = await response.json().catch(() => ({ message: "Unknown server error" }));
+                    throw new Error(errorData.message || `HTTP error ${response.status}`);
                 }
 
                 const data = await response.json();
                 if (data.success) {
-                    statusSpan.textContent = 'Saved!';
-                    statusSpan.style.color = 'green';
+                    statusSpan.textContent = data.message || 'Saved!';
+                    statusSpan.className = 'update-status status-saved';
                 } else {
                     throw new Error(data.message || "Failed to save BiS selection.");
                 }
             } catch (error) {
                 console.error('Error saving BiS selection:', error);
                 statusSpan.textContent = `Error: ${error.message}`;
-                statusSpan.style.color = 'red';
+                statusSpan.className = 'update-status status-error';
             }
-            setTimeout(() => { statusSpan.textContent = ''; }, 3000); // Clear status after 3s
+            setTimeout(() => { 
+                statusSpan.textContent = ''; 
+                statusSpan.className = 'update-status'; 
+            }, 3000); 
         }
-
     </script>
 
 </body>
