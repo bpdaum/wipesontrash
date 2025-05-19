@@ -393,7 +393,7 @@ def main():
         mplus_dungeons = ["THE MOTHERLODE!!", "Theater of Pain", "Cinderbrew Meadery", "Priory of the Sacred Flame", 
                           "The Rookery", "Darkflame Cleft", "Operation: Floodgate", "Operation: Mechagon"]
         for d_name in mplus_dungeons:
-            d_id = find_journal_instance_id(d_name, "dungeon")
+            d_id = find_journal_instance_id(d_name, "instance")
             if d_id: fetch_and_store_source_items(db_session, d_name, d_id, data_sources[mplus_source_name], "dungeon")
             time.sleep(0.5)
     else: print(f"Data source '{mplus_source_name}' not found.", flush=True)
