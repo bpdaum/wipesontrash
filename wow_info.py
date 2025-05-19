@@ -42,10 +42,9 @@ except Exception as e:
      exit(1)
 
 # --- Database Models ---
-# Models managed by this script + dependent models for schema integrity
 class PlayableClass(Base):
     __tablename__ = 'playable_class'
-    id = Column(Integer, primary_key=True) # Blizzard Class ID
+    id = Column(Integer, primary_key=True) 
     name = Column(String(50), unique=True, nullable=False)
     specs = relationship("PlayableSpec", back_populates="playable_class", cascade="all, delete-orphan")
     characters = relationship("Character", back_populates="playable_class") 
@@ -53,54 +52,51 @@ class PlayableClass(Base):
 
 class PlayableSpec(Base):
     __tablename__ = 'playable_spec'
-    id = Column(Integer, primary_key=True) # Blizzard Spec ID
+    id = Column(Integer, primary_key=True) 
     name = Column(String(50), nullable=False)
     class_id = Column(Integer, ForeignKey('playable_class.id'), nullable=False)
     playable_class = relationship("PlayableClass", back_populates="specs")
     def __repr__(self): return f'<PlayableSpec {self.name} (Class ID: {self.class_id})>'
 
-class PlayableSlot(Base): # Stores both API item slot types and canonical UI slot types
+class PlayableSlot(Base): 
     __tablename__ = 'playable_slot'
-    id = Column(Integer, primary_key=True, autoincrement=True) # Auto-generated PK
-    type = Column(String(50), unique=True, nullable=False, index=True) # e.g., "HEAD", "FINGER", "FINGER1", "MAIN_HAND"
-    name = Column(String(100), nullable=False) # e.g., "Head", "Finger (API)", "Finger 1", "Main Hand"
-    display_order = Column(Integer, default=0) # For ordering in UI if needed
-    # Relationship: An Item's slot_type points here.
+    id = Column(Integer, primary_key=True, autoincrement=True) 
+    type = Column(String(50), unique=True, nullable=False, index=True) 
+    name = Column(String(100), nullable=False) 
+    display_order = Column(Integer, default=0) 
     items = relationship("Item", back_populates="slot", cascade="all, delete-orphan")
-    # Relationship: A CharacterBiS's slot_type_ui points here.
     bis_selections = relationship("CharacterBiS", back_populates="slot", cascade="all, delete-orphan")
     def __repr__(self): return f'<PlayableSlot Name: {self.name} Type:({self.type})>'
 
 class DataSource(Base):
     __tablename__ = 'data_source'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(200), unique=True, nullable=False) # e.g., "Liberation of Undermine"
-    type = Column(String(50)) # e.g., "Raid", "Dungeon"
+    name = Column(String(200), unique=True, nullable=False) 
+    type = Column(String(50)) 
     items = relationship("Item", back_populates="source", cascade="all, delete-orphan")
     def __repr__(self): return f'<DataSource {self.name}>'
 
 class Item(Base):
     __tablename__ = 'item'
-    id = Column(Integer, primary_key=True) # Blizzard Item ID
+    id = Column(Integer, primary_key=True) 
     name = Column(String(255), nullable=False, index=True)
-    quality = Column(String(20)) # e.g., "EPIC"
+    quality = Column(String(20)) 
     icon_url = Column(String(512), nullable=True)
-    # Item.slot_type refers to the API slot type of the item (e.g. "HEAD", "FINGER", "WEAPON")
     slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) 
     slot = relationship("PlayableSlot", back_populates="items")
     source_id = Column(Integer, ForeignKey('data_source.id'), nullable=True, index=True)
     source = relationship("DataSource", back_populates="items")
-    source_details = Column(String(255)) # e.g., "Boss Name"
+    source_details = Column(String(255)) 
     bis_selections = relationship("CharacterBiS", back_populates="item", cascade="all, delete-orphan")
     def __repr__(self): return f'<Item {self.name} (ID: {self.id})>'
 
-class Character(Base): # Defined for schema integrity due to CharacterBiS FK
+class Character(Base): 
     __tablename__ = 'character'
-    id = Column(Integer, primary_key=True) # Blizzard Character ID
+    id = Column(Integer, primary_key=True) 
     name = Column(String(100), nullable=False) 
     realm_slug = Column(String(100), nullable=False) 
-    class_id = Column(Integer, ForeignKey('playable_class.id')) # Added for FK integrity
-    is_active = Column(Boolean, default=True, nullable=False, index=True) # For soft deletes
+    class_id = Column(Integer, ForeignKey('playable_class.id')) 
+    is_active = Column(Boolean, default=True, nullable=False, index=True) 
 
     playable_class = relationship("PlayableClass", back_populates="characters")
     bis_selections = relationship("CharacterBiS", back_populates="character", cascade="all, delete-orphan")
@@ -110,14 +106,11 @@ class CharacterBiS(Base):
     __tablename__ = 'character_bis'
     id = Column(Integer, primary_key=True, autoincrement=True)
     character_id = Column(Integer, ForeignKey('character.id'), nullable=False, index=True)
-    # CharacterBiS.slot_type_ui refers to a canonical UI slot type (e.g. "FINGER1", "MAIN_HAND")
-    # This type must exist in the PlayableSlot table for the FK to work.
     slot_type_ui = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) 
-    item_id = Column(Integer, ForeignKey('item.id'), nullable=True) # Blizzard Item ID
+    item_id = Column(Integer, ForeignKey('item.id'), nullable=True) 
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     character = relationship("Character", back_populates="bis_selections")
-    # The foreign_keys argument specifies which column in CharacterBiS links to PlayableSlot.type
     slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui]) 
     item = relationship("Item", back_populates="bis_selections")
     
@@ -128,10 +121,7 @@ class CharacterBiS(Base):
 
 def populate_playable_slots(db_session):
     print("Populating Playable Slots...", flush=True)
-    # This list should include all distinct 'type' strings that Items can have (Item.slot_type)
-    # AND all distinct 'type' strings that CharacterBiS will use for its slot_type_ui.
     slots_data = [
-        # API Primary Types (referenced by Item.slot_type)
         {"type": "HEAD", "name": "Head (API)", "display_order": 1},
         {"type": "NECK", "name": "Neck (API)", "display_order": 2},
         {"type": "SHOULDER", "name": "Shoulder (API)", "display_order": 3},
@@ -152,24 +142,16 @@ def populate_playable_slots(db_session):
         {"type": "WEAPON", "name": "Weapon (API - Generic)", "display_order": 17}, 
         {"type": "ONE_HAND", "name": "One-Hand Weapon (API)", "display_order": 17},
         {"type": "TWOHWEAPON", "name": "Two-Hand Weapon (API)", "display_order": 17}, 
-        {"type": "MAIN_HAND", "name": "Main Hand (API - Equipment Slot)", "display_order": 17}, # This is an equipment slot from Blizzard API
-        {"type": "OFF_HAND", "name": "Off Hand (API - Equipment Slot)", "display_order": 18}, # This is an equipment slot from Blizzard API
+        {"type": "MAIN_HAND", "name": "Main Hand (API - Equipment Slot)", "display_order": 17}, 
+        {"type": "OFF_HAND", "name": "Off Hand (API - Equipment Slot)", "display_order": 18}, 
         {"type": "SHIELD", "name": "Shield (API)", "display_order": 18},
         {"type": "HOLDABLE", "name": "Holdable (API - Off-hand)", "display_order": 18},
         {"type": "RANGEDRIGHT", "name": "Ranged Weapon (API - RANGEDRIGHT)", "display_order": 17},
         {"type": "RANGED", "name": "Ranged (API - Generic Equipment Slot)", "display_order": 17},
-        
-        # Canonical UI Slot Types (for CharacterBiS.slot_type_ui and loot.html UI)
-        # If a UI type is identical to an API type already listed (e.g. "HEAD"), it doesn't need to be duplicated.
-        # The key is that any string used in CharacterBiS.slot_type_ui must be a 'type' in this table.
-        {"type": "FINGER1", "name": "Finger 1 (UI)", "display_order": 13}, # UI specific
-        {"type": "FINGER2", "name": "Finger 2 (UI)", "display_order": 14}, # UI specific
-        {"type": "TRINKET1", "name": "Trinket 1 (UI)", "display_order": 15}, # UI specific
-        {"type": "TRINKET2", "name": "Trinket 2 (UI)", "display_order": 16}, # UI specific
-        # For MAIN_HAND and OFF_HAND UI slots, if they are distinct from Blizzard's equipment slot types
-        # for BiS purposes, they should be listed here. If the existing "MAIN_HAND" and "OFF_HAND"
-        # (API - Equipment Slot) entries are sufficient, no new entries needed.
-        # The loot.html canonicalUiSlots will use these 'type' strings.
+        {"type": "FINGER1", "name": "Finger 1 (UI)", "display_order": 13}, 
+        {"type": "FINGER2", "name": "Finger 2 (UI)", "display_order": 14}, 
+        {"type": "TRINKET1", "name": "Trinket 1 (UI)", "display_order": 15}, 
+        {"type": "TRINKET2", "name": "Trinket 2 (UI)", "display_order": 16}, 
     ]
     for slot_data in slots_data:
         slot = db_session.query(PlayableSlot).filter_by(type=slot_data["type"]).first()
@@ -309,40 +291,66 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             item_id = item_ref["id"]
             
             existing_item = db_session.get(Item, item_id)
-            if existing_item and existing_item.icon_url: continue 
+            # If item exists and already has an icon, we might skip fetching its details again
+            # unless we want to refresh other info like source_details (not currently done here).
+            if existing_item and existing_item.icon_url: 
+                # print(f"    DEBUG: Item ID {item_id} ('{existing_item.name}') already in DB with icon. Skipping full fetch.", flush=True)
+                continue 
 
             item_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id}"
             item_data = make_api_request(api_url=item_detail_url, params=static_params, headers=headers)
-            if not item_data: time.sleep(0.05); continue
+            if not item_data: 
+                print(f"    WARNING: Failed to fetch details for item ID {item_id}.", flush=True)
+                time.sleep(0.05); continue
 
             item_name = item_data.get("name")
             item_quality = item_data.get("quality", {}).get("name", "Unknown").upper()
             api_slot_type = item_data.get("inventory_type", {}).get("type")
             
-            icon_url = None
+            fetched_icon_url = None # Initialize to None
             media_href = item_data.get("media", {}).get("key", {}).get("href")
             if media_href:
+                # print(f"    DEBUG: Fetching media for item ID {item_id} from {media_href}", flush=True)
                 media_data = make_api_request(api_url=media_href, params=static_params, headers=headers)
                 if media_data and "assets" in media_data:
                     for asset in media_data["assets"]:
-                        if asset.get("key") == "icon": icon_url = asset.get("value"); break
+                        if asset.get("key") == "icon": 
+                            fetched_icon_url = asset.get("value")
+                            # print(f"    DEBUG: Icon found for item ID {item_id}: {fetched_icon_url}", flush=True)
+                            break
+                # elif media_data:
+                    # print(f"    DEBUG: Media data for item ID {item_id} fetched but no 'assets' or icon key found. Media: {media_data}", flush=True)
+                # else:
+                    # print(f"    DEBUG: Failed to fetch media data for item ID {item_id} from {media_href}", flush=True)
+            # else:
+                # print(f"    DEBUG: No media_href for item ID {item_id}.", flush=True)
             
             if item_name and item_quality == "EPIC" and api_slot_type and api_slot_type != "NON_EQUIP":
                 if not db_session.query(PlayableSlot).filter_by(type=api_slot_type).first():
                     print(f"CRITICAL: API slot '{api_slot_type}' for item '{item_name}' (ID:{item_id}) missing in PlayableSlot.", flush=True)
                     continue
-                if existing_item:
-                    if not existing_item.icon_url and icon_url: existing_item.icon_url = icon_url
-                else:
+                if existing_item: # Item exists, icon_url was missing or we wouldn't be here
+                    if fetched_icon_url: # Only update if we successfully fetched a new icon
+                        existing_item.icon_url = fetched_icon_url
+                        print(f"    Updating icon for existing item ID {item_id}: {item_name}", flush=True)
+                        items_processed_count +=1 
+                    # else:
+                        # print(f"    DEBUG: Existing item ID {item_id}, but no new icon fetched to update.", flush=True)
+                else: # New item
+                    print(f"    Adding new item ID {item_id}: {item_name} (Slot: {api_slot_type}, Icon: {'Yes' if fetched_icon_url else 'No'})", flush=True)
                     db_session.add(Item(id=item_id, name=item_name, quality=item_quality, slot_type=api_slot_type,
                                      source_id=data_source_id, source_details=f"{source_name_friendly} - {enc_name}",
-                                     icon_url=icon_url))
-                items_processed_count += 1
-            time.sleep(0.05)
-        try: db_session.commit()
-        except Exception as e: db_session.rollback(); print(f"  Commit error for {enc_name}: {e}", flush=True)
-        time.sleep(0.1)
-    print(f"Finished {source_name_friendly}. Items added/updated: {items_processed_count}", flush=True)
+                                     icon_url=fetched_icon_url))
+                    items_processed_count += 1
+            time.sleep(0.05) # Be respectful of API limits
+        try: 
+            db_session.commit()
+            print(f"  Committed items for encounter: {enc_name}", flush=True)
+        except Exception as e: 
+            db_session.rollback()
+            print(f"    Error committing items for {enc_name}: {e}", flush=True)
+        time.sleep(0.1) # Pause between encounters
+    print(f"Finished {source_name_friendly}. Items added/updated with icons: {items_processed_count}", flush=True)
 
 def main():
     print("Starting WoW Info Population Script...", flush=True)
@@ -356,11 +364,16 @@ def main():
     
     print("Clearing DataSource and Item tables. PlayableSlot additively updated.", flush=True)
     try:
+        # Important: If CharacterBiS has entries pointing to Items, this delete will fail
+        # unless the FK constraint has ON DELETE CASCADE or CharacterBiS is cleared first.
+        # This script assumes it's okay to clear Items, or that dependent data is handled.
         db_session.query(Item).delete(synchronize_session=False)
         db_session.query(DataSource).delete(synchronize_session=False)
         db_session.commit()
+        print("DataSource and Item tables cleared.", flush=True)
     except Exception as e:
-        db_session.rollback(); print(f"Error clearing tables: {e}", flush=True)
+        db_session.rollback()
+        print(f"Error clearing tables: {e}. This might be due to existing CharacterBiS entries referencing Items.", flush=True)
 
     populate_playable_slots(db_session) 
     data_sources = populate_data_sources(db_session) 

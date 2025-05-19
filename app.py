@@ -451,9 +451,11 @@ def api_character_equipped_items(character_id):
             if db_item and db_item.icon_url:
                 icon_url = db_item.icon_url
             else:
+                # If icon not in local DB, we no longer make a live API call here.
+                # wow_info.py is responsible for populating icons.
+                # Frontend will use a placeholder if icon_url is None.
                 print(f"Note: Icon for equipped item ID {item_id} ('{item_name}') not found in local DB. wow_info.py might need to be run/updated.")
-                # No live API call for icon here to improve performance. Frontend will use placeholder.
-
+            
             equipped_map[blizzard_api_slot_type] = {
                 "item_id": item_id, 
                 "name": item_name, 
