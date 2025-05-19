@@ -277,6 +277,7 @@ def process_and_store_wcl_data():
         wcl_reports_in_db = []
         wcl_attendances_to_insert = []
         wcl_performances_to_insert = []
+        processed_performance_keys = set() # *** ADDED: Set to track unique performance entries for insertion ***
         character_attendance_raw_counts = {} 
         character_performance_scores = {}    
         
@@ -320,7 +321,7 @@ def process_and_store_wcl_data():
 
                     roles_data = fight_summary_entry.get('roles', {})
                     if not roles_data:
-                        print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}': No 'roles' data in this fight summary.", flush=True)
+                        # print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}': No 'roles' data in this fight summary.", flush=True)
                         continue
 
                     for role_name, role_details in roles_data.items(): 
@@ -328,43 +329,45 @@ def process_and_store_wcl_data():
                             for char_perf_entry in role_details['characters']:
                                 wcl_char_name = char_perf_entry.get('name')
                                 if not wcl_char_name:
-                                    print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}', Role '{role_name}': Skipping character entry with no name: {char_perf_entry}", flush=True)
+                                    # print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}', Role '{role_name}': Skipping character entry with no name: {char_perf_entry}", flush=True)
                                     continue
                                 
                                 wcl_char_name_lower = wcl_char_name.lower()
                                 matched_char_id = char_name_to_id_map.get(wcl_char_name_lower)
-
-                                # --- Enhanced Debugging for Name Matching ---
-                                if not matched_char_id:
-                                    print(f"DEBUG-NOMATCH: WCL char '{wcl_char_name_lower}' (from report {report_code}, enc '{encounter_name}') not found in char_name_to_id_map.", flush=True)
-                                    continue # Skip if character name from log is not in our DB map
-                                # --- End Enhanced Debugging ---
                                 
-                                # This 'if matched_char_id:' is now slightly redundant due to the 'continue' above, but harmless.
+                                if not matched_char_id:
+                                    # print(f"DEBUG-NOMATCH: WCL char '{wcl_char_name_lower}' (from report {report_code}, enc '{encounter_name}') not found in char_name_to_id_map.", flush=True)
+                                    continue 
+                                
                                 if matched_char_id: 
                                     if matched_char_id not in character_performance_scores:
                                         character_performance_scores[matched_char_id] = []
                                     
                                     percentile = char_perf_entry.get('rankPercent')
-                                    spec_name = char_perf_entry.get('spec') # WCL provides spec name directly here
+                                    spec_name = char_perf_entry.get('spec') 
+                                    current_metric = "dps" # Assuming metric is always 'dps' for now
 
                                     if percentile is not None:
-                                        print(f"DEBUG-MATCH&PERCENTILE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (DB ID: {matched_char_id}), Spec '{spec_name}', adding percentile: {percentile}", flush=True)
-                                        character_performance_scores[matched_char_id].append(percentile)
-                                        
-                                        wcl_performances_to_insert.append(WCLPerformance(
-                                            report_code=report_code, 
-                                            character_id=matched_char_id,
-                                            encounter_id=encounter_id, 
-                                            encounter_name=encounter_name,
-                                            spec_name=spec_name, 
-                                            metric="dps", 
-                                            rank_percentile=percentile
-                                        ))
-                                    else:
-                                        print(f"DEBUG-NOPERCENTILE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (DB ID: {matched_char_id}), Spec '{spec_name}', but rankPercent is None. Entry: {char_perf_entry}", flush=True)
-                        # else: # Optional: log if role_details is not a dict or no 'characters' key
-                            # print(f"DEBUG: Report {report_code}, Encounter '{encounter_name}': Role '{role_name}' data is not as expected or has no characters. Details: {role_details}", flush=True)
+                                        # *** ADDED: Check for duplicates before adding to wcl_performances_to_insert ***
+                                        performance_key = (report_code, matched_char_id, encounter_id, current_metric)
+                                        if performance_key not in processed_performance_keys:
+                                            # print(f"DEBUG-MATCH&PERCENTILE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (DB ID: {matched_char_id}), Spec '{spec_name}', adding percentile: {percentile}", flush=True)
+                                            character_performance_scores[matched_char_id].append(percentile)
+                                            
+                                            wcl_performances_to_insert.append(WCLPerformance(
+                                                report_code=report_code, 
+                                                character_id=matched_char_id,
+                                                encounter_id=encounter_id, 
+                                                encounter_name=encounter_name,
+                                                spec_name=spec_name, 
+                                                metric=current_metric, 
+                                                rank_percentile=percentile
+                                            ))
+                                            processed_performance_keys.add(performance_key)
+                                        # else: # Optional: Log if a duplicate was skipped
+                                            # print(f"DEBUG-DUPLICATE-SKIPPED: Performance entry for {performance_key} already processed for this run.", flush=True)
+                                    # else:
+                                        # print(f"DEBUG-NOPERCENTILE: Report {report_code}, Enc '{encounter_name}': Matched {wcl_char_name_lower} (DB ID: {matched_char_id}), Spec '{spec_name}', but rankPercent is None. Entry: {char_perf_entry}", flush=True)
             else:
                 print(f"WARNING: Report {report_code}: Could not process rankings. Rankings data was None or empty after fetch.", flush=True)
             time.sleep(0.2) 
@@ -377,14 +380,20 @@ def process_and_store_wcl_data():
             print("WCL reports inserted.", flush=True)
         if wcl_attendances_to_insert:
             print(f"Inserting {len(wcl_attendances_to_insert)} WCL attendance records...", flush=True)
+            # It's good practice to also check for duplicates in attendance if they can occur
+            # For now, assuming attendance is unique per (report_code, character_id) from WCL actors list
             db_session.add_all(wcl_attendances_to_insert)
             db_session.commit()
             print("WCL attendance inserted.", flush=True)
+        
         if wcl_performances_to_insert:
             print(f"Inserting {len(wcl_performances_to_insert)} WCL performance records...", flush=True)
             db_session.add_all(wcl_performances_to_insert)
-            db_session.commit()
+            db_session.commit() # This is where the UniqueViolation was occurring
             print("WCL performance records inserted.", flush=True)
+        else:
+            print("No new WCL performance records to insert.", flush=True)
+
 
         print(f"\nDEBUG: character_performance_scores dictionary before updating DB: {character_performance_scores}", flush=True)
 
