@@ -262,12 +262,14 @@ def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
                 return instance_id
         print(f"  ERROR: {instance_type.capitalize()} '{instance_name_to_find}' not found in the journal index.", flush=True)
         print(f"  Available {instance_type} names from API:", flush=True)
-        for name in sorted(available_instance_names): # Sort for easier reading
+        for name in sorted(available_instance_names): 
             print(f"    - \"{name}\"", flush=True)
         return None
     else:
-        print(f"  ERROR: Could not fetch or parse journal {instance_type} index.", flush=True)
-        if index_data: print(f"  DEBUG: Journal {instance_type.capitalize()} Index Response: {json.dumps(index_data, indent=2)}", flush=True)
+        # Print the URL that failed for the index itself
+        print(f"  ERROR: Could not fetch or parse journal {instance_type} index. URL: {api_url}", flush=True) 
+        if index_data is not None: # Check if index_data is not None before trying to dump it
+             print(f"  DEBUG: Journal {instance_type.capitalize()} Index Response: {json.dumps(index_data, indent=2)}", flush=True)
         return None
 
 def fetch_and_store_source_items(db_session, source_name_friendly, source_journal_id, data_source_id, source_type="raid"):
@@ -277,12 +279,20 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
     headers = {"Authorization": f"Bearer {access_token}"}
     static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
 
-    endpoint_suffix = f"/data/wow/journal-{source_type}/{source_journal_id}"
-    instance_api_url = f"{BLIZZARD_API_BASE_URL}{endpoint_suffix}"
+    # Corrected endpoint construction: journal instances (raids) and dungeons use different base paths for details
+    if source_type == "raid":
+        instance_api_endpoint_suffix = f"/data/wow/journal-instance/{source_journal_id}"
+    elif source_type == "dungeon":
+        instance_api_endpoint_suffix = f"/data/wow/journal-dungeon/{source_journal_id}"
+    else: 
+        print(f"Error: Unknown source_type '{source_type}'."); return
+    
+    instance_api_url = f"{BLIZZARD_API_BASE_URL}{instance_api_endpoint_suffix}"
     instance_data = make_api_request(api_url=instance_api_url, params=static_params, headers=headers)
 
     if not instance_data or "encounters" not in instance_data: 
-        print(f"Error: No instance data/encounters for {source_type} ID {source_journal_id}.", flush=True); return
+        # Print the URL that failed for the specific instance/dungeon details
+        print(f"Error: No instance data/encounters for {source_type} ID {source_journal_id}. URL: {instance_api_url}", flush=True); return
 
     items_processed_count = 0
     for encounter_ref in instance_data["encounters"]:
@@ -342,7 +352,6 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             time.sleep(0.05) 
         try: 
             db_session.commit()
-            # print(f"  Committed items for encounter: {enc_name}", flush=True) # Can be noisy
         except Exception as e: 
             db_session.rollback()
             print(f"    Error committing items for {enc_name}: {e}", flush=True)
@@ -382,21 +391,17 @@ def main():
     
     # M+ Items
     print("\n--- Processing Mythic+ Dungeons ---", flush=True)
-    # IMPORTANT: Update this list with the EXACT names of the current/relevant M+ dungeons
-    # as they appear in the Blizzard Journal API. Use the debug output from find_journal_instance_id
-    # if you are unsure of the names.
     mplus_dungeon_names = [ 
-        "THE MOTHERLODE!!", # Example - likely needs updating for TWW or current DF season
-        "Theater of Pain",  # Example
-        "Cinderbrew Meadery", # Example
-        "Priory of the Sacred Flame", # Example
-        "The Rookery", # Example
-        "Darkflame Cleft", # Example
-        "Operation: Floodgate", # Example
-        "Operation: Mechagon" # Example - This might be split like "Operation: Mechagon - Workshop"
-        # Add more TWW Season 2 (or current Dragonflight season) dungeon names here
+        "THE MOTHERLODE!!", 
+        "Theater of Pain",  
+        "Cinderbrew Meadery", 
+        "Priory of the Sacred Flame", 
+        "The Rookery", 
+        "Darkflame Cleft", 
+        "Operation: Floodgate", 
+        "Operation: Mechagon" 
     ]
-    mplus_source_name = "Mythic+ Season 2 Dungeons" # Ensure this DataSource name exists
+    mplus_source_name = "Mythic+ Season 2 Dungeons" 
     
     if mplus_source_name in data_sources:
         mplus_s2_source_id = data_sources[mplus_source_name]
@@ -404,8 +409,7 @@ def main():
             d_id = find_journal_instance_id(d_name, "dungeon")
             if d_id: 
                 fetch_and_store_source_items(db_session, d_name, d_id, mplus_s2_source_id, "dungeon")
-            # No need for an else here, find_journal_instance_id already prints an error
-            time.sleep(0.5) # Pause between dungeons if making many API calls
+            time.sleep(0.5) 
     else: 
         print(f"Data source '{mplus_source_name}' not found. Cannot process M+ dungeon items.", flush=True)
 
