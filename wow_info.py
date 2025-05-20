@@ -253,7 +253,7 @@ def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
     index_data = None
     target_api_url_index = ""
 
-    if instance_type == "instance": # Raids
+    if instance_type == "instance": 
         target_api_url_index = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-instance/index"
         index_data = make_api_request(api_url=target_api_url_index, params=static_params, headers=headers)
         if index_data and f"{instance_type}s" in index_data:
@@ -291,10 +291,9 @@ def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
         exp_index_url = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-expansion/index"
         exp_index_data = make_api_request(api_url=exp_index_url, params=static_params, headers=headers)
         
-        if not exp_index_data or "tiers" not in exp_index_data: 
-            exp_index_data = make_api_request(api_url=f"{BLIZZARD_API_BASE_URL}/data/wow/journal-expansion/index", params=static_params, headers=headers) 
-            if not exp_index_data or "tiers" not in exp_index_data.get("expansions",[]): 
-                 print(f"  ERROR: Could not fetch or parse journal expansion index. URL: {exp_index_url}", flush=True)
+        if not exp_index_data or ("tiers" not in exp_index_data and "expansions" not in exp_index_data) : # check for both common keys
+                 print(f"  ERROR: Could not fetch or parse journal expansion index, or it's empty. URL: {exp_index_url}", flush=True)
+                 if exp_index_data is not None: print(f"  DEBUG: Expansion Index Response: {json.dumps(exp_index_data, indent=2)}", flush=True)
                  return None
 
         all_dungeon_names_from_expansions = set()
@@ -329,7 +328,6 @@ def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
         return None
     return None
 
-
 def fetch_and_store_source_items(db_session, source_name_friendly, source_journal_id, data_source_id, source_type="raid"):
     print(f"Fetching items for {source_type}: {source_name_friendly} (Journal ID: {source_journal_id})", flush=True)
     access_token = get_blizzard_access_token()
@@ -337,10 +335,10 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
     headers = {"Authorization": f"Bearer {access_token}"}
     static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
 
-    # Use /journal-instance/ for both raids and dungeons if /journal-dungeon/{id} fails
+    # Use /journal-instance/ for both raids and dungeons details
     instance_api_endpoint_suffix = f"/data/wow/journal-instance/{source_journal_id}"
     if source_type == "dungeon":
-        print(f"  NOTE: Using /journal-instance/ endpoint for dungeon ID {source_journal_id} as a primary/fallback.", flush=True)
+        print(f"  NOTE: Using /journal-instance/{source_journal_id} endpoint for dungeon details.", flush=True)
     
     instance_api_url = f"{BLIZZARD_API_BASE_URL}{instance_api_endpoint_suffix}"
     instance_data = make_api_request(api_url=instance_api_url, params=static_params, headers=headers)
@@ -348,27 +346,42 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
     if not instance_data or "encounters" not in instance_data: 
         print(f"Error: No instance data/encounters for {source_type} ID {source_journal_id}. URL: {instance_api_url}", flush=True); return
 
-    items_processed_count = 0
+    items_processed_this_source = 0 # Renamed for clarity
     for encounter_ref in instance_data["encounters"]:
         enc_id, enc_name = encounter_ref.get("id"), encounter_ref.get("name")
         if not enc_id or not enc_name: continue
-        print(f"  Loot for encounter: {enc_name}", flush=True)
+        print(f"  Loot for encounter: {enc_name} (ID: {enc_id})", flush=True)
         
         items_to_parse = encounter_ref.get("items")
+        # print(f"    DEBUG: Items directly in encounter_ref for {enc_name}: {json.dumps(items_to_parse, indent=2) if items_to_parse else 'None'}", flush=True)
+
         if not items_to_parse:
             enc_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-encounter/{enc_id}"
+            # print(f"    DEBUG: Fetching detailed encounter data from: {enc_detail_url}", flush=True)
             enc_detail_data = make_api_request(api_url=enc_detail_url, params=static_params, headers=headers)
-            if not enc_detail_data or "items" not in enc_detail_data: continue
+            if not enc_detail_data or "items" not in enc_detail_data:
+                print(f"    WARNING: No 'items' in encounter_ref OR in detailed fetch for {enc_name} (ID: {enc_id}). Detail response: {json.dumps(enc_detail_data) if enc_detail_data else 'None'}", flush=True)
+                continue
             items_to_parse = enc_detail_data["items"]
-        if not items_to_parse: continue
-
-        for item_entry in items_to_parse:
+            # print(f"    DEBUG: Items from detailed encounter fetch for {enc_name}: {json.dumps(items_to_parse, indent=2) if items_to_parse else 'None'}", flush=True)
+        
+        if not items_to_parse: 
+            print(f"    INFO: No items found to process for encounter {enc_name} after all checks.", flush=True)
+            continue
+        
+        print(f"    Found {len(items_to_parse)} potential item entries for {enc_name}.", flush=True)
+        for item_entry_index, item_entry in enumerate(items_to_parse):
             item_ref = item_entry.get("item")
-            if not item_ref or "id" not in item_ref: continue
+            if not item_ref or "id" not in item_ref: 
+                # print(f"      DEBUG: Skipping item_entry {item_entry_index} with no item_ref or id: {item_entry}", flush=True)
+                continue
             item_id = item_ref["id"]
             
+            # print(f"      DEBUG: Processing item_entry {item_entry_index}, item_id: {item_id}", flush=True)
             existing_item = db_session.get(Item, item_id)
-            if existing_item and existing_item.icon_url: continue 
+            if existing_item and existing_item.icon_url: 
+                # print(f"      DEBUG: Item {item_id} ('{existing_item.name}') exists with icon, skipping.", flush=True)
+                continue 
 
             item_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id}"
             item_data = make_api_request(api_url=item_detail_url, params=static_params, headers=headers)
@@ -380,6 +393,8 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             item_quality = item_data.get("quality", {}).get("name", "Unknown").upper()
             api_slot_type = item_data.get("inventory_type", {}).get("type") 
             
+            # print(f"      DEBUG: Item {item_name} (ID: {item_id}), Quality: {item_quality}, API Slot: {api_slot_type}", flush=True)
+
             fetched_icon_url = None 
             media_href = item_data.get("media", {}).get("key", {}).get("href")
             if media_href:
@@ -390,19 +405,22 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             
             if item_name and item_quality == "EPIC" and api_slot_type and api_slot_type != "NON_EQUIP":
                 if not db_session.query(PlayableSlot).filter_by(type=api_slot_type).first():
-                    print(f"CRITICAL: API slot '{api_slot_type}' for item '{item_name}' (ID:{item_id}) missing in PlayableSlot.", flush=True)
+                    print(f"CRITICAL: API slot '{api_slot_type}' for item '{item_name}' (ID:{item_id}) missing in PlayableSlot. Add to populate_playable_slots().", flush=True)
                     continue
                 if existing_item: 
-                    if fetched_icon_url: 
+                    if fetched_icon_url and not existing_item.icon_url : # Only update if we got an icon and it was missing
                         existing_item.icon_url = fetched_icon_url
                         print(f"    Updating icon for existing item ID {item_id}: {item_name}", flush=True)
-                        items_processed_count +=1 
+                        items_processed_this_source +=1 
                 else: 
                     print(f"    Adding new item ID {item_id}: {item_name} (Slot: {api_slot_type}, Icon: {'Yes' if fetched_icon_url else 'No'})", flush=True)
                     db_session.add(Item(id=item_id, name=item_name, quality=item_quality, slot_type=api_slot_type,
                                      source_id=data_source_id, source_details=f"{source_name_friendly} - {enc_name}",
                                      icon_url=fetched_icon_url))
-                    items_processed_count += 1
+                    items_processed_this_source += 1
+            # else:
+                # print(f"      DEBUG: Item {item_name} (ID: {item_id}) skipped. Criteria - Name: {bool(item_name)}, Quality EPIC: {item_quality == 'EPIC'}, Slot Valid: {bool(api_slot_type and api_slot_type != 'NON_EQUIP')}", flush=True)
+
             time.sleep(0.05) 
         try: 
             db_session.commit()
@@ -410,7 +428,7 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             db_session.rollback()
             print(f"    Error committing items for {enc_name}: {e}", flush=True)
         time.sleep(0.1) 
-    print(f"Finished {source_name_friendly}. Items added/updated with icons: {items_processed_count}", flush=True)
+    print(f"Finished {source_name_friendly}. Items added/updated with icons: {items_processed_this_source}", flush=True)
 
 def main():
     print("Starting WoW Info Population Script...", flush=True)
@@ -453,7 +471,8 @@ def main():
         "The Rookery", 
         "Darkflame Cleft", 
         "Operation: Floodgate", 
-        "Operation: Mechagon" 
+        "Operation: Mechagon - Workshop", # Often split, ensure exact names
+        "Operation: Mechagon - Junkyard"   # Often split, ensure exact names
     ]
     mplus_source_name = "Mythic+ Season 2 Dungeons" 
     
