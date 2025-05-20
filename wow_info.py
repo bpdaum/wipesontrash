@@ -1,6 +1,6 @@
 # wow_info.py
 import os
-import requests 
+import requests # Will be used by imported helpers
 import time
 from datetime import datetime
 import json
@@ -173,7 +173,6 @@ def populate_data_sources(db_session):
     sources_data = [
         {"name": "Liberation of Undermine", "type": "Raid"},
         {"name": "Mythic+ Dungeons - TWW S1", "type": "Dungeon"}, 
-        # {"name": "Delves - TWW S1", "type": "Delve"}, # Delve logic removed
         {"name": "Crafting - TWW S1", "type": "Crafting"}  
     ]
     for source_data in sources_data:
@@ -275,7 +274,7 @@ def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
             if index_data is not None: print(f"  DEBUG: Raid Index Response: {json.dumps(index_data, indent=2)}", flush=True)
             return None
 
-    elif instance_type == "dungeon": # Delve logic removed from here
+    elif instance_type == "dungeon": 
         target_api_url_dungeon_index = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-dungeon/index"
         dungeon_index_data = make_api_request(api_url=target_api_url_dungeon_index, params=static_params, headers=headers)
 
@@ -343,7 +342,7 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
     static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
 
     instance_api_endpoint_suffix = f"/data/wow/journal-instance/{source_journal_id}"
-    if source_type == "dungeon": # Delve type removed
+    if source_type == "dungeon": 
         print(f"  NOTE: Using /journal-instance/{source_journal_id} endpoint for dungeon details.", flush=True)
     
     instance_api_url = f"{BLIZZARD_API_BASE_URL}{instance_api_endpoint_suffix}"
@@ -367,7 +366,7 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             enc_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-encounter/{enc_id}"
             enc_detail_data = make_api_request(api_url=enc_detail_url, params=static_params, headers=headers)
             if not enc_detail_data or "items" not in enc_detail_data:
-                print(f"    WARNING: No 'items' in encounter_ref OR in detailed fetch for {enc_name} (ID: {enc_id}).", flush=True)
+                print(f"    WARNING: No 'items' in encounter_ref OR in detailed fetch for {enc_name} (ID: {enc_id}). Detail response: {json.dumps(enc_detail_data) if enc_detail_data else 'None'}", flush=True)
                 continue
             items_to_parse = enc_detail_data["items"]
         
@@ -378,11 +377,16 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
         print(f"    Found {len(items_to_parse)} potential item entries for {enc_name}.", flush=True)
         for item_entry_index, item_entry in enumerate(items_to_parse):
             item_ref = item_entry.get("item")
-            if not item_ref or "id" not in item_ref: continue
+            if not item_ref or "id" not in item_ref: 
+                print(f"      DEBUG: Item Entry {item_entry_index} for {enc_name}: Skipping, no item_ref or id. Entry: {item_entry}", flush=True)
+                continue
             item_id = item_ref["id"]
             
+            print(f"      DEBUG: Item Entry {item_entry_index} for {enc_name}: Processing item_id: {item_id}", flush=True)
             existing_item = db_session.get(Item, item_id)
-            if existing_item and existing_item.icon_url: continue 
+            if existing_item and existing_item.icon_url: 
+                print(f"      DEBUG: Item {item_id} ('{existing_item.name}') exists with icon, skipping further processing.", flush=True)
+                continue 
 
             item_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id}"
             item_data = make_api_request(api_url=item_detail_url, params=static_params, headers=headers)
@@ -395,7 +399,7 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             item_quality = item_quality_data.get("name", "Unknown").upper() if isinstance(item_quality_data, dict) else "Unknown"
             api_slot_type = item_data.get("inventory_type", {}).get("type") 
             
-            # print(f"      DEBUG: Item {item_id} - Name: '{item_name}', Quality: '{item_quality}', API Slot: '{api_slot_type}'", flush=True)
+            print(f"      FETCHED Item {item_id} - Name: '{item_name}', Quality: '{item_quality}', API Slot: '{api_slot_type}'", flush=True)
 
             fetched_icon_url = None 
             media_href = item_data.get("media", {}).get("key", {}).get("href")
@@ -406,21 +410,23 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
                         if asset.get("key") == "icon": fetched_icon_url = asset.get("value"); break
             
             if item_name and item_quality in ["EPIC", "RARE"] and api_slot_type and api_slot_type != "NON_EQUIP":
-                # print(f"      DEBUG: Item {item_id} ('{item_name}') meets quality/slot criteria (Quality: {item_quality}).", flush=True)
+                print(f"      QUALIFIED Item {item_id} ('{item_name}') for DB (Quality: {item_quality}, Slot: {api_slot_type}).", flush=True)
                 if not db_session.query(PlayableSlot).filter_by(type=api_slot_type).first():
                     print(f"CRITICAL: API slot '{api_slot_type}' for item '{item_name}' (ID:{item_id}) missing in PlayableSlot. Add to populate_playable_slots().", flush=True)
                     continue
                 if existing_item: 
                     if fetched_icon_url and not existing_item.icon_url : 
                         existing_item.icon_url = fetched_icon_url
+                        print(f"    Updating icon for existing item ID {item_id}: {item_name}", flush=True)
                         items_processed_this_source +=1 
                 else: 
+                    print(f"    Adding new item ID {item_id}: {item_name} (Slot: {api_slot_type}, Icon: {'Yes' if fetched_icon_url else 'No'})", flush=True)
                     db_session.add(Item(id=item_id, name=item_name, quality=item_quality, slot_type=api_slot_type,
                                      source_id=data_source_id, source_details=f"{source_name_friendly} - {enc_name}",
                                      icon_url=fetched_icon_url))
                     items_processed_this_source += 1
-            # else:
-                # print(f"      DEBUG: Item {item_id} ('{item_name}') skipped. Criteria Check -> Name: {bool(item_name)}, Quality EPIC/RARE: {item_quality in ['EPIC', 'RARE']}, Slot Valid: {bool(api_slot_type and api_slot_type != 'NON_EQUIP')}", flush=True)
+            else:
+                print(f"      SKIPPED Item {item_id} ('{item_name}'). Criteria Check -> Name: {bool(item_name)}, Quality EPIC/RARE: {item_quality in ['EPIC', 'RARE']}, Slot Valid: {bool(api_slot_type and api_slot_type != 'NON_EQUIP')}", flush=True)
 
             time.sleep(0.05) 
         try: 
@@ -451,7 +457,7 @@ def fetch_and_store_crafted_items(db_session, data_source_id):
         "WEAPON", "ONE_HAND", "TWOHWEAPON", "MAIN_HAND", "OFF_HAND", "SHIELD", "HOLDABLE",
         "RANGEDRIGHT", "RANGED"
     ]
-    CURRENT_EXPANSION_KEYWORD = "Khaz Algar" # Used to filter skill tiers
+    CURRENT_EXPANSION_KEYWORD = "Khaz Algar" 
 
     total_crafted_items_added_session = 0
 
@@ -480,9 +486,7 @@ def fetch_and_store_crafted_items(db_session, data_source_id):
             items_added_this_profession = 0
             for skill_tier_summary in prof_detail_data["skill_tiers"]:
                 skill_tier_name = skill_tier_summary.get("name", "")
-                # Filter for current expansion skill tiers
                 if CURRENT_EXPANSION_KEYWORD.lower() not in skill_tier_name.lower():
-                    # print(f"    Skipping skill tier '{skill_tier_name}' (not current expansion).", flush=True) # Can be noisy
                     continue
                 
                 print(f"    Processing Skill Tier: {skill_tier_name}", flush=True)
@@ -551,7 +555,6 @@ def fetch_and_store_crafted_items(db_session, data_source_id):
                                                  source_id=data_source_id, source_details=prof_name,
                                                  icon_url=fetched_icon_url))
                                 items_added_this_profession += 1
-                            # print(f"      Added/Updated crafted item: {item_name} (ID: {item_id}) from {prof_name}", flush=True) # Can be noisy
             
             if items_added_this_profession > 0:
                 try: 
@@ -601,7 +604,7 @@ def main():
     # M+ Items
     print("\n--- Processing Mythic+ Dungeons ---", flush=True)
     mplus_dungeon_names = [ 
-        "Operation: Mechagon", # Consolidated name
+        "Operation: Mechagon", 
         "THE MOTHERLODE!!", 
         "Theater of Pain",  
         "Cinderbrew Meadery", 
@@ -628,10 +631,9 @@ def main():
         print(f"Data source '{mplus_source_name}' not found. Cannot process M+ dungeon items.", flush=True)
 
     # Delve Items - Logic Removed
-    # print("\n--- Delve Item Processing Skipped ---", flush=True)
-    delve_source_name = "Delves - TWW S1" # Keep data source for potential future use
-    if delve_source_name not in data_sources:
-        print(f"Note: Data source '{delve_source_name}' is not defined but Delve processing is skipped.", flush=True)
+    delve_source_name = "Delves - TWW S1" 
+    if delve_source_name not in data_sources: # Check if it was defined in populate_data_sources
+        print(f"Note: Data source '{delve_source_name}' is not defined (Delve processing is skipped).", flush=True)
 
 
     # Crafted Items
