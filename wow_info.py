@@ -244,33 +244,108 @@ def update_playable_classes_and_specs(db_session):
 def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
     print(f"Attempting to find Journal ID for {instance_type}: '{instance_name_to_find}'", flush=True)
     access_token = get_blizzard_access_token()
-    if not access_token: return None
+    if not access_token:
+        print(f"  ERROR: Could not get Blizzard access token for find_journal_instance_id.", flush=True)
+        return None
     headers = {"Authorization": f"Bearer {access_token}"}
     static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
     
-    endpoint = f"/data/wow/journal-{instance_type}/index"
-    api_url = f"{BLIZZARD_API_BASE_URL}{endpoint}"
-    index_data = make_api_request(api_url=api_url, params=static_params, headers=headers)
+    # Determine the correct index URL based on instance_type
+    # For raids, /journal-instance/index is generally more direct if it works.
+    # For dungeons, /journal-dungeon/index has been problematic (404).
+    
+    index_data = None
+    target_api_url_index = ""
 
-    available_instance_names = []
-    if index_data and f"{instance_type}s" in index_data:
-        for instance in index_data[f"{instance_type}s"]:
-            available_instance_names.append(instance.get("name", "Unknown API Name"))
-            if instance.get("name", "").lower() == instance_name_to_find.lower():
-                instance_id = instance.get("id")
-                print(f"  SUCCESS: Found {instance_type} '{instance_name_to_find}' with ID: {instance_id}", flush=True)
-                return instance_id
-        print(f"  ERROR: {instance_type.capitalize()} '{instance_name_to_find}' not found in the journal index.", flush=True)
-        print(f"  Available {instance_type} names from API:", flush=True)
-        for name in sorted(available_instance_names): 
-            print(f"    - \"{name}\"", flush=True)
+    if instance_type == "instance": # Raids
+        target_api_url_index = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-instance/index"
+        index_data = make_api_request(api_url=target_api_url_index, params=static_params, headers=headers)
+        if index_data and f"{instance_type}s" in index_data:
+            for instance in index_data[f"{instance_type}s"]:
+                if instance.get("name", "").lower() == instance_name_to_find.lower():
+                    instance_id = instance.get("id")
+                    print(f"  SUCCESS: Found {instance_type} '{instance_name_to_find}' with ID: {instance_id} (via direct /journal-instance/index)", flush=True)
+                    return instance_id
+            # If not found in direct raid index
+            print(f"  INFO: Raid '{instance_name_to_find}' not found in direct /journal-instance/index. Listing available from that index:", flush=True)
+            available_instance_names = [inst.get("name", "Unknown API Name") for inst in index_data[f"{instance_type}s"]]
+            for name in sorted(available_instance_names): print(f"    - \"{name}\"", flush=True)
+            # No fallback to expansion trawl for raids for now, assuming /journal-instance/index is reliable for raids.
+            return None 
+        else:
+            print(f"  ERROR: Could not fetch or parse journal {instance_type} (raid) index. URL: {target_api_url_index}", flush=True)
+            if index_data is not None: print(f"  DEBUG: Raid Index Response: {json.dumps(index_data, indent=2)}", flush=True)
+            return None
+
+
+    elif instance_type == "dungeon":
+        # First, try the direct dungeon index (which has been failing with 404)
+        target_api_url_dungeon_index = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-dungeon/index"
+        dungeon_index_data = make_api_request(api_url=target_api_url_dungeon_index, params=static_params, headers=headers)
+
+        if dungeon_index_data and f"{instance_type}s" in dungeon_index_data:
+            print(f"  INFO: Successfully fetched direct /journal-dungeon/index.", flush=True)
+            for instance in dungeon_index_data[f"{instance_type}s"]:
+                if instance.get("name", "").lower() == instance_name_to_find.lower():
+                    instance_id = instance.get("id")
+                    print(f"  SUCCESS: Found dungeon '{instance_name_to_find}' with ID: {instance_id} (via direct /journal-dungeon/index)", flush=True)
+                    return instance_id
+            print(f"  INFO: Dungeon '{instance_name_to_find}' not found in direct /journal-dungeon/index. Will proceed to expansion trawl.", flush=True)
+            # Fall through to expansion search if name not found in a successfully fetched direct dungeon index
+        else:
+            print(f"  INFO: Direct /journal-dungeon/index failed or was empty (URL: {target_api_url_dungeon_index}). Attempting fallback via expansions...", flush=True)
+            if dungeon_index_data is not None: print(f"  DEBUG: Direct Dungeon Index Response: {json.dumps(dungeon_index_data, indent=2)}", flush=True)
+        
+        # Fallback for Dungeons: Iterate through expansions
+        print(f"  Attempting {instance_type} search via expansions for '{instance_name_to_find}'...", flush=True)
+        exp_index_url = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-expansion/index"
+        exp_index_data = make_api_request(api_url=exp_index_url, params=static_params, headers=headers)
+        
+        if not exp_index_data or "tiers" not in exp_index_data: # Tiers or expansions, depends on API structure
+            exp_index_data = make_api_request(api_url=f"{BLIZZARD_API_BASE_URL}/data/wow/journal-expansion/index", params=static_params, headers=headers) # Retry just in case
+            if not exp_index_data or "tiers" not in exp_index_data.get("expansions",[]): # Check common structures
+                 print(f"  ERROR: Could not fetch or parse journal expansion index. URL: {exp_index_url}", flush=True)
+                 return None
+
+
+        all_dungeon_names_from_expansions = set()
+        # The structure might be 'tiers' or 'expansions' at the top level of journal-expansion-index
+        expansion_list_key = "tiers" if "tiers" in exp_index_data else "expansions" 
+        
+        for expansion_summary in exp_index_data.get(expansion_list_key, []):
+            exp_id = expansion_summary.get("id")
+            exp_name = expansion_summary.get("name", f"Expansion ID {exp_id}")
+            if not exp_id: continue
+            
+            print(f"    Checking expansion: {exp_name} (ID: {exp_id})", flush=True)
+            exp_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-expansion/{exp_id}"
+            exp_detail_data = make_api_request(api_url=exp_detail_url, params=static_params, headers=headers)
+            time.sleep(0.05) 
+
+            if exp_detail_data and "dungeons" in exp_detail_data:
+                for dungeon in exp_detail_data["dungeons"]:
+                    dungeon_name_from_api = dungeon.get("name", "Unknown API Name")
+                    all_dungeon_names_from_expansions.add(dungeon_name_from_api)
+                    if dungeon_name_from_api.lower() == instance_name_to_find.lower():
+                        dungeon_id = dungeon.get("id")
+                        print(f"  SUCCESS: Found dungeon '{instance_name_to_find}' with ID: {dungeon_id} (via expansion: {exp_name})", flush=True)
+                        return dungeon_id
+            # else: # Optional: log if an expansion detail fetch fails
+                # print(f"    WARNING: Could not fetch details for expansion ID {exp_id} or no dungeons listed.", flush=True)
+        
+        # If still not found after checking all expansions
+        print(f"  ERROR: Dungeon '{instance_name_to_find}' not found even after checking all expansions.", flush=True)
+        if all_dungeon_names_from_expansions:
+            print(f"  Available dungeon names collected from all expansions:", flush=True)
+            for name in sorted(list(all_dungeon_names_from_expansions)):
+                print(f"    - \"{name}\"", flush=True)
+        else:
+            print("  INFO: No dungeons found in any expansion data.", flush=True)
         return None
-    else:
-        # Print the URL that failed for the index itself
-        print(f"  ERROR: Could not fetch or parse journal {instance_type} index. URL: {api_url}", flush=True) 
-        if index_data is not None: # Check if index_data is not None before trying to dump it
-             print(f"  DEBUG: Journal {instance_type.capitalize()} Index Response: {json.dumps(index_data, indent=2)}", flush=True)
-        return None
+
+    # Should not be reached if logic is correct for instance_type "instance" or "dungeon"
+    return None
+
 
 def fetch_and_store_source_items(db_session, source_name_friendly, source_journal_id, data_source_id, source_type="raid"):
     print(f"Fetching items for {source_type}: {source_name_friendly} (Journal ID: {source_journal_id})", flush=True)
@@ -279,7 +354,6 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
     headers = {"Authorization": f"Bearer {access_token}"}
     static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
 
-    # Corrected endpoint construction: journal instances (raids) and dungeons use different base paths for details
     if source_type == "raid":
         instance_api_endpoint_suffix = f"/data/wow/journal-instance/{source_journal_id}"
     elif source_type == "dungeon":
@@ -291,7 +365,6 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
     instance_data = make_api_request(api_url=instance_api_url, params=static_params, headers=headers)
 
     if not instance_data or "encounters" not in instance_data: 
-        # Print the URL that failed for the specific instance/dungeon details
         print(f"Error: No instance data/encounters for {source_type} ID {source_journal_id}. URL: {instance_api_url}", flush=True); return
 
     items_processed_count = 0
