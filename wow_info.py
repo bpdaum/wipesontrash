@@ -242,20 +242,33 @@ def update_playable_classes_and_specs(db_session):
     return False
 
 def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
-    print(f"Finding Journal ID for {instance_type}: '{instance_name_to_find}'", flush=True)
+    print(f"Attempting to find Journal ID for {instance_type}: '{instance_name_to_find}'", flush=True)
     access_token = get_blizzard_access_token()
     if not access_token: return None
     headers = {"Authorization": f"Bearer {access_token}"}
     static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-    api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-{instance_type}/index"
+    
+    endpoint = f"/data/wow/journal-{instance_type}/index"
+    api_url = f"{BLIZZARD_API_BASE_URL}{endpoint}"
     index_data = make_api_request(api_url=api_url, params=static_params, headers=headers)
+
+    available_instance_names = []
     if index_data and f"{instance_type}s" in index_data:
         for instance in index_data[f"{instance_type}s"]:
+            available_instance_names.append(instance.get("name", "Unknown API Name"))
             if instance.get("name", "").lower() == instance_name_to_find.lower():
-                print(f"Found ID: {instance.get('id')}", flush=True); return instance.get("id")
-        print(f"Error: '{instance_name_to_find}' not found.", flush=True)
-    else: print(f"Error: Could not fetch journal {instance_type} index.", flush=True)
-    return None
+                instance_id = instance.get("id")
+                print(f"  SUCCESS: Found {instance_type} '{instance_name_to_find}' with ID: {instance_id}", flush=True)
+                return instance_id
+        print(f"  ERROR: {instance_type.capitalize()} '{instance_name_to_find}' not found in the journal index.", flush=True)
+        print(f"  Available {instance_type} names from API:", flush=True)
+        for name in sorted(available_instance_names): # Sort for easier reading
+            print(f"    - \"{name}\"", flush=True)
+        return None
+    else:
+        print(f"  ERROR: Could not fetch or parse journal {instance_type} index.", flush=True)
+        if index_data: print(f"  DEBUG: Journal {instance_type.capitalize()} Index Response: {json.dumps(index_data, indent=2)}", flush=True)
+        return None
 
 def fetch_and_store_source_items(db_session, source_name_friendly, source_journal_id, data_source_id, source_type="raid"):
     print(f"Fetching items for {source_type}: {source_name_friendly} (Journal ID: {source_journal_id})", flush=True)
@@ -291,11 +304,7 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             item_id = item_ref["id"]
             
             existing_item = db_session.get(Item, item_id)
-            # If item exists and already has an icon, we might skip fetching its details again
-            # unless we want to refresh other info like source_details (not currently done here).
-            if existing_item and existing_item.icon_url: 
-                # print(f"    DEBUG: Item ID {item_id} ('{existing_item.name}') already in DB with icon. Skipping full fetch.", flush=True)
-                continue 
+            if existing_item and existing_item.icon_url: continue 
 
             item_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id}"
             item_data = make_api_request(api_url=item_detail_url, params=static_params, headers=headers)
@@ -305,51 +314,39 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
 
             item_name = item_data.get("name")
             item_quality = item_data.get("quality", {}).get("name", "Unknown").upper()
-            api_slot_type = item_data.get("inventory_type", {}).get("type")
+            api_slot_type = item_data.get("inventory_type", {}).get("type") 
             
-            fetched_icon_url = None # Initialize to None
+            fetched_icon_url = None 
             media_href = item_data.get("media", {}).get("key", {}).get("href")
             if media_href:
-                # print(f"    DEBUG: Fetching media for item ID {item_id} from {media_href}", flush=True)
                 media_data = make_api_request(api_url=media_href, params=static_params, headers=headers)
                 if media_data and "assets" in media_data:
                     for asset in media_data["assets"]:
-                        if asset.get("key") == "icon": 
-                            fetched_icon_url = asset.get("value")
-                            # print(f"    DEBUG: Icon found for item ID {item_id}: {fetched_icon_url}", flush=True)
-                            break
-                # elif media_data:
-                    # print(f"    DEBUG: Media data for item ID {item_id} fetched but no 'assets' or icon key found. Media: {media_data}", flush=True)
-                # else:
-                    # print(f"    DEBUG: Failed to fetch media data for item ID {item_id} from {media_href}", flush=True)
-            # else:
-                # print(f"    DEBUG: No media_href for item ID {item_id}.", flush=True)
+                        if asset.get("key") == "icon": fetched_icon_url = asset.get("value"); break
             
             if item_name and item_quality == "EPIC" and api_slot_type and api_slot_type != "NON_EQUIP":
                 if not db_session.query(PlayableSlot).filter_by(type=api_slot_type).first():
                     print(f"CRITICAL: API slot '{api_slot_type}' for item '{item_name}' (ID:{item_id}) missing in PlayableSlot.", flush=True)
                     continue
-                if existing_item: # Item exists, icon_url was missing or we wouldn't be here
-                    if fetched_icon_url: # Only update if we successfully fetched a new icon
+                if existing_item: 
+                    if fetched_icon_url: 
                         existing_item.icon_url = fetched_icon_url
                         print(f"    Updating icon for existing item ID {item_id}: {item_name}", flush=True)
                         items_processed_count +=1 
-                    # else:
-                        # print(f"    DEBUG: Existing item ID {item_id}, but no new icon fetched to update.", flush=True)
-                else: # New item
+                else: 
                     print(f"    Adding new item ID {item_id}: {item_name} (Slot: {api_slot_type}, Icon: {'Yes' if fetched_icon_url else 'No'})", flush=True)
                     db_session.add(Item(id=item_id, name=item_name, quality=item_quality, slot_type=api_slot_type,
                                      source_id=data_source_id, source_details=f"{source_name_friendly} - {enc_name}",
                                      icon_url=fetched_icon_url))
                     items_processed_count += 1
-            time.sleep(0.05) # Be respectful of API limits
+            time.sleep(0.05) 
         try: 
             db_session.commit()
-            print(f"  Committed items for encounter: {enc_name}", flush=True)
+            # print(f"  Committed items for encounter: {enc_name}", flush=True) # Can be noisy
         except Exception as e: 
             db_session.rollback()
             print(f"    Error committing items for {enc_name}: {e}", flush=True)
-        time.sleep(0.1) # Pause between encounters
+        time.sleep(0.1) 
     print(f"Finished {source_name_friendly}. Items added/updated with icons: {items_processed_count}", flush=True)
 
 def main():
@@ -364,16 +361,12 @@ def main():
     
     print("Clearing DataSource and Item tables. PlayableSlot additively updated.", flush=True)
     try:
-        # Important: If CharacterBiS has entries pointing to Items, this delete will fail
-        # unless the FK constraint has ON DELETE CASCADE or CharacterBiS is cleared first.
-        # This script assumes it's okay to clear Items, or that dependent data is handled.
         db_session.query(Item).delete(synchronize_session=False)
         db_session.query(DataSource).delete(synchronize_session=False)
         db_session.commit()
         print("DataSource and Item tables cleared.", flush=True)
     except Exception as e:
-        db_session.rollback()
-        print(f"Error clearing tables: {e}. This might be due to existing CharacterBiS entries referencing Items.", flush=True)
+        db_session.rollback(); print(f"Error clearing tables: {e}", flush=True)
 
     populate_playable_slots(db_session) 
     data_sources = populate_data_sources(db_session) 
@@ -388,15 +381,33 @@ def main():
         fetch_and_store_source_items(db_session, "Liberation of Undermine", undermine_id, data_sources["Liberation of Undermine"], "raid")
     
     # M+ Items
-    mplus_source_name = "Mythic+ Season 2 Dungeons"
+    print("\n--- Processing Mythic+ Dungeons ---", flush=True)
+    # IMPORTANT: Update this list with the EXACT names of the current/relevant M+ dungeons
+    # as they appear in the Blizzard Journal API. Use the debug output from find_journal_instance_id
+    # if you are unsure of the names.
+    mplus_dungeon_names = [ 
+        "THE MOTHERLODE!!", # Example - likely needs updating for TWW or current DF season
+        "Theater of Pain",  # Example
+        "Cinderbrew Meadery", # Example
+        "Priory of the Sacred Flame", # Example
+        "The Rookery", # Example
+        "Darkflame Cleft", # Example
+        "Operation: Floodgate", # Example
+        "Operation: Mechagon" # Example - This might be split like "Operation: Mechagon - Workshop"
+        # Add more TWW Season 2 (or current Dragonflight season) dungeon names here
+    ]
+    mplus_source_name = "Mythic+ Season 2 Dungeons" # Ensure this DataSource name exists
+    
     if mplus_source_name in data_sources:
-        mplus_dungeons = ["THE MOTHERLODE!!", "Theater of Pain", "Cinderbrew Meadery", "Priory of the Sacred Flame", 
-                          "The Rookery", "Darkflame Cleft", "Operation: Floodgate", "Operation: Mechagon"]
-        for d_name in mplus_dungeons:
-            d_id = find_journal_instance_id(d_name, "instance")
-            if d_id: fetch_and_store_source_items(db_session, d_name, d_id, data_sources[mplus_source_name], "dungeon")
-            time.sleep(0.5)
-    else: print(f"Data source '{mplus_source_name}' not found.", flush=True)
+        mplus_s2_source_id = data_sources[mplus_source_name]
+        for d_name in mplus_dungeon_names:
+            d_id = find_journal_instance_id(d_name, "dungeon")
+            if d_id: 
+                fetch_and_store_source_items(db_session, d_name, d_id, mplus_s2_source_id, "dungeon")
+            # No need for an else here, find_journal_instance_id already prints an error
+            time.sleep(0.5) # Pause between dungeons if making many API calls
+    else: 
+        print(f"Data source '{mplus_source_name}' not found. Cannot process M+ dungeon items.", flush=True)
 
     db_session.close()
     print("WoW Info Population Script Finished.", flush=True)
