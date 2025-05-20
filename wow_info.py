@@ -407,7 +407,7 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             # else:
                 # print(f"      DEBUG: No media_href for item ID {item_id}.", flush=True)
             
-            if item_name and item_quality == "EPIC" and api_slot_type and api_slot_type != "NON_EQUIP":
+            if item_name and item_quality in ["EPIC","RARE"] and api_slot_type and api_slot_type != "NON_EQUIP":
                 # print(f"      DEBUG: Item {item_id} meets EPIC quality and valid slot criteria.", flush=True)
                 if not db_session.query(PlayableSlot).filter_by(type=api_slot_type).first():
                     print(f"CRITICAL: API slot '{api_slot_type}' for item '{item_name}' (ID:{item_id}) missing in PlayableSlot. Add to populate_playable_slots().", flush=True)
