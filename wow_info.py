@@ -648,7 +648,7 @@ def main():
                     fetch_and_store_source_items(db_session, d_name, d_id, mplus_source_id_val, "dungeon")
             time.sleep(0.5) 
     else: 
-        print(f"Data source '{mplus_source_name}' not found. Cannot process M+ dungeon items.", flush=True)
+        print(f"Data source '{mplus_source_name}' not found. Cannot process M+ dungeon items.", flush=True) 
 
     # Delve Items - Logic Removed
     delve_source_name = "Delves - TWW S1" 
