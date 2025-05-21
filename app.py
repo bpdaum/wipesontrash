@@ -16,6 +16,8 @@ import pytz
 import json 
 import re 
 
+print("DEBUG: app.py: Script is being loaded/parsed by Python interpreter.", flush=True)
+
 # --- Configuration Loading ---
 GUILD_NAME = os.environ.get('GUILD_NAME')
 REGION = os.environ.get('REGION', 'us').lower() 
@@ -24,6 +26,8 @@ BLIZZARD_CLIENT_SECRET = os.environ.get('BLIZZARD_CLIENT_SECRET')
 
 # --- Flask Application Setup ---
 app = Flask(__name__)
+print(f"DEBUG: app.py: Flask app object created. App name: {app.name}", flush=True)
+
 
 # --- Database Configuration ---
 DATABASE_URL = os.environ.get('DATABASE_URL')
@@ -37,6 +41,7 @@ else:
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False 
 db = SQLAlchemy(app) 
+print("DEBUG: app.py: SQLAlchemy app configured.", flush=True)
 
 # --- Database Models (ensure these are consistent with your other scripts) ---
 class PlayableClass(db.Model):
@@ -136,6 +141,8 @@ class WCLReport(db.Model):
     owner_name = db.Column(String(100))
     fetched_at = db.Column(DateTime, default=datetime.utcnow)
     def __repr__(self): return f'<WCLReport {self.code} ({self.title})>'
+
+print("DEBUG: app.py: Database models defined.", flush=True)
 
 # --- Data Caching & API Config ---
 ALL_SPECS_CACHE = {}
@@ -254,6 +261,7 @@ def get_all_specs():
 # --- Routes ---
 @app.route('/')
 def home():
+    print("DEBUG: app.py: Request received for / (home) route.", flush=True)
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
     raid_status_counts = {'Tank': 0, 'Healer': 0, 'Melee DPS': 0, 'Ranged DPS': 0, 'DPS':0, 'Total': 0}
@@ -283,7 +291,10 @@ def home():
                             kills = int(mythic_match.group(1)); total = int(mythic_match.group(2))
                             max_mythic_kills = max(max_mythic_kills, kills); mythic_total_bosses = total
              else: print("Warning: Character table not found when fetching raid status counts.")
-    except Exception as e: print(f"Error fetching raid status counts/progression: {e}")
+    except Exception as e: 
+        print(f"Error in home route: {e}", flush=True)
+        # Optionally, re-raise or return an error page
+    print("DEBUG: app.py: Rendering index.html", flush=True)
     return render_template(
         'index.html', guild_name=display_guild_name, current_year=current_year,
         raid_status_counts=raid_status_counts, max_heroic_kills=max_heroic_kills,
@@ -293,6 +304,7 @@ def home():
 
 @app.route('/roster')
 def roster_page():
+    print("DEBUG: app.py: Request received for /roster route.", flush=True)
     start_time = time.time()
     error_message = None
     members = []
@@ -333,13 +345,14 @@ def roster_page():
                 if not members and not error_message:
                      error_message = f"No active members found matching rank (<= 4) and item level (>= {min_item_level})."
     except Exception as e:
-        print(f"Error querying database for roster: {e}")
+        print(f"Error querying database for roster: {e}", flush=True)
         error_message = "Error retrieving data from the database."
 
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     load_duration = round(time.time() - start_time, 2)
     all_specs_json = json.dumps(all_specs_by_class) if all_specs_by_class else '{}'
     
+    print("DEBUG: app.py: Rendering roster.html", flush=True)
     return render_template('roster.html',
                            guild_name=display_guild_name, members=members, error_message=error_message,
                            load_duration=load_duration, wow_region=REGION, wow_locale=locale,
@@ -347,6 +360,7 @@ def roster_page():
 
 @app.route('/raids')
 def raids_page():
+    print("DEBUG: app.py: Request received for /raids route.", flush=True)
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
     reports_by_date = {}
@@ -374,8 +388,9 @@ def raids_page():
             else:
                 print("Warning: WCLReport table not found for raids page.")
     except Exception as e:
-        print(f"Error fetching WCL reports for raids page: {e}")
+        print(f"Error fetching WCL reports for raids page: {e}", flush=True)
     
+    print("DEBUG: app.py: Rendering raids.html", flush=True)
     return render_template(
         'raids.html',
         guild_name=display_guild_name,
@@ -385,6 +400,7 @@ def raids_page():
 
 @app.route('/loot')
 def loot_page():
+    print("DEBUG: app.py: Request received for /loot route.", flush=True)
     display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
     current_year = datetime.utcnow().year
     wipers = [] 
@@ -410,8 +426,9 @@ def loot_page():
             else:
                 print("Warning: Character table not found for loot page.")
     except Exception as e:
-        print(f"Error fetching data for loot page: {e}")
+        print(f"Error fetching data for loot page: {e}", flush=True)
 
+    print("DEBUG: app.py: Rendering loot.html", flush=True)
     return render_template(
         'loot.html',
         guild_name=display_guild_name,
@@ -422,6 +439,7 @@ def loot_page():
 
 @app.route('/api/character_equipped_items/<int:character_id>')
 def api_character_equipped_items(character_id):
+    print(f"DEBUG: app.py: API call to /api/character_equipped_items/{character_id}", flush=True)
     character = db.session.get(Character, character_id) 
     if not character:
         return jsonify({"error": "Character not found"}), 404
@@ -446,20 +464,16 @@ def api_character_equipped_items(character_id):
             icon_url = None
             wowhead_link = f"https://www.wowhead.com/item={item_id}"
 
-            # Get icon_url from our local Item table (populated by wow_info.py)
             db_item = db.session.get(Item, item_id)
             if db_item and db_item.icon_url:
                 icon_url = db_item.icon_url
             else:
-                # If icon not in local DB, we no longer make a live API call here.
-                # wow_info.py is responsible for populating icons.
-                # Frontend will use a placeholder if icon_url is None.
                 print(f"Note: Icon for equipped item ID {item_id} ('{item_name}') not found in local DB. wow_info.py might need to be run/updated.")
             
             equipped_map[blizzard_api_slot_type] = {
                 "item_id": item_id, 
                 "name": item_name, 
-                "icon_url": icon_url, # Will be None if not in local DB
+                "icon_url": icon_url, 
                 "wowhead_link": wowhead_link
             }
     return jsonify(equipped_map)
@@ -467,12 +481,12 @@ def api_character_equipped_items(character_id):
 
 @app.route('/api/available_items/<api_item_slot_type>') 
 def api_available_items(api_item_slot_type):
-    """ Fetches all epic items for a given API item_slot_type from the database. """
+    print(f"DEBUG: app.py: API call to /api/available_items/{api_item_slot_type}", flush=True)
     try:
         with app.app_context():
             items_query = Item.query.filter(
                 Item.slot_type == api_item_slot_type, 
-                Item.quality == 'EPIC'
+                Item.quality == 'EPIC' # Consider if RARE should also be included for BiS options
             ).order_by(Item.name.asc()).all()
             
             items_data = [{
@@ -481,11 +495,12 @@ def api_available_items(api_item_slot_type):
             } for item in items_query]
             return jsonify(items_data)
     except Exception as e:
-        print(f"Error fetching available items for API slot type {api_item_slot_type}: {e}")
+        print(f"Error fetching available items for API slot type {api_item_slot_type}: {e}", flush=True)
         return jsonify({"error": "Could not fetch available items"}), 500
 
 @app.route('/api/bis_selection/<int:character_id>/<ui_slot_type>', methods=['GET']) 
 def get_bis_selection(character_id, ui_slot_type):
+    print(f"DEBUG: app.py: API GET /api/bis_selection/{character_id}/{ui_slot_type}", flush=True)
     try:
         with app.app_context():
             bis_entry = CharacterBiS.query.filter_by(character_id=character_id, slot_type_ui=ui_slot_type).first()
@@ -494,12 +509,13 @@ def get_bis_selection(character_id, ui_slot_type):
             else:
                 return jsonify({"item_id": None, "message": "No BiS selection found"}), 404
     except Exception as e:
-        print(f"Error fetching BiS selection for char {character_id}, ui_slot {ui_slot_type}: {e}")
+        print(f"Error fetching BiS selection for char {character_id}, ui_slot {ui_slot_type}: {e}", flush=True)
         return jsonify({"error": "Could not fetch BiS selection"}), 500
 
 
 @app.route('/api/bis_selection', methods=['POST'])
 def save_bis_selection():
+    print("DEBUG: app.py: API POST /api/bis_selection", flush=True)
     if not request.is_json:
         return jsonify({"success": False, "message": "Request must be JSON"}), 400
     data = request.get_json()
@@ -546,11 +562,12 @@ def save_bis_selection():
             return jsonify({"success": True, "message": message})
     except Exception as e:
         db.session.rollback()
-        print(f"Error saving BiS selection: {e}")
+        print(f"Error saving BiS selection: {e}", flush=True)
         return jsonify({"success": False, "message": "Database error during save."}), 500
 
 @app.route('/update_spec', methods=['POST'])
 def update_spec():
+    print("DEBUG: app.py: API POST /update_spec", flush=True)
     if not request.is_json: abort(400, description="Request must be JSON")
     data = request.get_json()
     character_id = data.get('character_id')
@@ -582,11 +599,12 @@ def update_spec():
             return jsonify({"success": True, "message": "Main spec and role updated successfully.", "new_role": character.role, "display_spec": character.main_spec_override or character.spec_name or "N/A"})
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating spec for character ID {character_id}: {e}")
+        print(f"Error updating spec for character ID {character_id}: {e}", flush=True)
         abort(500, description="Database error during spec update.")
 
 @app.route('/update_status', methods=['POST'])
 def update_status():
+    print("DEBUG: app.py: API POST /update_status", flush=True)
     if not request.is_json:
         abort(400, description="Request must be JSON")
     data = request.get_json()
@@ -611,13 +629,17 @@ def update_status():
             return jsonify({"success": True, "message": "Status updated successfully."})
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating status for character ID {character_id}: {e}")
+        print(f"Error updating status for character ID {character_id}: {e}", flush=True)
         abort(500, description="Database error during status update.")
 
 if __name__ == '__main__':
+    print("DEBUG: app.py: Running in __main__ block.", flush=True)
     with app.app_context():
+        print("DEBUG: app.py: Attempting db.create_all()", flush=True)
         db.create_all()
-        print("Database tables checked/created if they didn't exist.")
+        print("DEBUG: app.py: Database tables checked/created if they didn't exist.", flush=True)
 
     port = int(os.environ.get('PORT', 5000))
+    print(f"DEBUG: app.py: Starting Flask app on host 0.0.0.0, port {port}", flush=True)
+    # Set debug=False for production on Heroku
     app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')
