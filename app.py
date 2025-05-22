@@ -261,33 +261,62 @@ def get_all_specs():
 # --- Routes ---
 @app.route('/')
 def home():
-    print("DEBUG: app.py: Request received for / (home) route - SIMPLIFIED.", flush=True)
+    print("DEBUG: app.py: Request received for / (home) route - RESTORED.", flush=True)
+    display_guild_name = GUILD_NAME if GUILD_NAME else "Your Guild"
+    current_year = datetime.utcnow().year
+    raid_status_counts = {'Tank': 0, 'Healer': 0, 'Melee DPS': 0, 'Ranged DPS': 0, 'DPS':0, 'Total': 0}
+    max_heroic_kills = 0; max_mythic_kills = 0
+    heroic_total_bosses = 8; mythic_total_bosses = 8 
+    target_raid_short_name = "Undermine" 
     try:
-        # Minimal logic to avoid potential errors during this test
-        display_guild_name = GUILD_NAME if GUILD_NAME else "Wipes on Trash"
-        current_year = datetime.utcnow().year
-        print(f"DEBUG: app.py: home() - Guild Name: {display_guild_name}, Year: {current_year}", flush=True)
-        # Temporarily return a very simple string or a super basic template
-        # return f"Hello from {display_guild_name} Portal! Year: {current_year}"
-        
-        # If you want to test with the template but minimal data:
-        print("DEBUG: app.py: Attempting to render simplified index.html", flush=True)
-        return render_template(
-            'index.html', 
-            guild_name=display_guild_name, 
-            current_year=current_year,
-            raid_status_counts={'Tank': 0, 'Healer': 0, 'Melee DPS': 0, 'Ranged DPS': 0, 'DPS':0, 'Total': 0}, # Dummy data
-            max_heroic_kills=0, # Dummy data
-            heroic_total_bosses=8, # Dummy data
-            max_mythic_kills=0, # Dummy data
-            mythic_total_bosses=8 # Dummy data
-        )
-    except Exception as e:
-        print(f"CRITICAL ERROR in home route: {e}", flush=True)
+        print("DEBUG: app.py: home() - Attempting to enter app_context for DB query.", flush=True)
+        with app.app_context():
+             print("DEBUG: app.py: home() - Inside app_context. Checking if Character table exists.", flush=True)
+             if db.engine.dialect.has_table(db.engine.connect(), Character.__tablename__):
+                print("DEBUG: app.py: home() - Character table exists. Querying 'Wiper' status characters.", flush=True)
+                wipers = Character.query.filter(Character.status == 'Wiper', Character.is_active == True).all()
+                raid_status_counts['Total'] = len(wipers)
+                print(f"DEBUG: app.py: home() - Found {len(wipers)} 'Wiper' status characters.", flush=True)
+                for wiper in wipers:
+                    if wiper.role == 'Tank': raid_status_counts['Tank'] += 1
+                    elif wiper.role == 'Healer': raid_status_counts['Healer'] += 1
+                    elif wiper.role == 'Melee DPS': raid_status_counts['Melee DPS'] += 1
+                    elif wiper.role == 'Ranged DPS': raid_status_counts['Ranged DPS'] += 1
+                    elif wiper.role == 'DPS': raid_status_counts['DPS'] += 1 
+                    
+                    prog_str = wiper.raid_progression
+                    if prog_str and prog_str.startswith(target_raid_short_name + ":"):
+                        heroic_match = re.search(r'(\d+)/(\d+)H', prog_str)
+                        mythic_match = re.search(r'(\d+)/(\d+)M', prog_str)
+                        if heroic_match:
+                            kills = int(heroic_match.group(1)); total = int(heroic_match.group(2))
+                            max_heroic_kills = max(max_heroic_kills, kills); heroic_total_bosses = total
+                        if mythic_match:
+                            kills = int(mythic_match.group(1)); total = int(mythic_match.group(2))
+                            max_mythic_kills = max(max_mythic_kills, kills); mythic_total_bosses = total
+             else: 
+                print("Warning: Character table not found when fetching raid status counts for home page.", flush=True)
+        print("DEBUG: app.py: home() - Finished DB query section.", flush=True)
+    except Exception as e: 
+        print(f"CRITICAL ERROR in home route during DB query or processing: {e}", flush=True)
         import traceback
         traceback.print_exc()
-        # Return a plain error message to the browser if render_template fails
-        return "An error occurred while loading the homepage. Please check the server logs.", 500
+        # Fallback to rendering template with default/empty data to prevent full crash
+        return render_template(
+            'index.html', guild_name=display_guild_name, current_year=current_year,
+            raid_status_counts=raid_status_counts, max_heroic_kills=0,
+            heroic_total_bosses=8, max_mythic_kills=0,
+            mythic_total_bosses=8,
+            error_message="Error loading raid status data." # Add an error message
+        )
+    
+    print("DEBUG: app.py: Rendering index.html with potentially populated data.", flush=True)
+    return render_template(
+        'index.html', guild_name=display_guild_name, current_year=current_year,
+        raid_status_counts=raid_status_counts, max_heroic_kills=max_heroic_kills,
+        heroic_total_bosses=heroic_total_bosses, max_mythic_kills=max_mythic_kills,
+        mythic_total_bosses=mythic_total_bosses
+    )
 
 
 @app.route('/roster')
