@@ -199,7 +199,7 @@ def fetch_wcl_guild_reports_for_processing(limit=50):
              report['start_time_dt'] = utc_dt
              report['end_time_dt'] = datetime.fromtimestamp(report.get('endTime', 0) / 1000, tz=pytz.utc) if report.get('endTime') else None
              filtered_reports.append(report)
-             if len(filtered_reports) >= 8: 
+             if len(filtered_reports) >= 16: 
                  break 
     print(f"Filtered down to {len(filtered_reports)} relevant Wed/Fri WCL reports for '{target_raid_name_wcl}'. Taking up to 8.", flush=True)
     return filtered_reports[:8] 
