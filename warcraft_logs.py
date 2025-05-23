@@ -202,7 +202,7 @@ def fetch_wcl_guild_reports_for_processing(limit=50):
              if len(filtered_reports) >= 16: 
                  break 
     print(f"Filtered down to {len(filtered_reports)} relevant Wed/Fri WCL reports for '{target_raid_name_wcl}'. Taking up to 8.", flush=True)
-    return filtered_reports[:8] 
+    return filtered_reports[:16] 
 
 def _parse_rankings_content(report_code, metric_name, rankings_content):
     """Helper to parse the rankings content string/dict."""
