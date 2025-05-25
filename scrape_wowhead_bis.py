@@ -185,8 +185,7 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
         else:
             print(f"    SUCCESS: Found the first 'table' element on the page. Its classes are: {bis_table.get('class')}", flush=True)
             # For debugging, print the HTML of the found table
-            # Limiting the output to avoid overly long logs, adjust 'limit' as needed or remove for full table.
-            # print(f"    DEBUG: HTML of the first table found:\n{bis_table.prettify(limit=500)}", flush=True) 
+            print(f"    DEBUG: HTML of the first table found:\n{bis_table.prettify()}", flush=True) 
         # --- END MODIFIED LOGIC ---
 
         print("    Processing rows from the first table found...", flush=True)
