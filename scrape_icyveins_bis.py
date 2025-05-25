@@ -393,7 +393,7 @@ def scrape_and_store_bis_data():
             print(f"  No items extracted for {class_display} - {spec_display}.", flush=True)
         
         print("Waiting for 20 seconds before next spec...", flush=True) 
-        time.sleep(20) 
+        time.sleep(10) 
 
     db_session.close() 
     print("\nIcy Veins BiS scraping process finished.", flush=True)
