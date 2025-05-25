@@ -1,4 +1,4 @@
-# scrape_wowhead_bis.py
+# scrape_icyveins_bis.py
 import os
 import time
 import json 
@@ -55,7 +55,7 @@ class SuggestedBiS(Base):
     ui_slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) 
     item_name = Column(String(255), nullable=False)
     blizzard_item_id = Column(Integer, ForeignKey('item.id'), nullable=True, index=True) 
-    wowhead_item_id = Column(String(50), nullable=True) 
+    wowhead_item_id = Column(String(50), nullable=True) # Kept for potential future use or if different ID is found
     item_source = Column(String(255), nullable=True) 
     last_scraped = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
 
@@ -66,47 +66,76 @@ class SuggestedBiS(Base):
         return f'<SuggestedBiS {self.class_name} {self.spec_name} {self.ui_slot_type}: {self.item_name}>'
 
 
-# --- Wowhead Scraping Configuration ---
-WOWHEAD_BASE_URL = "https://www.wowhead.com/guide/classes"
+# --- Icy Veins Scraping Configuration ---
+ICYVEINS_BASE_URL = "https://www.icy-veins.com" # Changed from Wowhead
+# (class_slug, spec_slug, class_display, spec_display, role_slug_for_url)
+# role_slug_for_url should be "dps", "tank", or "healer"
 SPECS_TO_SCRAPE = [ 
-       ("death-knight", "blood", "Death Knight", "Blood"),("death-knight", "frost", "Death Knight", "Frost"),
-       ("death-knight", "unholy", "Death Knight", "Unholy"),("demon-hunter", "havoc", "Demon Hunter", "Havoc"),
-       ("demon-hunter", "vengeance", "Demon Hunter", "Vengeance"),("druid", "balance", "Druid", "Balance"),
-       ("druid", "feral", "Druid", "Feral"),("druid", "guardian", "Druid", "Guardian"),
-       ("druid", "restoration", "Druid", "Restoration"),("evoker", "devastation", "Evoker", "Devastation"),
-       ("evoker", "preservation", "Evoker", "Preservation"),("evoker", "augmentation", "Evoker", "Augmentation"),
-       ("hunter", "beast-mastery", "Hunter", "Beast Mastery"),("hunter", "marksmanship", "Hunter", "Marksmanship"),
-       ("hunter", "survival", "Hunter", "Survival"),("mage", "arcane", "Mage", "Arcane"),
-       ("mage", "fire", "Mage", "Fire"),("mage", "frost", "Mage", "Frost"),
-       ("monk", "brewmaster", "Monk", "Brewmaster"),("monk", "mistweaver", "Monk", "Mistweaver"),
-       ("monk", "windwalker", "Monk", "Windwalker"),("paladin", "holy", "Paladin", "Holy"),
-       ("paladin", "protection", "Paladin", "Protection"),("paladin", "retribution", "Paladin", "Retribution"),
-       ("priest", "discipline", "Priest", "Discipline"),("priest", "holy", "Priest", "Holy"),
-       ("priest", "shadow", "Priest", "Shadow"),("rogue", "assassination", "Rogue", "Assassination"),
-       ("rogue", "outlaw", "Rogue", "Outlaw"),("rogue", "subtlety", "Rogue", "Subtlety"),
-       ("shaman", "elemental", "Shaman", "Elemental"),("shaman", "enhancement", "Shaman", "Enhancement"),
-       ("shaman", "restoration", "Shaman", "Restoration"),("warlock", "affliction", "Warlock", "Affliction"),
-       ("warlock", "demonology", "Warlock", "Demonology"),("warlock", "destruction", "Warlock", "Destruction"),
-       ("warrior", "arms", "Warrior", "Arms"),("warrior", "fury", "Warrior", "Fury"),
-       ("warrior", "protection", "Warrior", "Protection"),
+    ("death-knight", "blood", "Death Knight", "Blood", "tank"),
+    ("death-knight", "frost", "Death Knight", "Frost", "dps"),
+    ("death-knight", "unholy", "Death Knight", "Unholy", "dps"),
+    ("demon-hunter", "havoc", "Demon Hunter", "Havoc", "dps"),
+    ("demon-hunter", "vengeance", "Demon Hunter", "Vengeance", "tank"),
+    ("druid", "balance", "Druid", "Balance", "dps"),
+    ("druid", "feral", "Druid", "Feral", "dps"),
+    ("druid", "guardian", "Druid", "Guardian", "tank"),
+    ("druid", "restoration", "Druid", "Restoration", "healer"),
+    ("evoker", "devastation", "Evoker", "Devastation", "dps"),
+    ("evoker", "preservation", "Evoker", "Preservation", "healer"),
+    ("evoker", "augmentation", "Evoker", "Augmentation", "dps"),
+    ("hunter", "beast-mastery", "Hunter", "Beast Mastery", "dps"),
+    ("hunter", "marksmanship", "Hunter", "Marksmanship", "dps"),
+    ("hunter", "survival", "Hunter", "Survival", "dps"),
+    ("mage", "arcane", "Mage", "Arcane", "dps"),
+    ("mage", "fire", "Mage", "Fire", "dps"),
+    ("mage", "frost", "Mage", "Frost", "dps"),
+    ("monk", "brewmaster", "Monk", "Brewmaster", "tank"),
+    ("monk", "mistweaver", "Monk", "Mistweaver", "healer"),
+    ("monk", "windwalker", "Monk", "Windwalker", "dps"),
+    ("paladin", "holy", "Paladin", "Holy", "healer"),
+    ("paladin", "protection", "Paladin", "Protection", "tank"),
+    ("paladin", "retribution", "Paladin", "Retribution", "dps"),
+    ("priest", "discipline", "Priest", "Discipline", "healer"),
+    ("priest", "holy", "Priest", "Holy", "healer"),
+    ("priest", "shadow", "Priest", "Shadow", "dps"),
+    ("rogue", "assassination", "Rogue", "Assassination", "dps"),
+    ("rogue", "outlaw", "Rogue", "Outlaw", "dps"),
+    ("rogue", "subtlety", "Rogue", "Subtlety", "dps"),
+    ("shaman", "elemental", "Shaman", "Elemental", "dps"),
+    ("shaman", "enhancement", "Shaman", "Enhancement", "dps"),
+    ("shaman", "restoration", "Shaman", "Restoration", "healer"),
+    ("warlock", "affliction", "Warlock", "Affliction", "dps"),
+    ("warlock", "demonology", "Warlock", "Demonology", "dps"),
+    ("warlock", "destruction", "Warlock", "Destruction", "dps"),
+    ("warrior", "arms", "Warrior", "Arms", "dps"),
+    ("warrior", "fury", "Warrior", "Fury", "dps"),
+    ("warrior", "protection", "Warrior", "Protection", "tank"),
 ]
+
 CANONICAL_UI_SLOT_NAMES_MAP = {
-    "Head": "HEAD", "Neck": "NECK", "Shoulder": "SHOULDER", "Shoulders": "SHOULDER",
-    "Back": "BACK", "Cloak": "BACK", "Chest": "CHEST", "Wrist": "WRIST", "Bracers": "WRIST",
-    "Hands": "HANDS", "Gloves": "HANDS", "Waist": "WAIST", "Belt": "WAIST",
-    "Legs": "LEGS", "Feet": "FEET", "Boots": "FEET",
+    "Head": "HEAD", "Helm": "HEAD", 
+    "Neck": "NECK", 
+    "Shoulder": "SHOULDER", "Shoulders": "SHOULDER",
+    "Back": "BACK", "Cloak": "BACK", 
+    "Chest": "CHEST", 
+    "Wrist": "WRIST", "Bracers": "WRIST",
+    "Hands": "HANDS", "Gloves": "HANDS", 
+    "Waist": "WAIST", "Belt": "WAIST",
+    "Legs": "LEGS", 
+    "Feet": "FEET", "Boots": "FEET",
     "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1", 
     "Finger 2": "FINGER2", "Ring 2": "FINGER2", "Finger2": "FINGER2",
-    "Ring": "FINGER1", 
+    "Ring": "FINGER1", # Default for generic "Ring"
     "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1",
     "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2",
-    "Trinket": "TRINKET1", 
-    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND",
-    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND",
-    "Weapon": "MAIN_HAND", "Ranged": "MAIN_HAND", "Shield": "OFF_HAND",
+    "Trinket": "TRINKET1", # Default for generic "Trinket"
+    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", 
+    "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND",
+    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Shield": "OFF_HAND",
+    # Specific weapon types often map to Main Hand by default in BiS lists
     "Dagger": "MAIN_HAND", "Fist Weapon": "MAIN_HAND", "Mace": "MAIN_HAND", "Sword": "MAIN_HAND",
     "Polearm": "MAIN_HAND", "Staff": "MAIN_HAND", "Axe": "MAIN_HAND",
-    "Gun": "MAIN_HAND", "Bow": "MAIN_HAND", "Crossbow": "MAIN_HAND",
+    "Gun": "MAIN_HAND", "Bow": "MAIN_HAND", "Crossbow": "MAIN_HAND", "Ranged": "MAIN_HAND",
     "Wand": "MAIN_HAND", 
 }
 
@@ -117,7 +146,8 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
     """
     local_file_path = None
     if class_slug_for_file and spec_slug_for_file:
-        local_file_path = f"wowhead_cache_{class_slug_for_file}_{spec_slug_for_file}.html"
+        # Updated cache file naming for Icy Veins
+        local_file_path = f"icyveins_cache_{class_slug_for_file}_{spec_slug_for_file}.html"
 
     if local_file_path:
         try:
@@ -153,12 +183,12 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
         print(f"    UNEXPECTED ERROR fetching URL {url}: {e_general}", flush=True)
         return None
 
-def parse_wowhead_bis_table(html_content, class_name, spec_name):
+def parse_icyveins_bis_table(html_content, class_name, spec_name): # Renamed function
     """
-    Parses the HTML content of a Wowhead BiS page to extract item information.
-    This version attempts to find the *first* table on the page and handles complex item cells.
+    Parses the HTML content of an Icy Veins BiS page to extract item information.
+    Attempts to find the *first* table on the page.
     """
-    print(f"    Parsing HTML for {class_name} - {spec_name} (Attempting to find the first table)...", flush=True)
+    print(f"    Parsing HTML for {class_name} - {spec_name} (Icy Veins - First Table Strategy)...", flush=True)
     if not html_content:
         print("    No HTML content to parse.", flush=True)
         return []
@@ -178,6 +208,7 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             return [] 
 
     try:
+        # Find the first table on the page.
         bis_table = soup.find('table') 
             
         if not bis_table:
@@ -202,15 +233,17 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
         for row_idx, row in enumerate(rows_to_parse):
             cells = row.find_all(['td', 'th']) 
             
-            if len(cells) < 2: 
+            if len(cells) < 2: # Expect at least Slot and Item cells
                 continue
 
             try:
                 raw_slot_name_from_table = cells[0].get_text(strip=True)
                 
+                # Skip common header row text
                 if raw_slot_name_from_table.lower() in ["slot", "item", "source", "notes", "type", "name", "details"]:
                     continue
 
+                # Map slot name, handling sequential Rings/Trinkets
                 ui_slot_type = ""
                 if raw_slot_name_from_table == "Ring":
                     ring_count += 1
@@ -222,70 +255,68 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                     ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name_from_table, raw_slot_name_from_table) 
 
                 item_cell = cells[1]
-                item_link_tags = item_cell.find_all('a', href=re.compile(r'/item='))
+                # Icy Veins uses <a> tags with data-wowhead for item links
+                item_link_tag = item_cell.find('a', attrs={'data-wowhead': re.compile(r'item=\d+')})
                 
-                if not item_link_tags: 
-                    cell_text_content = item_cell.get_text(strip=True)
-                    if cell_text_content in ["]", ":10520]", "", "None", "-", "N/A"]:
-                         # print(f"      Skipping row for slot '{raw_slot_name_from_table}': Item cell content is junk or empty ('{cell_text_content}').", flush=True)
-                         pass # Suppress this specific print for cleaner logs if it's common
+                if not item_link_tag: 
+                    # If no specific data-wowhead link, check for any link that might be an item
+                    item_link_tag = item_cell.find('a', href=re.compile(r'wowhead.com/item='))
+                    if not item_link_tag:
+                        cell_text_content = item_cell.get_text(strip=True)
+                        if cell_text_content and cell_text_content not in ["]", ":10520]"]: # Avoid logging junk
+                             print(f"      INFO: No suitable item link found for slot '{raw_slot_name_from_table}'. Cell content: '{cell_text_content}'", flush=True)
+                        continue
+
+                item_name = item_link_tag.get_text(strip=True)
+                if not item_name: # Fallback if name is in an inner span or img alt
+                    span_item_name = item_link_tag.find('span') # General span
+                    if span_item_name and span_item_name.get_text(strip=True):
+                        item_name = span_item_name.get_text(strip=True)
                     else:
-                         print(f"      INFO: No item links found for slot '{raw_slot_name_from_table}'. Cell content: '{cell_text_content}'", flush=True)
-                    continue
-
-                item_link_tag = item_link_tags[0] # Process the first link if multiple are present
-
-                # Refined item name extraction
-                item_name = None
-                span_with_item_name = item_link_tag.find('span', class_='tinyicontxt')
-                if span_with_item_name and span_with_item_name.get_text(strip=True):
-                    item_name = span_with_item_name.get_text(strip=True)
+                        img_tag = item_link_tag.find('img', alt=True)
+                        if img_tag and img_tag.get('alt', '').strip():
+                            item_name = img_tag['alt'].strip().replace(" Icon", "") # Clean up " Icon" suffix
                 
-                if not item_name: # Fallback to direct text of <a> if span not found or empty
-                    direct_text = item_link_tag.get_text(strip=True)
-                    if direct_text: # Ensure direct_text is not just whitespace
-                        item_name = direct_text
-                
-                if not item_name: # Fallback to img alt text if still no name
-                    img_tag = item_link_tag.find('img', alt=True)
-                    if img_tag and img_tag.get('alt', '').strip():
-                        item_name = img_tag['alt'].strip()
-                
-                if not item_name: # Final fallback if no name could be extracted
-                    print(f"      WARNING: Could not determine item name for slot '{raw_slot_name_from_table}' from link: {item_link_tag.prettify(limit=100)}", flush=True)
+                if not item_name: 
                     item_name = "Unknown Item - Parse Error"
 
-
-                wowhead_item_id_match = re.search(r'/item=(\d+)', item_link_tag.get('href', ''))
-                wowhead_item_id = wowhead_item_id_match.group(1) if wowhead_item_id_match else None
-                
                 blizzard_item_id = None
-                data_wowhead = item_link_tag.get('data-wowhead') 
-                if data_wowhead: 
-                    match = re.search(r'item=(\d+)', data_wowhead)
-                    if match: blizzard_item_id = int(match.group(1))
-                
-                if not blizzard_item_id: 
-                    rel_attr = item_link_tag.get('rel', [])
-                    rel_str = "".join(rel_attr) if isinstance(rel_attr, list) else str(rel_attr)
-                    match = re.search(r'item=(\d+)', rel_str)
-                    if match: blizzard_item_id = int(match.group(1))
-                
-                if not blizzard_item_id and wowhead_item_id: 
-                    try: blizzard_item_id = int(wowhead_item_id) 
-                    except ValueError: print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback for item '{item_name}'.", flush=True)
+                wowhead_item_id_for_link = None # From href, might differ from data-wowhead's item ID
 
-                item_source_text = "Wowhead Guide" 
+                data_wowhead_attr = item_link_tag.get('data-wowhead')
+                if data_wowhead_attr:
+                    match = re.search(r'item=(\d+)', data_wowhead_attr)
+                    if match: 
+                        blizzard_item_id = int(match.group(1))
+                
+                # Also try to get an ID from the href as a fallback or for wowhead_item_id
+                href_attr = item_link_tag.get('href', '')
+                href_match = re.search(r'item=(\d+)', href_attr)
+                if href_match:
+                    wowhead_item_id_for_link = href_match.group(1)
+                    if not blizzard_item_id: # If data-wowhead didn't yield an ID, use href's
+                        try: blizzard_item_id = int(wowhead_item_id_for_link)
+                        except ValueError: print(f"    Warning: Could not convert href item ID '{wowhead_item_id_for_link}' to int for item '{item_name}'.", flush=True)
+                
+                # The 'wowhead_item_id' field in DB will store the ID from the href,
+                # while 'blizzard_item_id' prioritizes data-wowhead.
+                # Often they are the same.
+                final_wowhead_id_to_store = wowhead_item_id_for_link
+
+                item_source_text = "Icy Veins Guide" # Default source
                 if len(cells) > 2:
-                    item_source_text = cells[2].get_text(strip=True)
+                    source_cell_text = cells[2].get_text(strip=True)
+                    if source_cell_text: # Only update if source cell has content
+                        item_source_text = source_cell_text
                 
                 if ui_slot_type and item_name and item_name != "Unknown Item - Parse Error":
                     items.append({
                         "ui_slot_type": ui_slot_type, "item_name": item_name,
-                        "wowhead_item_id": wowhead_item_id, "blizzard_item_id": blizzard_item_id,
+                        "wowhead_item_id": final_wowhead_id_to_store, # Store ID from href here
+                        "blizzard_item_id": blizzard_item_id,     # Store ID from data-wowhead (or href fallback)
                         "item_source": item_source_text
                     })
-                    # print(f"      Extracted: Slot='{ui_slot_type}' ({raw_slot_name_from_table}), Item='{item_name}', Source='{item_source_text}'", flush=True)
+                    # print(f"      Extracted: Slot='{ui_slot_type}' ({raw_slot_name_from_table}), Item='{item_name}', BlizzID='{blizzard_item_id}', WH_href_ID='{final_wowhead_id_to_store}', Src='{item_source_text}'", flush=True)
 
             except Exception as e_row:
                 print(f"      Error parsing row content for slot '{cells[0].get_text(strip=True)}': {e_row}", flush=True)
@@ -298,9 +329,9 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
 
 def scrape_and_store_bis_data():
     """
-    Main function to orchestrate the scraping and storing of BiS data.
+    Main function to orchestrate the scraping and storing of BiS data from Icy Veins.
     """
-    print("Starting Wowhead BiS scraping process...", flush=True)
+    print("Starting Icy Veins BiS scraping process...", flush=True)
     db_session = SessionLocal() 
 
     print("Clearing existing SuggestedBiS data...", flush=True)
@@ -312,34 +343,35 @@ def scrape_and_store_bis_data():
         db_session.rollback()
         print(f"  Error clearing SuggestedBiS table: {e}", flush=True)
 
-    for class_slug, spec_slug, class_display, spec_display in SPECS_TO_SCRAPE:
-        wowhead_url = f"{WOWHEAD_BASE_URL}/{class_slug}/{spec_slug}/bis-gear"
-        print(f"\nFetching BiS data for: {class_display} - {spec_display} from {wowhead_url}", flush=True)
+    for class_slug, spec_slug, class_display, spec_display, role_slug in SPECS_TO_SCRAPE:
+        # Construct Icy Veins URL
+        # Example: https://www.icy-veins.com/wow/arcane-mage-pve-dps-gear-best-in-slot
+        # Class slugs and spec slugs from SPECS_TO_SCRAPE are already hyphenated.
+        icyveins_url = f"{ICYVEINS_BASE_URL}/wow/{spec_slug}-{class_slug}-pve-{role_slug}-gear-best-in-slot"
         
-        html_content = get_html_content(wowhead_url, class_slug, spec_slug) 
+        print(f"\nFetching BiS data for: {class_display} - {spec_display} ({role_slug.upper()}) from {icyveins_url}", flush=True)
+        
+        html_content = get_html_content(icyveins_url, class_slug, spec_slug) 
         
         if not html_content:
-            print(f"  Could not fetch HTML content for {wowhead_url}. Skipping.", flush=True)
+            print(f"  Could not fetch HTML content for {icyveins_url}. Skipping.", flush=True)
             time.sleep(10) 
             continue
 
-        extracted_items = parse_wowhead_bis_table(html_content, class_display, spec_display)
+        extracted_items = parse_icyveins_bis_table(html_content, class_display, spec_display)
         
         items_added_for_spec = 0
         if extracted_items:
             for item_data in extracted_items:
                 blizz_id = item_data.get("blizzard_item_id")
-                try:
-                    blizz_id = int(blizz_id) if blizz_id is not None else None
-                except ValueError:
-                    print(f"    Warning: Could not convert Blizzard ID '{blizz_id}' for item '{item_data.get('item_name')}'. Storing as None.", flush=True)
-                    blizz_id = None
-
+                # Blizzard ID should already be an int or None from parsing
+                
                 slot_entry = db_session.query(PlayableSlot).filter_by(type=item_data.get("ui_slot_type")).first()
                 if not slot_entry:
                     print(f"    WARNING: UI Slot Type '{item_data.get('ui_slot_type')}' for item '{item_data.get('item_name')}' not found in PlayableSlot table. Skipping.", flush=True)
                     continue
                 
+                # Check if this exact suggestion already exists to avoid duplicates
                 existing_suggestion = db_session.query(SuggestedBiS).filter_by(
                     class_name=class_display, spec_name=spec_display,
                     ui_slot_type=item_data.get("ui_slot_type"), 
@@ -351,13 +383,15 @@ def scrape_and_store_bis_data():
                         class_name=class_display, spec_name=spec_display,
                         ui_slot_type=item_data.get("ui_slot_type"), 
                         item_name=item_data.get("item_name"),
-                        blizzard_item_id=blizz_id, wowhead_item_id=item_data.get("wowhead_item_id"),
+                        blizzard_item_id=blizz_id, 
+                        wowhead_item_id=item_data.get("wowhead_item_id"), # This is from href
                         item_source=item_data.get("item_source"),
                         last_scraped=datetime.utcnow() 
                     )
                     db_session.add(suggestion)
                     items_added_for_spec += 1
                 elif existing_suggestion: 
+                    # Update existing entry if details changed (e.g., source or IDs)
                     existing_suggestion.blizzard_item_id = blizz_id
                     existing_suggestion.wowhead_item_id = item_data.get("wowhead_item_id")
                     existing_suggestion.item_source = item_data.get("item_source")
@@ -376,11 +410,12 @@ def scrape_and_store_bis_data():
         else:
             print(f"  No items extracted for {class_display} - {spec_display}.", flush=True)
         
-        print("Waiting for 30 seconds before next spec...", flush=True)
-        time.sleep(30) 
+        # Be respectful to the site's servers.
+        print("Waiting for 20 seconds before next spec...", flush=True) # Reduced wait time slightly
+        time.sleep(20) 
 
     db_session.close() 
-    print("\nWowhead BiS scraping process finished.", flush=True)
+    print("\nIcy Veins BiS scraping process finished.", flush=True)
 
 if __name__ == "__main__":
     print("Ensuring database tables exist (including SuggestedBiS)...", flush=True)
