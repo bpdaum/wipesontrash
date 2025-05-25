@@ -409,7 +409,7 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
                     for asset in media_data["assets"]:
                         if asset.get("key") == "icon": fetched_icon_url = asset.get("value"); break
             
-            if item_name and item_quality in ["EPIC", "RARE"] and api_slot_type and api_slot_type != "NON_EQUIP":
+            if item_name and item_quality in ["EPIC", "RARE"] and api_slot_type and api_slot_type != "NON_EQUIP": # Include RARE
                 print(f"      QUALIFIED Item {item_id} ('{item_name}') for DB (Quality: {item_quality}, Slot: {api_slot_type}).", flush=True)
                 if not db_session.query(PlayableSlot).filter_by(type=api_slot_type).first():
                     print(f"CRITICAL: API slot '{api_slot_type}' for item '{item_name}' (ID:{item_id}) missing in PlayableSlot. Add to populate_playable_slots().", flush=True)
@@ -483,11 +483,12 @@ def fetch_and_store_crafted_items(db_session, data_source_id):
                 print(f"    ERROR: Could not fetch details or skill tiers for {prof_name}.", flush=True)
                 continue
             
-            items_added_this_profession_tier = 0 # Reset for each profession's relevant tiers
+            items_added_this_profession_tier = 0 
             for skill_tier_summary in prof_detail_data["skill_tiers"]:
                 skill_tier_name = skill_tier_summary.get("name", "")
+                print(f"    DEBUG: Checking Skill Tier: '{skill_tier_name}' for keyword '{CURRENT_EXPANSION_KEYWORD}'", flush=True)
                 if CURRENT_EXPANSION_KEYWORD.lower() not in skill_tier_name.lower():
-                    # print(f"    Skipping skill tier '{skill_tier_name}' (not current expansion).", flush=True) # Can be noisy
+                    print(f"    Skipping skill tier '{skill_tier_name}' (does not contain '{CURRENT_EXPANSION_KEYWORD}').", flush=True)
                     continue
                 
                 print(f"    Processing Skill Tier: {skill_tier_name}", flush=True)
@@ -499,17 +500,17 @@ def fetch_and_store_crafted_items(db_session, data_source_id):
                 time.sleep(0.05)
 
                 if not skill_tier_data or "categories" not in skill_tier_data:
-                    # print(f"      No categories found for skill tier {skill_tier_name}", flush=True) # Can be noisy
+                    print(f"      No categories found for skill tier {skill_tier_name}", flush=True)
                     continue
                 
                 for category in skill_tier_data["categories"]:
                     if "recipes" not in category: continue
                     for recipe_ref in category["recipes"]:
                         recipe_id = recipe_ref.get("id")
-                        recipe_name_for_debug = recipe_ref.get("name", f"Recipe ID {recipe_id}") # For logging
+                        recipe_name_for_debug = recipe_ref.get("name", f"Recipe ID {recipe_id}") 
                         if not recipe_id: continue
 
-                        # print(f"        DEBUG: Processing Recipe: {recipe_name_for_debug} (ID: {recipe_id})", flush=True) # Can be noisy
+                        print(f"        DEBUG: Processing Recipe: {recipe_name_for_debug} (ID: {recipe_id})", flush=True)
                         recipe_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/recipe/{recipe_id}"
                         recipe_data = make_api_request(api_url=recipe_detail_url, params=static_params, headers=headers)
                         time.sleep(0.05)
@@ -523,14 +524,14 @@ def fetch_and_store_crafted_items(db_session, data_source_id):
                                            recipe_data.get("horde_crafted_item")
                         
                         if not crafted_item_ref or "id" not in crafted_item_ref: 
-                            # print(f"          DEBUG: Recipe {recipe_id} ({recipe_name_for_debug}) does not produce a direct item or item ID missing.", flush=True)
+                            print(f"          DEBUG: Recipe {recipe_id} ({recipe_name_for_debug}) does not produce a direct item or item ID missing.", flush=True)
                             continue
                         
                         item_id = crafted_item_ref["id"]
-                        # print(f"          DEBUG: Recipe {recipe_id} crafts item ID: {item_id}", flush=True)
+                        print(f"          DEBUG: Recipe {recipe_id} crafts item ID: {item_id}", flush=True)
                         existing_item = db_session.get(Item, item_id)
                         if existing_item and existing_item.icon_url: 
-                            # print(f"          DEBUG: Crafted item ID {item_id} already exists with icon. Skipping.", flush=True)
+                            print(f"          DEBUG: Crafted item ID {item_id} already exists with icon. Skipping.", flush=True)
                             continue
 
                         item_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id}"
@@ -573,10 +574,10 @@ def fetch_and_store_crafted_items(db_session, data_source_id):
                                                  source_id=data_source_id, source_details=prof_name,
                                                  icon_url=fetched_icon_url))
                                 items_added_this_profession_tier += 1
-                        # else:
-                            # print(f"            SKIPPED Crafted Item {item_id} ('{item_name}'). Criteria Check -> Name: {bool(item_name)}, Quality: {item_quality in TARGET_ITEM_QUALITIES}, Slot Valid: {bool(api_slot_type and api_slot_type in EQUIPPABLE_GEAR_SLOT_CATEGORIES)}", flush=True)
+                        else:
+                            print(f"            SKIPPED Crafted Item {item_id} ('{item_name}'). Criteria Check -> Name: {bool(item_name)}, Quality: {item_quality in TARGET_ITEM_QUALITIES}, Slot Valid: {bool(api_slot_type and api_slot_type in EQUIPPABLE_GEAR_SLOT_CATEGORIES)}", flush=True)
             
-            if items_added_this_profession_tier > 0: # Commit after each relevant skill tier for a profession
+            if items_added_this_profession_tier > 0: 
                 try: 
                     db_session.commit()
                     print(f"    Committed {items_added_this_profession_tier} items for {prof_name} (from Khaz Algar tiers).", flush=True)
@@ -648,7 +649,7 @@ def main():
                     fetch_and_store_source_items(db_session, d_name, d_id, mplus_source_id_val, "dungeon")
             time.sleep(0.5) 
     else: 
-        print(f"Data source '{mplus_source_name}' not found. Cannot process M+ dungeon items.", flush=True) 
+        print(f"Data source '{mplus_source_name}' not found. Cannot process M+ dungeon items.", flush=True)
 
     # Delve Items - Logic Removed
     delve_source_name = "Delves - TWW S1" 
