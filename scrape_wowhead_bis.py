@@ -3,8 +3,8 @@ import os
 import time
 import json 
 import re 
-import requests # <--- ADD THIS IMPORT
-from datetime import datetime
+import requests 
+from datetime import datetime 
 
 # --- HTML Parsing Library ---
 try:
@@ -65,9 +65,10 @@ class SuggestedBiS(Base):
     def __repr__(self):
         return f'<SuggestedBiS {self.class_name} {self.spec_name} {self.ui_slot_type}: {self.item_name}>'
 
+
 # --- Wowhead Scraping Configuration ---
 WOWHEAD_BASE_URL = "https://www.wowhead.com/guide/classes"
-SPECS_TO_SCRAPE = [ # Updated comprehensive list
+SPECS_TO_SCRAPE = [ 
        ("death-knight", "blood", "Death Knight", "Blood"),("death-knight", "frost", "Death Knight", "Frost"),
        ("death-knight", "unholy", "Death Knight", "Unholy"),("demon-hunter", "havoc", "Demon Hunter", "Havoc"),
        ("demon-hunter", "vengeance", "Demon Hunter", "Vengeance"),("druid", "balance", "Druid", "Balance"),
@@ -107,19 +108,11 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Wand": "MAIN_HAND", 
 }
 
-# --- Updated get_html_content function ---
 def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
-    """
-    Fetches HTML content from a URL using the requests library.
-    Includes a User-Agent header.
-    Optionally saves to/loads from a local file for testing to avoid repeated Wowhead hits.
-    """
-    # Construct a filename for local caching if slugs are provided
     local_file_path = None
     if class_slug_for_file and spec_slug_for_file:
         local_file_path = f"wowhead_cache_{class_slug_for_file}_{spec_slug_for_file}.html"
 
-    # Try to load from local cache first if path is specified (for development/testing)
     if local_file_path:
         try:
             with open(local_file_path, "r", encoding="utf-8") as f:
@@ -130,16 +123,14 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
         except Exception as e:
             print(f"    WARNING: Error reading local cache file {local_file_path}: {e}", flush=True)
 
-
     print(f"    Fetching HTML from: {url}", flush=True)
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
     try:
-        response = requests.get(url, headers=headers, timeout=20) # 20 second timeout
-        response.raise_for_status() # Raises an HTTPError for bad responses (4XX or 5XX)
+        response = requests.get(url, headers=headers, timeout=20) 
+        response.raise_for_status() 
         
-        # Save to local cache if path is specified
         if local_file_path:
             try:
                 with open(local_file_path, "w", encoding="utf-8") as f:
@@ -152,7 +143,7 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
     except requests.exceptions.RequestException as e:
         print(f"    ERROR: Could not fetch URL {url}. Error: {e}", flush=True)
         return None
-    except Exception as e_general: # Catch any other unexpected errors
+    except Exception as e_general: 
         print(f"    UNEXPECTED ERROR fetching URL {url}: {e_general}", flush=True)
         return None
 
@@ -201,7 +192,6 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
         for row_idx, row in enumerate(rows_to_parse):
             cells = row.find_all('td')
             if len(cells) < 2: 
-                # print(f"      Row {row_idx}: Not enough cells ({len(cells)}), skipping.", flush=True)
                 continue
 
             try:
@@ -209,19 +199,17 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                 ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name, raw_slot_name) 
 
                 item_cell = cells[1]
-                item_link_tag = item_cell.find('a', href=re.compile(r'/(item|spell|itemset|transmog-set|azerite-essence|currency|title|achievement|npc|object|quest|zone|faction|pet|battlepet|mount|toy|bfa-champion|follower|garrison-ability|garrison-building|garrison-mission|garrison-ship|garrison-shipyard-blueprint|holiday|threat|currency|sound|emote|event|statistic|talent-calc|transmog-set|transmog-item)=')) # More generic href match
+                item_link_tag = item_cell.find('a', href=re.compile(r'/(item|spell|itemset|transmog-set|azerite-essence|currency|title|achievement|npc|object|quest|zone|faction|pet|battlepet|mount|toy|bfa-champion|follower|garrison-ability|garrison-building|garrison-mission|garrison-ship|garrison-shipyard-blueprint|holiday|threat|currency|sound|emote|event|statistic|talent-calc|transmog-set|transmog-item)='))
                 
                 if not item_link_tag:
-                    # print(f"      Row {row_idx}, Slot '{raw_slot_name}': No item link found.", flush=True)
                     continue
 
                 item_name = item_link_tag.get_text(strip=True)
-                if not item_name: # Sometimes the name is inside another span if icon is weird
+                if not item_name: 
                     span_text = item_link_tag.find('span', class_='tinyicontxt')
                     if span_text: item_name = span_text.get_text(strip=True)
-                if not item_name: # Final fallback if still no name
+                if not item_name: 
                     item_name = "Unknown Item - Parse Error"
-
 
                 wowhead_item_id_match = re.search(r'/item=(\d+)', item_link_tag.get('href', ''))
                 wowhead_item_id = wowhead_item_id_match.group(1) if wowhead_item_id_match else None
@@ -238,8 +226,12 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                     match = re.search(r'item=(\d+)', rel_str)
                     if match: blizzard_item_id = int(match.group(1))
                 
-                if not blizzard_item_id and wowhead_item_id: # Fallback to wowhead_item_id if blizz_id is missing
-                    blizzard_item_id = int(wowhead_item_id) # Assuming wowhead display ID might be blizz ID
+                if not blizzard_item_id and wowhead_item_id: 
+                    try:
+                        blizzard_item_id = int(wowhead_item_id) 
+                    except ValueError:
+                        print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback.", flush=True)
+
 
                 item_source = cells[2].get_text(strip=True) if len(cells) > 2 else "Wowhead Guide"
                 
@@ -271,8 +263,6 @@ def scrape_and_store_bis_data():
     for class_slug, spec_slug, class_display, spec_display in SPECS_TO_SCRAPE:
         wowhead_url = f"{WOWHEAD_BASE_URL}/{class_slug}/{spec_slug}/bis-gear"
         print(f"\nFetching BiS data for: {class_display} - {spec_display} from {wowhead_url}", flush=True)
-
-        # Pass slugs for potential local file caching during testing
         html_content = get_html_content(wowhead_url, class_slug, spec_slug) 
         
         if not html_content:
@@ -307,15 +297,24 @@ def scrape_and_store_bis_data():
                         class_name=class_display, spec_name=spec_display,
                         ui_slot_type=item_data.get("ui_slot_type"), item_name=item_data.get("item_name"),
                         blizzard_item_id=blizz_id, wowhead_item_id=item_data.get("wowhead_item_id"),
-                        item_source=item_data.get("item_source")
+                        item_source=item_data.get("item_source"),
+                        last_scraped=datetime.utcnow() # Set last_scraped time
                     )
                     db_session.add(suggestion)
                     items_added_for_spec += 1
-            
-            if items_added_for_spec > 0:
+                elif existing_suggestion: 
+                    existing_suggestion.blizzard_item_id = blizz_id
+                    existing_suggestion.wowhead_item_id = item_data.get("wowhead_item_id")
+                    existing_suggestion.item_source = item_data.get("item_source")
+                    existing_suggestion.last_scraped = datetime.utcnow()
+
+            if items_added_for_spec > 0 or (extracted_items and not items_added_for_spec): 
                 try:
                     db_session.commit()
-                    print(f"  Committed {items_added_for_spec} new BiS suggestions for {class_display} - {spec_display}.", flush=True)
+                    if items_added_for_spec > 0:
+                         print(f"  Committed {items_added_for_spec} new BiS suggestions for {class_display} - {spec_display}.", flush=True)
+                    else:
+                         print(f"  No new BiS suggestions to add for {class_display} - {spec_display} (existing entries might have been updated).", flush=True)
                 except Exception as e:
                     db_session.rollback()
                     print(f"  Error committing BiS suggestions for {class_display} - {spec_display}: {e}", flush=True)
