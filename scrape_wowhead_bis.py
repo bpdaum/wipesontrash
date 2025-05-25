@@ -95,10 +95,12 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Back": "BACK", "Cloak": "BACK", "Chest": "CHEST", "Wrist": "WRIST", "Bracers": "WRIST",
     "Hands": "HANDS", "Gloves": "HANDS", "Waist": "WAIST", "Belt": "WAIST",
     "Legs": "LEGS", "Feet": "FEET", "Boots": "FEET",
-    "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1",
+    "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1", # For mapping "Ring" to specific fingers if needed later
     "Finger 2": "FINGER2", "Ring 2": "FINGER2", "Finger2": "FINGER2",
+    "Ring": "FINGER1", # Default "Ring" to Finger1 if only one is listed, or if table doesn't specify 1/2
     "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1",
     "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2",
+    "Trinket": "TRINKET1", # Default "Trinket" to Trinket1
     "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND",
     "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND",
     "Weapon": "MAIN_HAND", "Ranged": "MAIN_HAND", "Shield": "OFF_HAND",
@@ -154,7 +156,7 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
 def parse_wowhead_bis_table(html_content, class_name, spec_name):
     """
     Parses the HTML content of a Wowhead BiS page to extract item information.
-    This version attempts to find the *first* table on the page.
+    This version attempts to find the *first* table on the page and handles complex item cells.
     """
     print(f"    Parsing HTML for {class_name} - {spec_name} (Attempting to find the first table)...", flush=True)
     if not html_content:
@@ -176,7 +178,6 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             return [] 
 
     try:
-        # --- MODIFIED LOGIC: Find the first table on the page ---
         bis_table = soup.find('table') 
             
         if not bis_table:
@@ -184,10 +185,8 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             return []
         else:
             print(f"    SUCCESS: Found the first 'table' element on the page. Its classes are: {bis_table.get('class')}", flush=True)
-            # For debugging, print the HTML of the found table
-            print(f"    DEBUG: HTML of the first table found:\n{bis_table.prettify()}", flush=True) 
-        # --- END MODIFIED LOGIC ---
-
+            # print(f"    DEBUG: HTML of the first table found:\n{bis_table.prettify()}", flush=True) 
+        
         print("    Processing rows from the first table found...", flush=True)
         
         table_body = bis_table.find('tbody')
@@ -197,71 +196,96 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             print(f"    WARNING: The first table found for {spec_name} {class_name} has no rows (or no tbody with rows).", flush=True)
             return []
 
+        # Keep track of how many times "Ring" or "Trinket" has been encountered to map to Finger1/2 or Trinket1/2
+        ring_count = 0
+        trinket_count = 0
+
         for row_idx, row in enumerate(rows_to_parse):
             cells = row.find_all(['td', 'th']) 
             
             if len(cells) < 2: 
-                # print(f"      Skipping row {row_idx+1}: Not enough cells ({len(cells)}).", flush=True)
                 continue
 
             try:
-                raw_slot_name = cells[0].get_text(strip=True)
+                raw_slot_name_from_table = cells[0].get_text(strip=True)
                 
-                # Basic check to skip obvious header rows if they exist in the first table
-                if raw_slot_name.lower() in ["slot", "item", "source", "notes", "type", "name", "details"]:
-                    # print(f"      Skipping potential header row: {raw_slot_name}", flush=True)
+                if raw_slot_name_from_table.lower() in ["slot", "item", "source", "notes", "type", "name", "details"]:
                     continue
 
-                ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name, raw_slot_name) 
+                # Handle generic "Ring" and "Trinket" slots by assigning them sequentially
+                ui_slot_type = ""
+                if raw_slot_name_from_table == "Ring":
+                    ring_count += 1
+                    ui_slot_type = f"FINGER{ring_count}"
+                elif raw_slot_name_from_table == "Trinket":
+                    trinket_count += 1
+                    ui_slot_type = f"TRINKET{trinket_count}"
+                else:
+                    ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name_from_table, raw_slot_name_from_table) 
+
 
                 item_cell = cells[1]
-                item_link_tag = item_cell.find('a', href=re.compile(r'/item='))
+                # Find all potential item links within the cell
+                item_link_tags = item_cell.find_all('a', href=re.compile(r'/item='))
                 
-                if not item_link_tag: 
-                    # print(f"      Skipping row for slot '{raw_slot_name}': No item link found.", flush=True)
+                if not item_link_tags: 
+                    cell_text_content = item_cell.get_text(strip=True)
+                    # Check for common junk patterns or if it's genuinely empty
+                    if cell_text_content in ["]", ":10520]", "", "None", "-", "N/A"]:
+                         print(f"      Skipping row for slot '{raw_slot_name_from_table}': Item cell content is junk or empty ('{cell_text_content}').", flush=True)
+                    else:
+                         print(f"      Skipping row for slot '{raw_slot_name_from_table}': No item links found. Cell content: '{cell_text_content}'", flush=True)
                     continue
+
+                # Process the first valid item link found in the cell
+                # (Wowhead BiS guides usually list the primary BiS first in a list)
+                item_link_tag = item_link_tags[0]
 
                 item_name = item_link_tag.get_text(strip=True)
                 if not item_name: 
-                    span_text = item_link_tag.find('span', class_='tinyicontxt')
+                    span_text = item_link_tag.find('span', class_='tinyicontxt') # Common Wowhead pattern
                     if span_text: item_name = span_text.get_text(strip=True)
-                if not item_name: item_name = "Unknown Item - Parse Error" 
+                if not item_name: item_name = "Unknown Item - Parse Error" # Fallback
 
                 wowhead_item_id_match = re.search(r'/item=(\d+)', item_link_tag.get('href', ''))
                 wowhead_item_id = wowhead_item_id_match.group(1) if wowhead_item_id_match else None
                 
                 blizzard_item_id = None
+                # Attempt to get Blizzard item ID from 'data-wowhead' (e.g., "item=12345&...")
                 data_wowhead = item_link_tag.get('data-wowhead') 
                 if data_wowhead: 
                     match = re.search(r'item=(\d+)', data_wowhead)
                     if match: blizzard_item_id = int(match.group(1))
                 
+                # Fallback to 'rel' attribute if 'data-wowhead' doesn't yield ID
                 if not blizzard_item_id: 
                     rel_attr = item_link_tag.get('rel', [])
                     rel_str = "".join(rel_attr) if isinstance(rel_attr, list) else str(rel_attr)
                     match = re.search(r'item=(\d+)', rel_str)
                     if match: blizzard_item_id = int(match.group(1))
                 
+                # As a last resort, if Blizzard ID is still None, try using Wowhead ID if it's numeric
                 if not blizzard_item_id and wowhead_item_id: 
                     try: blizzard_item_id = int(wowhead_item_id) 
-                    except ValueError: print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback.", flush=True)
+                    except ValueError: print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback for item '{item_name}'.", flush=True)
 
                 item_source_text = "Wowhead Guide" # Default source
                 if len(cells) > 2:
                     item_source_text = cells[2].get_text(strip=True)
                 
-                if ui_slot_type and item_name:
+                if ui_slot_type and item_name and item_name != "Unknown Item - Parse Error":
                     items.append({
                         "ui_slot_type": ui_slot_type, "item_name": item_name,
                         "wowhead_item_id": wowhead_item_id, "blizzard_item_id": blizzard_item_id,
                         "item_source": item_source_text
                     })
-                    # print(f"      Extracted: Slot='{ui_slot_type}', Item='{item_name}', Source='{item_source_text}'", flush=True)
-
+                    # print(f"      Extracted: Slot='{ui_slot_type}' ({raw_slot_name_from_table}), Item='{item_name}', Source='{item_source_text}'", flush=True)
 
             except Exception as e_row:
-                print(f"      Error parsing row: {row.get_text(strip=True, separator='|')}. Error: {e_row}", flush=True)
+                print(f"      Error parsing row content for slot '{cells[0].get_text(strip=True)}': {e_row}", flush=True)
+        
         print(f"    Extracted {len(items)} items from the first table for {class_name} - {spec_name}.", flush=True)
+
     except Exception as e: 
         print(f"    General error parsing HTML for {class_name} - {spec_name}: {e}", flush=True)
     return items
@@ -305,20 +329,23 @@ def scrape_and_store_bis_data():
                     print(f"    Warning: Could not convert Blizzard ID '{blizz_id}' for item '{item_data.get('item_name')}'. Storing as None.", flush=True)
                     blizz_id = None
 
+                # Ensure the ui_slot_type from parsing (e.g., FINGER1) exists in PlayableSlot table
                 slot_entry = db_session.query(PlayableSlot).filter_by(type=item_data.get("ui_slot_type")).first()
                 if not slot_entry:
-                    print(f"    WARNING: UI Slot Type '{item_data.get('ui_slot_type')}' for item '{item_data.get('item_name')}' not found in PlayableSlot. Skipping.", flush=True)
+                    print(f"    WARNING: UI Slot Type '{item_data.get('ui_slot_type')}' for item '{item_data.get('item_name')}' not found in PlayableSlot table. Skipping.", flush=True)
                     continue
                 
                 existing_suggestion = db_session.query(SuggestedBiS).filter_by(
                     class_name=class_display, spec_name=spec_display,
-                    ui_slot_type=item_data.get("ui_slot_type"), item_name=item_data.get("item_name") 
+                    ui_slot_type=item_data.get("ui_slot_type"), # Use the mapped FINGER1/TRINKET1 etc.
+                    item_name=item_data.get("item_name") 
                 ).first()
 
                 if not existing_suggestion:
                     suggestion = SuggestedBiS(
                         class_name=class_display, spec_name=spec_display,
-                        ui_slot_type=item_data.get("ui_slot_type"), item_name=item_data.get("item_name"),
+                        ui_slot_type=item_data.get("ui_slot_type"), 
+                        item_name=item_data.get("item_name"),
                         blizzard_item_id=blizz_id, wowhead_item_id=item_data.get("wowhead_item_id"),
                         item_source=item_data.get("item_source"),
                         last_scraped=datetime.utcnow() 
