@@ -95,12 +95,12 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Back": "BACK", "Cloak": "BACK", "Chest": "CHEST", "Wrist": "WRIST", "Bracers": "WRIST",
     "Hands": "HANDS", "Gloves": "HANDS", "Waist": "WAIST", "Belt": "WAIST",
     "Legs": "LEGS", "Feet": "FEET", "Boots": "FEET",
-    "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1", # For mapping "Ring" to specific fingers if needed later
+    "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1", 
     "Finger 2": "FINGER2", "Ring 2": "FINGER2", "Finger2": "FINGER2",
-    "Ring": "FINGER1", # Default "Ring" to Finger1 if only one is listed, or if table doesn't specify 1/2
+    "Ring": "FINGER1", 
     "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1",
     "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2",
-    "Trinket": "TRINKET1", # Default "Trinket" to Trinket1
+    "Trinket": "TRINKET1", 
     "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND",
     "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND",
     "Weapon": "MAIN_HAND", "Ranged": "MAIN_HAND", "Shield": "OFF_HAND",
@@ -196,7 +196,6 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             print(f"    WARNING: The first table found for {spec_name} {class_name} has no rows (or no tbody with rows).", flush=True)
             return []
 
-        # Keep track of how many times "Ring" or "Trinket" has been encountered to map to Finger1/2 or Trinket1/2
         ring_count = 0
         trinket_count = 0
 
@@ -212,7 +211,6 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                 if raw_slot_name_from_table.lower() in ["slot", "item", "source", "notes", "type", "name", "details"]:
                     continue
 
-                # Handle generic "Ring" and "Trinket" slots by assigning them sequentially
                 ui_slot_type = ""
                 if raw_slot_name_from_table == "Ring":
                     ring_count += 1
@@ -223,53 +221,61 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                 else:
                     ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name_from_table, raw_slot_name_from_table) 
 
-
                 item_cell = cells[1]
-                # Find all potential item links within the cell
                 item_link_tags = item_cell.find_all('a', href=re.compile(r'/item='))
                 
                 if not item_link_tags: 
                     cell_text_content = item_cell.get_text(strip=True)
-                    # Check for common junk patterns or if it's genuinely empty
                     if cell_text_content in ["]", ":10520]", "", "None", "-", "N/A"]:
-                         print(f"      Skipping row for slot '{raw_slot_name_from_table}': Item cell content is junk or empty ('{cell_text_content}').", flush=True)
+                         # print(f"      Skipping row for slot '{raw_slot_name_from_table}': Item cell content is junk or empty ('{cell_text_content}').", flush=True)
+                         pass # Suppress this specific print for cleaner logs if it's common
                     else:
-                         print(f"      Skipping row for slot '{raw_slot_name_from_table}': No item links found. Cell content: '{cell_text_content}'", flush=True)
+                         print(f"      INFO: No item links found for slot '{raw_slot_name_from_table}'. Cell content: '{cell_text_content}'", flush=True)
                     continue
 
-                # Process the first valid item link found in the cell
-                # (Wowhead BiS guides usually list the primary BiS first in a list)
-                item_link_tag = item_link_tags[0]
+                item_link_tag = item_link_tags[0] # Process the first link if multiple are present
 
-                item_name = item_link_tag.get_text(strip=True)
-                if not item_name: 
-                    span_text = item_link_tag.find('span', class_='tinyicontxt') # Common Wowhead pattern
-                    if span_text: item_name = span_text.get_text(strip=True)
-                if not item_name: item_name = "Unknown Item - Parse Error" # Fallback
+                # Refined item name extraction
+                item_name = None
+                span_with_item_name = item_link_tag.find('span', class_='tinyicontxt')
+                if span_with_item_name and span_with_item_name.get_text(strip=True):
+                    item_name = span_with_item_name.get_text(strip=True)
+                
+                if not item_name: # Fallback to direct text of <a> if span not found or empty
+                    direct_text = item_link_tag.get_text(strip=True)
+                    if direct_text: # Ensure direct_text is not just whitespace
+                        item_name = direct_text
+                
+                if not item_name: # Fallback to img alt text if still no name
+                    img_tag = item_link_tag.find('img', alt=True)
+                    if img_tag and img_tag.get('alt', '').strip():
+                        item_name = img_tag['alt'].strip()
+                
+                if not item_name: # Final fallback if no name could be extracted
+                    print(f"      WARNING: Could not determine item name for slot '{raw_slot_name_from_table}' from link: {item_link_tag.prettify(limit=100)}", flush=True)
+                    item_name = "Unknown Item - Parse Error"
+
 
                 wowhead_item_id_match = re.search(r'/item=(\d+)', item_link_tag.get('href', ''))
                 wowhead_item_id = wowhead_item_id_match.group(1) if wowhead_item_id_match else None
                 
                 blizzard_item_id = None
-                # Attempt to get Blizzard item ID from 'data-wowhead' (e.g., "item=12345&...")
                 data_wowhead = item_link_tag.get('data-wowhead') 
                 if data_wowhead: 
                     match = re.search(r'item=(\d+)', data_wowhead)
                     if match: blizzard_item_id = int(match.group(1))
                 
-                # Fallback to 'rel' attribute if 'data-wowhead' doesn't yield ID
                 if not blizzard_item_id: 
                     rel_attr = item_link_tag.get('rel', [])
                     rel_str = "".join(rel_attr) if isinstance(rel_attr, list) else str(rel_attr)
                     match = re.search(r'item=(\d+)', rel_str)
                     if match: blizzard_item_id = int(match.group(1))
                 
-                # As a last resort, if Blizzard ID is still None, try using Wowhead ID if it's numeric
                 if not blizzard_item_id and wowhead_item_id: 
                     try: blizzard_item_id = int(wowhead_item_id) 
                     except ValueError: print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback for item '{item_name}'.", flush=True)
 
-                item_source_text = "Wowhead Guide" # Default source
+                item_source_text = "Wowhead Guide" 
                 if len(cells) > 2:
                     item_source_text = cells[2].get_text(strip=True)
                 
@@ -329,7 +335,6 @@ def scrape_and_store_bis_data():
                     print(f"    Warning: Could not convert Blizzard ID '{blizz_id}' for item '{item_data.get('item_name')}'. Storing as None.", flush=True)
                     blizz_id = None
 
-                # Ensure the ui_slot_type from parsing (e.g., FINGER1) exists in PlayableSlot table
                 slot_entry = db_session.query(PlayableSlot).filter_by(type=item_data.get("ui_slot_type")).first()
                 if not slot_entry:
                     print(f"    WARNING: UI Slot Type '{item_data.get('ui_slot_type')}' for item '{item_data.get('item_name')}' not found in PlayableSlot table. Skipping.", flush=True)
@@ -337,7 +342,7 @@ def scrape_and_store_bis_data():
                 
                 existing_suggestion = db_session.query(SuggestedBiS).filter_by(
                     class_name=class_display, spec_name=spec_display,
-                    ui_slot_type=item_data.get("ui_slot_type"), # Use the mapped FINGER1/TRINKET1 etc.
+                    ui_slot_type=item_data.get("ui_slot_type"), 
                     item_name=item_data.get("item_name") 
                 ).first()
 
