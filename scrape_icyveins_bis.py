@@ -129,9 +129,9 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1", "Trinket #1": "TRINKET1", 
     "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2", "Trinket #2": "TRINKET2", 
     "Trinket": "TRINKET1", 
-    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", # Added Mainhand Weapon
-    "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND",
-    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", # Added Offhand Weapon
+    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", 
+    "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND", # Added 2H Weapon
+    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", 
     "Shield": "OFF_HAND",
     "Dagger": "MAIN_HAND", "Fist Weapon": "MAIN_HAND", "Mace": "MAIN_HAND", "Sword": "MAIN_HAND",
     "Polearm": "MAIN_HAND", "Staff": "MAIN_HAND", "Axe": "MAIN_HAND",
