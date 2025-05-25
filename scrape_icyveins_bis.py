@@ -79,9 +79,9 @@ SPECS_TO_SCRAPE = [
     ("druid", "balance", "Druid", "Balance", "dps"),
     ("druid", "feral", "Druid", "Feral", "dps"),
     ("druid", "guardian", "Druid", "Guardian", "tank"),
-    ("druid", "restoration", "Druid", "Restoration", "healing"), # Corrected slug
+    ("druid", "restoration", "Druid", "Restoration", "healing"), 
     ("evoker", "devastation", "Evoker", "Devastation", "dps"),
-    ("evoker", "preservation", "Evoker", "Preservation", "healing"), # Corrected slug
+    ("evoker", "preservation", "Evoker", "Preservation", "healing"), 
     ("evoker", "augmentation", "Evoker", "Augmentation", "dps"),
     ("hunter", "beast-mastery", "Hunter", "Beast Mastery", "dps"),
     ("hunter", "marksmanship", "Hunter", "Marksmanship", "dps"),
@@ -90,20 +90,20 @@ SPECS_TO_SCRAPE = [
     ("mage", "fire", "Mage", "Fire", "dps"),
     ("mage", "frost", "Mage", "Frost", "dps"),
     ("monk", "brewmaster", "Monk", "Brewmaster", "tank"),
-    ("monk", "mistweaver", "Monk", "Mistweaver", "healing"), # Corrected slug
+    ("monk", "mistweaver", "Monk", "Mistweaver", "healing"), 
     ("monk", "windwalker", "Monk", "Windwalker", "dps"),
-    ("paladin", "holy", "Paladin", "Holy", "healing"), # Corrected slug
+    ("paladin", "holy", "Paladin", "Holy", "healing"), 
     ("paladin", "protection", "Paladin", "Protection", "tank"),
     ("paladin", "retribution", "Paladin", "Retribution", "dps"),
-    ("priest", "discipline", "Priest", "Discipline", "healing"), # Corrected slug
-    ("priest", "holy", "Priest", "Holy", "healing"), # Corrected slug
+    ("priest", "discipline", "Priest", "Discipline", "healing"), 
+    ("priest", "holy", "Priest", "Holy", "healing"), 
     ("priest", "shadow", "Priest", "Shadow", "dps"),
     ("rogue", "assassination", "Rogue", "Assassination", "dps"),
     ("rogue", "outlaw", "Rogue", "Outlaw", "dps"),
     ("rogue", "subtlety", "Rogue", "Subtlety", "dps"),
     ("shaman", "elemental", "Shaman", "Elemental", "dps"),
     ("shaman", "enhancement", "Shaman", "Enhancement", "dps"),
-    ("shaman", "restoration", "Shaman", "Restoration", "healing"), # Corrected slug
+    ("shaman", "restoration", "Shaman", "Restoration", "healing"), 
     ("warlock", "affliction", "Warlock", "Affliction", "dps"),
     ("warlock", "demonology", "Warlock", "Demonology", "dps"),
     ("warlock", "destruction", "Warlock", "Destruction", "dps"),
@@ -123,15 +123,16 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Waist": "WAIST", "Belt": "WAIST",
     "Legs": "LEGS", 
     "Feet": "FEET", "Boots": "FEET",
-    "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1", "Ring #1": "FINGER1", # Added "Ring #1"
-    "Finger 2": "FINGER2", "Ring 2": "FINGER2", "Finger2": "FINGER2", "Ring #2": "FINGER2", # Added "Ring #2"
+    "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1", "Ring #1": "FINGER1", 
+    "Finger 2": "FINGER2", "Ring 2": "FINGER2", "Finger2": "FINGER2", "Ring #2": "FINGER2", 
     "Ring": "FINGER1", 
-    "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1", "Trinket #1": "TRINKET1", # Added "Trinket #1"
-    "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2", "Trinket #2": "TRINKET2", # Added "Trinket #2"
+    "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1", "Trinket #1": "TRINKET1", 
+    "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2", "Trinket #2": "TRINKET2", 
     "Trinket": "TRINKET1", 
-    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", 
+    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", # Added Mainhand Weapon
     "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND",
-    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Shield": "OFF_HAND",
+    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", # Added Offhand Weapon
+    "Shield": "OFF_HAND",
     "Dagger": "MAIN_HAND", "Fist Weapon": "MAIN_HAND", "Mace": "MAIN_HAND", "Sword": "MAIN_HAND",
     "Polearm": "MAIN_HAND", "Staff": "MAIN_HAND", "Axe": "MAIN_HAND",
     "Gun": "MAIN_HAND", "Bow": "MAIN_HAND", "Crossbow": "MAIN_HAND", "Ranged": "MAIN_HAND",
@@ -231,16 +232,15 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
                     continue
 
                 ui_slot_type = ""
-                # Prioritize direct map lookup for specific names like "Ring #1"
                 if raw_slot_name_from_table in CANONICAL_UI_SLOT_NAMES_MAP:
                     ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP[raw_slot_name_from_table]
-                elif raw_slot_name_from_table == "Ring": # Fallback for generic "Ring"
+                elif raw_slot_name_from_table == "Ring": 
                     ring_count += 1
                     ui_slot_type = f"FINGER{ring_count}"
-                elif raw_slot_name_from_table == "Trinket": # Fallback for generic "Trinket"
+                elif raw_slot_name_from_table == "Trinket": 
                     trinket_count += 1
                     ui_slot_type = f"TRINKET{trinket_count}"
-                else: # General fallback
+                else: 
                     ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name_from_table, raw_slot_name_from_table)
 
 
@@ -283,9 +283,8 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
                 else: 
                     cell_text_content = item_cell.get_text(strip=True)
                     if cell_text_content and cell_text_content not in ["]", ":10520]", "", "None", "-", "N/A"]:
-                        # Split at the first '(', take the part before it, and strip whitespace
                         item_name_candidate = cell_text_content.split('(', 1)[0].strip()
-                        if item_name_candidate: # Ensure it's not an empty string after split/strip
+                        if item_name_candidate: 
                             item_name = item_name_candidate
                         else:
                             continue 
