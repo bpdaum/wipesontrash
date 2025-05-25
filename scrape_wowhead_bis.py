@@ -196,45 +196,23 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             print(f"    Could not find a suitable BiS table heading for {spec_name} {class_name} using patterns: {relevant_heading_texts}", flush=True)
             return []
 
-        # --- MODIFIED LOGIC ---
-        # First, try to find the specific 'tabs-wrapper' div that is a SIBLING AFTER the heading
-        tabs_wrapper_div = found_heading.find_next_sibling('div', class_='tabs-wrapper exclude-units uniform-width')
-        table_wrapper = None
-
-        if tabs_wrapper_div:
-            print(f"    SUCCESS: Found 'tabs-wrapper' sibling div for {spec_name} {class_name}.", flush=True)
-            # Now search for the 'markup-table-wrapper' INSIDE this specific 'tabs-wrapper'
-            table_wrapper = tabs_wrapper_div.find('div', class_='markup-table-wrapper')
-            if not table_wrapper:
-                print(f"    ERROR: Found 'tabs-wrapper' but could not find 'markup-table-wrapper' inside it for {spec_name} {class_name}.", flush=True)
-        else:
-            # Fallback to previous broader searches if the specific 'tabs-wrapper' sibling isn't found
-            print(f"    INFO: Could not find 'tabs-wrapper' sibling for {spec_name} {class_name}. Trying broader search...", flush=True)
-            table_wrapper = found_heading.find_next('div', class_='markup-table-wrapper')
+        # --- NEW LOGIC: Find table with classes 'exclude-units' and 'grid' AFTER the heading ---
+        # The class attribute can contain multiple classes, so we use a list.
+        # find_next will get the first matching table after the heading.
+        bis_table = found_heading.find_next('table', class_=['exclude-units', 'grid'])
             
-            if not table_wrapper:
-                print(f"    INFO: 'find_next' (broad search) also failed for 'div.markup-table-wrapper'. Trying parent search for {spec_name} {class_name}.", flush=True)
-                current_ancestor = found_heading.parent
-                ancestor_search_depth = 0
-                max_ancestor_search_depth = 5 
-
-                while current_ancestor and ancestor_search_depth < max_ancestor_search_depth:
-                    table_wrapper = current_ancestor.find('div', class_='markup-table-wrapper')
-                    if table_wrapper:
-                        print(f"    SUCCESS: Found 'div.markup-table-wrapper' within ancestor <{current_ancestor.name}> (fallback).", flush=True)
-                        break
-                    current_ancestor = current_ancestor.parent
-                    ancestor_search_depth += 1
-        
-        if not table_wrapper:
-            print(f"    ERROR: All attempts to find 'div.markup-table-wrapper' failed for {spec_name} {class_name}.", flush=True)
-            return []
-        # --- END MODIFIED LOGIC ---
-            
-        bis_table = table_wrapper.find('table')
         if not bis_table:
-            print(f"    ERROR: Could not find 'table' within the identified 'div.markup-table-wrapper' for {spec_name} {class_name}.", flush=True)
-            return []
+            print(f"    ERROR: Could not find a 'table' with classes 'exclude-units' and 'grid' after the heading for {spec_name} {class_name}.", flush=True)
+            # As a last resort, try finding any table after the heading,
+            # but this is less specific and might pick up the wrong table.
+            print(f"    INFO: Attempting to find *any* table after the heading for {spec_name} {class_name} as a last resort.", flush=True)
+            bis_table = found_heading.find_next('table')
+            if not bis_table:
+                print(f"    ERROR: Still could not find *any* table after the heading for {spec_name} {class_name}.", flush=True)
+                return []
+            else:
+                print(f"    WARNING: Found a generic table after the heading. Its classes are: {bis_table.get('class')}. Parsing this table, but it might not be the correct BiS table.", flush=True)
+        # --- END NEW LOGIC ---
 
         print("    Found BiS table. Processing rows...", flush=True)
         
