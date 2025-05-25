@@ -196,30 +196,40 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             print(f"    Could not find a suitable BiS table heading for {spec_name} {class_name} using patterns: {relevant_heading_texts}", flush=True)
             return []
 
-        table_wrapper = found_heading.find_next('div', class_='markup-table-wrapper')
-            
-        if not table_wrapper:
-            # Fallback: Try searching within parent elements of the heading
-            print(f"    INFO: 'find_next' failed for 'div.markup-table-wrapper'. Trying parent search for {spec_name} {class_name}.", flush=True)
-            current_ancestor = found_heading.parent
-            ancestor_search_depth = 0
-            max_ancestor_search_depth = 5 # Limit how many parents up we search
+        # --- MODIFIED LOGIC ---
+        # First, try to find the specific 'tabs-wrapper' div that is a SIBLING AFTER the heading
+        tabs_wrapper_div = found_heading.find_next_sibling('div', class_='tabs-wrapper exclude-units uniform-width')
+        table_wrapper = None
 
-            while current_ancestor and ancestor_search_depth < max_ancestor_search_depth:
-                print(f"    DEBUG: Searching for table_wrapper in ancestor: <{current_ancestor.name}> with classes {current_ancestor.get('class', [])}", flush=True)
-                table_wrapper = current_ancestor.find('div', class_='markup-table-wrapper')
-                if table_wrapper:
-                    print(f"    SUCCESS: Found 'div.markup-table-wrapper' within ancestor <{current_ancestor.name}>.", flush=True)
-                    break
-                current_ancestor = current_ancestor.parent
-                ancestor_search_depth += 1
+        if tabs_wrapper_div:
+            print(f"    SUCCESS: Found 'tabs-wrapper' sibling div for {spec_name} {class_name}.", flush=True)
+            # Now search for the 'markup-table-wrapper' INSIDE this specific 'tabs-wrapper'
+            table_wrapper = tabs_wrapper_div.find('div', class_='markup-table-wrapper')
+            if not table_wrapper:
+                print(f"    ERROR: Found 'tabs-wrapper' but could not find 'markup-table-wrapper' inside it for {spec_name} {class_name}.", flush=True)
+        else:
+            # Fallback to previous broader searches if the specific 'tabs-wrapper' sibling isn't found
+            print(f"    INFO: Could not find 'tabs-wrapper' sibling for {spec_name} {class_name}. Trying broader search...", flush=True)
+            table_wrapper = found_heading.find_next('div', class_='markup-table-wrapper')
             
             if not table_wrapper:
-                print(f"    ERROR: Could not find 'div.markup-table-wrapper' for {spec_name} {class_name} even after parent search.", flush=True)
-                # For deeper debugging, you could print a snippet of found_heading.parent.prettify()
-                # if found_heading.parent:
-                # print(f"    DEBUG: HTML snippet of found_heading's parent:\n{found_heading.parent.prettify(limit=20)}", flush=True)
-                return []
+                print(f"    INFO: 'find_next' (broad search) also failed for 'div.markup-table-wrapper'. Trying parent search for {spec_name} {class_name}.", flush=True)
+                current_ancestor = found_heading.parent
+                ancestor_search_depth = 0
+                max_ancestor_search_depth = 5 
+
+                while current_ancestor and ancestor_search_depth < max_ancestor_search_depth:
+                    table_wrapper = current_ancestor.find('div', class_='markup-table-wrapper')
+                    if table_wrapper:
+                        print(f"    SUCCESS: Found 'div.markup-table-wrapper' within ancestor <{current_ancestor.name}> (fallback).", flush=True)
+                        break
+                    current_ancestor = current_ancestor.parent
+                    ancestor_search_depth += 1
+        
+        if not table_wrapper:
+            print(f"    ERROR: All attempts to find 'div.markup-table-wrapper' failed for {spec_name} {class_name}.", flush=True)
+            return []
+        # --- END MODIFIED LOGIC ---
             
         bis_table = table_wrapper.find('table')
         if not bis_table:
