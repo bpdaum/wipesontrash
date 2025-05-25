@@ -109,10 +109,18 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
 }
 
 def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
+    """
+    Fetches HTML content from a URL.
+    Optionally uses a local cache file based on class and spec slugs.
+    """
     local_file_path = None
     if class_slug_for_file and spec_slug_for_file:
+        # Construct a file path for caching. Ensure it's a valid path.
+        # Example: 'cache_dir/wowhead_cache_death-knight_blood.html'
+        # For simplicity, placing in current dir. For production, consider a dedicated cache folder.
         local_file_path = f"wowhead_cache_{class_slug_for_file}_{spec_slug_for_file}.html"
 
+    # Try to load from local cache if path is defined
     if local_file_path:
         try:
             with open(local_file_path, "r", encoding="utf-8") as f:
@@ -123,14 +131,16 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
         except Exception as e:
             print(f"    WARNING: Error reading local cache file {local_file_path}: {e}", flush=True)
 
+    # Fetch from web if cache not used or failed
     print(f"    Fetching HTML from: {url}", flush=True)
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
     try:
-        response = requests.get(url, headers=headers, timeout=20) 
-        response.raise_for_status() 
+        response = requests.get(url, headers=headers, timeout=20) # Increased timeout
+        response.raise_for_status() # Will raise an HTTPError for bad responses (4XX or 5XX)
         
+        # Save to local cache if path is defined
         if local_file_path:
             try:
                 with open(local_file_path, "w", encoding="utf-8") as f:
@@ -143,21 +153,24 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
     except requests.exceptions.RequestException as e:
         print(f"    ERROR: Could not fetch URL {url}. Error: {e}", flush=True)
         return None
-    except Exception as e_general: 
+    except Exception as e_general: # Catch any other unexpected errors during fetch
         print(f"    UNEXPECTED ERROR fetching URL {url}: {e_general}", flush=True)
         return None
 
 def parse_wowhead_bis_table(html_content, class_name, spec_name):
+    """
+    Parses the HTML content of a Wowhead BiS page to extract item information.
+    """
     print(f"    Parsing HTML for {class_name} - {spec_name}...", flush=True)
     if not html_content:
         print("    No HTML content to parse.", flush=True)
         return []
 
     items = []
-    parser_to_use = 'lxml' 
+    parser_to_use = 'lxml' # Prefer lxml for speed and robustness
     try:
         soup = BeautifulSoup(html_content, parser_to_use) 
-    except Exception as e_parser: 
+    except Exception as e_parser: # Fallback to html.parser if lxml is not available or fails
         print(f"    WARNING: Failed to initialize BeautifulSoup with '{parser_to_use}' parser: {e_parser}", flush=True)
         parser_to_use = 'html.parser' 
         print(f"    Attempting fallback to '{parser_to_use}' parser.", flush=True)
@@ -165,11 +178,11 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             soup = BeautifulSoup(html_content, parser_to_use)
         except Exception as e_fallback_parser:
             print(f"    ERROR: Failed to initialize BeautifulSoup with fallback '{parser_to_use}' parser: {e_fallback_parser}", flush=True)
-            return [] 
+            return [] # Cannot parse if both fail
 
     try:
-        # Find all h3 headers containing "Overall" and "Best in Slot Gear"
-        # This is more robust if the exact h4 id changes or isn't always h4
+        # Define patterns for finding the relevant heading.
+        # This makes it more flexible if the exact wording or heading level changes slightly.
         relevant_heading_texts = [
             f"Overall {spec_name} {class_name} Best in Slot Gear",
             f"{spec_name} {class_name} Best in Slot Gear" # A slightly more generic fallback
@@ -177,46 +190,28 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
         
         found_heading = None
         for text_pattern_str in relevant_heading_texts:
+            # Compile a regex pattern for case-insensitive matching.
             text_pattern = re.compile(text_pattern_str, re.IGNORECASE)
-            # Look for h3 first as requested, then h4, then h2 as fallbacks
+            # Look for h3 first as often used, then h4, then h2 as fallbacks.
             for heading_tag_name in ['h3', 'h4', 'h2']: 
                 headings = soup.find_all(heading_tag_name, string=text_pattern)
                 if headings:
                     found_heading = headings[0] # Take the first match
                     print(f"    Found heading: '{found_heading.get_text(strip=True)}' using tag '{heading_tag_name}'", flush=True)
-                    break
+                    break # Exit inner loop (tag names)
             if found_heading:
-                break
+                break # Exit outer loop (text patterns)
         
         if not found_heading:
             print(f"    Could not find a suitable BiS table heading for {spec_name} {class_name} using patterns: {relevant_heading_texts}", flush=True)
             return []
 
-        # Find the first div with class "markup-table-wrapper" *after* this heading
-        table_wrapper = None
-        current_element = found_heading
-        while current_element:
-            if current_element.name == 'div' and 'markup-table-wrapper' in current_element.get('class', []):
-                table_wrapper = current_element
-                break
-            current_element = current_element.find_next_sibling() # Check immediate siblings first
-
-        # If not found as a direct sibling, try searching within sibling containers more broadly
+        # MODIFIED SECTION: Use find_next to locate the table wrapper.
+        # This is more robust than relying on strict sibling relationships.
+        table_wrapper = found_heading.find_next('div', class_='markup-table-wrapper')
+            
         if not table_wrapper:
-            parent_container = found_heading.parent
-            while parent_container and not table_wrapper:
-                table_wrapper = parent_container.find('div', class_='markup-table-wrapper')
-                if table_wrapper: break
-                # If the heading itself is within a complex structure, we might need to go up further
-                # or search more broadly from the heading's position.
-                # For now, checking direct siblings and then siblings of parent.
-                next_sibling_container = found_heading.find_next_sibling(lambda tag: tag.find('div', class_='markup-table-wrapper'))
-                if next_sibling_container:
-                    table_wrapper = next_sibling_container.find('div', class_='markup-table-wrapper')
-                break # Avoid infinite loops, this part might need refinement based on actual HTML
-
-        if not table_wrapper:
-            print(f"    Could not find 'div.markup-table-wrapper' after the heading for {spec_name} {class_name}.", flush=True)
+            print(f"    Could not find 'div.markup-table-wrapper' after the heading (using find_next) for {spec_name} {class_name}.", flush=True)
             return []
             
         bis_table = table_wrapper.find('table')
@@ -226,52 +221,69 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
 
         print("    Found BiS table within 'markup-table-wrapper'. Processing rows...", flush=True)
         
+        # Find table body, or fall back to all rows in the table if no tbody.
         table_body = bis_table.find('tbody')
         rows_to_parse = table_body.find_all('tr') if table_body else bis_table.find_all('tr')
 
         for row_idx, row in enumerate(rows_to_parse):
             cells = row.find_all(['td', 'th']) # Header rows might use <th>
-            if len(cells) < 2: continue
+            
+            # Ensure there are enough cells to parse.
+            if len(cells) < 2: 
+                # print(f"      Skipping row {row_idx+1}: Not enough cells ({len(cells)}). Content: {row.get_text(strip=True, separator='|')}", flush=True)
+                continue
 
             try:
                 raw_slot_name = cells[0].get_text(strip=True)
-                # Skip header rows based on common header text
+                
+                # Skip header rows based on common header text.
                 if raw_slot_name.lower() in ["slot", "item", "source", "notes"]:
+                    # print(f"      Skipping header row: {raw_slot_name}", flush=True)
                     continue
 
+                # Map the raw slot name from Wowhead to our canonical UI slot type.
                 ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name, raw_slot_name) 
 
                 item_cell = cells[1]
+                # Find the item link, which usually contains item IDs.
                 item_link_tag = item_cell.find('a', href=re.compile(r'/item='))
                 
-                if not item_link_tag: continue
+                if not item_link_tag: 
+                    # print(f"      Skipping row {row_idx+1} for slot '{raw_slot_name}': No item link found.", flush=True)
+                    continue
 
+                # Extract item name.
                 item_name = item_link_tag.get_text(strip=True)
-                if not item_name: 
+                if not item_name: # Fallback if name is inside a specific span
                     span_text = item_link_tag.find('span', class_='tinyicontxt')
                     if span_text: item_name = span_text.get_text(strip=True)
-                if not item_name: item_name = "Unknown Item - Parse Error"
+                if not item_name: item_name = "Unknown Item - Parse Error" # Default if still not found
 
+                # Extract Wowhead item ID from the href.
                 wowhead_item_id_match = re.search(r'/item=(\d+)', item_link_tag.get('href', ''))
                 wowhead_item_id = wowhead_item_id_match.group(1) if wowhead_item_id_match else None
                 
+                # Attempt to extract Blizzard item ID from 'data-wowhead' or 'rel' attributes.
                 blizzard_item_id = None
-                data_wowhead = item_link_tag.get('data-wowhead')
+                data_wowhead = item_link_tag.get('data-wowhead') # Often like "item=12345&..."
                 if data_wowhead: 
                     match = re.search(r'item=(\d+)', data_wowhead)
                     if match: blizzard_item_id = int(match.group(1))
                 
-                if not blizzard_item_id: 
+                if not blizzard_item_id: # Fallback to 'rel' attribute
                     rel_attr = item_link_tag.get('rel', [])
+                    # Ensure rel_attr is a string for regex search
                     rel_str = "".join(rel_attr) if isinstance(rel_attr, list) else str(rel_attr)
                     match = re.search(r'item=(\d+)', rel_str)
                     if match: blizzard_item_id = int(match.group(1))
                 
+                # Fallback: if Blizzard ID is still None, use Wowhead ID if it's numeric.
                 if not blizzard_item_id and wowhead_item_id: 
                     try: blizzard_item_id = int(wowhead_item_id) 
                     except ValueError: print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback.", flush=True)
 
-                item_source = cells[2].get_text(strip=True) if len(cells) > 2 else "Wowhead Guide"
+                # Extract item source.
+                item_source = cells[2].get_text(strip=True) if len(cells) > 2 else "Wowhead Guide" # Default source
                 
                 if ui_slot_type and item_name:
                     items.append({
@@ -279,18 +291,23 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                         "wowhead_item_id": wowhead_item_id, "blizzard_item_id": blizzard_item_id,
                         "item_source": item_source
                     })
-                    print(f"      Extracted: Slot='{ui_slot_type}', Item='{item_name}', BlizzID='{blizzard_item_id}'", flush=True)
+                    # print(f"      Extracted: Slot='{ui_slot_type}', Item='{item_name}', BlizzID='{blizzard_item_id}', WHID='{wowhead_item_id}', Src='{item_source}'", flush=True)
 
             except Exception as e_row:
                 print(f"      Error parsing row: {row.get_text(strip=True, separator='|')}. Error: {e_row}", flush=True)
         print(f"    Extracted {len(items)} items for {class_name} - {spec_name}.", flush=True)
-    except Exception as e: 
+    except Exception as e: # Catch-all for other parsing errors
         print(f"    General error parsing HTML for {class_name} - {spec_name}: {e}", flush=True)
     return items
 
 def scrape_and_store_bis_data():
+    """
+    Main function to orchestrate the scraping and storing of BiS data.
+    """
     print("Starting Wowhead BiS scraping process...", flush=True)
-    db_session = SessionLocal()
+    db_session = SessionLocal() # Create a new session
+
+    # Clear existing data from the SuggestedBiS table before starting.
     print("Clearing existing SuggestedBiS data...", flush=True)
     try:
         num_deleted = db_session.query(SuggestedBiS).delete(synchronize_session=False)
@@ -300,14 +317,17 @@ def scrape_and_store_bis_data():
         db_session.rollback()
         print(f"  Error clearing SuggestedBiS table: {e}", flush=True)
 
+    # Iterate through the defined specs to scrape.
     for class_slug, spec_slug, class_display, spec_display in SPECS_TO_SCRAPE:
         wowhead_url = f"{WOWHEAD_BASE_URL}/{class_slug}/{spec_slug}/bis-gear"
         print(f"\nFetching BiS data for: {class_display} - {spec_display} from {wowhead_url}", flush=True)
+        
+        # Get HTML content, using cache if available.
         html_content = get_html_content(wowhead_url, class_slug, spec_slug) 
         
         if not html_content:
             print(f"  Could not fetch HTML content for {wowhead_url}. Skipping.", flush=True)
-            time.sleep(10) 
+            time.sleep(10) # Wait before trying next spec to avoid hammering site on error
             continue
 
         extracted_items = parse_wowhead_bis_table(html_content, class_display, spec_display)
@@ -316,17 +336,21 @@ def scrape_and_store_bis_data():
         if extracted_items:
             for item_data in extracted_items:
                 blizz_id = item_data.get("blizzard_item_id")
+                # Ensure Blizzard ID is an integer or None.
                 try:
                     blizz_id = int(blizz_id) if blizz_id is not None else None
                 except ValueError:
                     print(f"    Warning: Could not convert Blizzard ID '{blizz_id}' for item '{item_data.get('item_name')}'. Storing as None.", flush=True)
                     blizz_id = None
 
+                # Verify the UI slot type exists in our PlayableSlot table.
                 slot_entry = db_session.query(PlayableSlot).filter_by(type=item_data.get("ui_slot_type")).first()
                 if not slot_entry:
                     print(f"    WARNING: UI Slot Type '{item_data.get('ui_slot_type')}' for item '{item_data.get('item_name')}' not found in PlayableSlot. Skipping.", flush=True)
                     continue
                 
+                # Check if this exact suggestion already exists to avoid duplicates.
+                # This unique constraint is also handled by the DB table definition.
                 existing_suggestion = db_session.query(SuggestedBiS).filter_by(
                     class_name=class_display, spec_name=spec_display,
                     ui_slot_type=item_data.get("ui_slot_type"), item_name=item_data.get("item_name") 
@@ -338,17 +362,18 @@ def scrape_and_store_bis_data():
                         ui_slot_type=item_data.get("ui_slot_type"), item_name=item_data.get("item_name"),
                         blizzard_item_id=blizz_id, wowhead_item_id=item_data.get("wowhead_item_id"),
                         item_source=item_data.get("item_source"),
-                        last_scraped=datetime.utcnow() 
+                        last_scraped=datetime.utcnow() # Timestamp the scrape
                     )
                     db_session.add(suggestion)
                     items_added_for_spec += 1
-                elif existing_suggestion: 
+                elif existing_suggestion: # If it exists, update its details
                     existing_suggestion.blizzard_item_id = blizz_id
                     existing_suggestion.wowhead_item_id = item_data.get("wowhead_item_id")
                     existing_suggestion.item_source = item_data.get("item_source")
                     existing_suggestion.last_scraped = datetime.utcnow()
 
-            if items_added_for_spec > 0 or (extracted_items and not items_added_for_spec): 
+            # Commit changes for the current spec.
+            if items_added_for_spec > 0 or (extracted_items and not items_added_for_spec): # Commit if new items or if existing items might have been updated
                 try:
                     db_session.commit()
                     if items_added_for_spec > 0:
@@ -360,13 +385,19 @@ def scrape_and_store_bis_data():
                     print(f"  Error committing BiS suggestions for {class_display} - {spec_display}: {e}", flush=True)
         else:
             print(f"  No items extracted for {class_display} - {spec_display}.", flush=True)
+        
+        # Be respectful to Wowhead's servers.
         print("Waiting for 30 seconds before next spec...", flush=True)
         time.sleep(30) 
-    db_session.close()
+
+    db_session.close() # Close the session after all specs are processed.
     print("\nWowhead BiS scraping process finished.", flush=True)
 
 if __name__ == "__main__":
     print("Ensuring database tables exist (including SuggestedBiS)...", flush=True)
+    # Create tables if they don't exist. This is safe to run multiple times.
+    # Only creating tables specifically used/referenced by this script.
     Base.metadata.create_all(engine, tables=[PlayableSlot.__table__, Item.__table__, SuggestedBiS.__table__], checkfirst=True) 
     print("Database tables checked/created.", flush=True)
+    
     scrape_and_store_bis_data()
