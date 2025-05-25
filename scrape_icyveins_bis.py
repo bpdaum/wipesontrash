@@ -68,6 +68,8 @@ class SuggestedBiS(Base):
 
 # --- Icy Veins Scraping Configuration ---
 ICYVEINS_BASE_URL = "https://www.icy-veins.com" 
+# (class_slug, spec_slug, class_display, spec_display, role_slug_for_url)
+# role_slug_for_url should be "dps", "tank", or "healing"
 SPECS_TO_SCRAPE = [ 
     ("death-knight", "blood", "Death Knight", "Blood", "tank"),
     ("death-knight", "frost", "Death Knight", "Frost", "dps"),
@@ -77,9 +79,9 @@ SPECS_TO_SCRAPE = [
     ("druid", "balance", "Druid", "Balance", "dps"),
     ("druid", "feral", "Druid", "Feral", "dps"),
     ("druid", "guardian", "Druid", "Guardian", "tank"),
-    ("druid", "restoration", "Druid", "Restoration", "healer"),
+    ("druid", "restoration", "Druid", "Restoration", "healing"), # Corrected slug
     ("evoker", "devastation", "Evoker", "Devastation", "dps"),
-    ("evoker", "preservation", "Evoker", "Preservation", "healer"),
+    ("evoker", "preservation", "Evoker", "Preservation", "healing"), # Corrected slug
     ("evoker", "augmentation", "Evoker", "Augmentation", "dps"),
     ("hunter", "beast-mastery", "Hunter", "Beast Mastery", "dps"),
     ("hunter", "marksmanship", "Hunter", "Marksmanship", "dps"),
@@ -88,20 +90,20 @@ SPECS_TO_SCRAPE = [
     ("mage", "fire", "Mage", "Fire", "dps"),
     ("mage", "frost", "Mage", "Frost", "dps"),
     ("monk", "brewmaster", "Monk", "Brewmaster", "tank"),
-    ("monk", "mistweaver", "Monk", "Mistweaver", "healer"),
+    ("monk", "mistweaver", "Monk", "Mistweaver", "healing"), # Corrected slug
     ("monk", "windwalker", "Monk", "Windwalker", "dps"),
-    ("paladin", "holy", "Paladin", "Holy", "healer"),
+    ("paladin", "holy", "Paladin", "Holy", "healing"), # Corrected slug
     ("paladin", "protection", "Paladin", "Protection", "tank"),
     ("paladin", "retribution", "Paladin", "Retribution", "dps"),
-    ("priest", "discipline", "Priest", "Discipline", "healer"),
-    ("priest", "holy", "Priest", "Holy", "healer"),
+    ("priest", "discipline", "Priest", "Discipline", "healing"), # Corrected slug
+    ("priest", "holy", "Priest", "Holy", "healing"), # Corrected slug
     ("priest", "shadow", "Priest", "Shadow", "dps"),
     ("rogue", "assassination", "Rogue", "Assassination", "dps"),
     ("rogue", "outlaw", "Rogue", "Outlaw", "dps"),
     ("rogue", "subtlety", "Rogue", "Subtlety", "dps"),
     ("shaman", "elemental", "Shaman", "Elemental", "dps"),
     ("shaman", "enhancement", "Shaman", "Enhancement", "dps"),
-    ("shaman", "restoration", "Shaman", "Restoration", "healer"),
+    ("shaman", "restoration", "Shaman", "Restoration", "healing"), # Corrected slug
     ("warlock", "affliction", "Warlock", "Affliction", "dps"),
     ("warlock", "demonology", "Warlock", "Demonology", "dps"),
     ("warlock", "destruction", "Warlock", "Destruction", "dps"),
@@ -121,11 +123,11 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Waist": "WAIST", "Belt": "WAIST",
     "Legs": "LEGS", 
     "Feet": "FEET", "Boots": "FEET",
-    "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1", 
-    "Finger 2": "FINGER2", "Ring 2": "FINGER2", "Finger2": "FINGER2",
+    "Finger 1": "FINGER1", "Ring 1": "FINGER1", "Finger1": "FINGER1", "Ring #1": "FINGER1", # Added "Ring #1"
+    "Finger 2": "FINGER2", "Ring 2": "FINGER2", "Finger2": "FINGER2", "Ring #2": "FINGER2", # Added "Ring #2"
     "Ring": "FINGER1", 
-    "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1",
-    "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2",
+    "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1", "Trinket #1": "TRINKET1", # Added "Trinket #1"
+    "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2", "Trinket #2": "TRINKET2", # Added "Trinket #2"
     "Trinket": "TRINKET1", 
     "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", 
     "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND",
@@ -229,14 +231,18 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
                     continue
 
                 ui_slot_type = ""
-                if raw_slot_name_from_table == "Ring":
+                # Prioritize direct map lookup for specific names like "Ring #1"
+                if raw_slot_name_from_table in CANONICAL_UI_SLOT_NAMES_MAP:
+                    ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP[raw_slot_name_from_table]
+                elif raw_slot_name_from_table == "Ring": # Fallback for generic "Ring"
                     ring_count += 1
                     ui_slot_type = f"FINGER{ring_count}"
-                elif raw_slot_name_from_table == "Trinket":
+                elif raw_slot_name_from_table == "Trinket": # Fallback for generic "Trinket"
                     trinket_count += 1
                     ui_slot_type = f"TRINKET{trinket_count}"
-                else:
-                    ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name_from_table, raw_slot_name_from_table) 
+                else: # General fallback
+                    ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name_from_table, raw_slot_name_from_table)
+
 
                 item_cell = cells[1]
                 
@@ -274,21 +280,19 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
                             try: blizzard_item_id = int(wowhead_id_from_href)
                             except ValueError: pass 
                 
-                else: # No link found, parse direct cell text
+                else: 
                     cell_text_content = item_cell.get_text(strip=True)
                     if cell_text_content and cell_text_content not in ["]", ":10520]", "", "None", "-", "N/A"]:
+                        # Split at the first '(', take the part before it, and strip whitespace
                         item_name_candidate = cell_text_content.split('(', 1)[0].strip()
-                        if item_name_candidate:
+                        if item_name_candidate: # Ensure it's not an empty string after split/strip
                             item_name = item_name_candidate
-                            # print(f"      INFO: No item link for slot '{raw_slot_name_from_table}'. Using parsed cell text: '{item_name}' (Original: '{cell_text_content}')", flush=True)
                         else:
-                            # print(f"      INFO: Cell text '{cell_text_content}' for slot '{raw_slot_name_from_table}' resulted in empty name after parsing. Skipping row.", flush=True)
                             continue 
                     else:
-                        # print(f"      INFO: Skipping row for slot '{raw_slot_name_from_table}': Item cell content is junk or empty ('{cell_text_content}').", flush=True)
                         continue
 
-                if not item_name: # If item_name is still None or became empty string
+                if not item_name: 
                     item_name = "Unknown Item - Parse Error"
 
                 item_source_text = "Icy Veins Guide" 
