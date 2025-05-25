@@ -154,62 +154,103 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
         return []
 
     items = []
+    parser_to_use = 'lxml' 
     try:
-        soup = BeautifulSoup(html_content, 'lxml') 
-        heading_id_slug = f"{spec_name.lower().replace(' ', '-')}-{class_name.lower().replace(' ', '-')}-best-in-slot-gear"
-        heading = soup.find('h4', id=heading_id_slug) 
-        if not heading:
-            heading_text_pattern = re.compile(f"Overall {spec_name} {class_name} Best in Slot Gear", re.IGNORECASE)
-            heading = soup.find(['h2', 'h3', 'h4'], string=heading_text_pattern)
+        soup = BeautifulSoup(html_content, parser_to_use) 
+    except Exception as e_parser: 
+        print(f"    WARNING: Failed to initialize BeautifulSoup with '{parser_to_use}' parser: {e_parser}", flush=True)
+        parser_to_use = 'html.parser' 
+        print(f"    Attempting fallback to '{parser_to_use}' parser.", flush=True)
+        try:
+            soup = BeautifulSoup(html_content, parser_to_use)
+        except Exception as e_fallback_parser:
+            print(f"    ERROR: Failed to initialize BeautifulSoup with fallback '{parser_to_use}' parser: {e_fallback_parser}", flush=True)
+            return [] 
 
-        if not heading:
-            print(f"    Could not find BiS table heading for {spec_name} {class_name} (ID: {heading_id_slug} or text match).", flush=True)
-            return []
-        print(f"    Found heading: '{heading.text.strip()}'", flush=True)
+    try:
+        # Find all h3 headers containing "Overall" and "Best in Slot Gear"
+        # This is more robust if the exact h4 id changes or isn't always h4
+        relevant_heading_texts = [
+            f"Overall {spec_name} {class_name} Best in Slot Gear",
+            f"{spec_name} {class_name} Best in Slot Gear" # A slightly more generic fallback
+        ]
         
-        current_element = heading
-        bis_table = None
-        for _ in range(5): 
-            current_element = current_element.find_next_sibling()
-            if not current_element: break
-            if current_element.name == 'table' and ('wh-db-table' in current_element.get('class', []) or 'listview-table' in current_element.get('class', [])):
-                bis_table = current_element
-                break
-            if current_element.name == 'div':
-                table_in_div = current_element.find('table', class_=lambda x: x and ('wh-db-table' in x or 'listview-table' in x))
-                if table_in_div:
-                    bis_table = table_in_div
+        found_heading = None
+        for text_pattern_str in relevant_heading_texts:
+            text_pattern = re.compile(text_pattern_str, re.IGNORECASE)
+            # Look for h3 first as requested, then h4, then h2 as fallbacks
+            for heading_tag_name in ['h3', 'h4', 'h2']: 
+                headings = soup.find_all(heading_tag_name, string=text_pattern)
+                if headings:
+                    found_heading = headings[0] # Take the first match
+                    print(f"    Found heading: '{found_heading.get_text(strip=True)}' using tag '{heading_tag_name}'", flush=True)
                     break
+            if found_heading:
+                break
         
-        if not bis_table:
-            print(f"    Could not find BiS table after heading for {spec_name} {class_name}.", flush=True)
+        if not found_heading:
+            print(f"    Could not find a suitable BiS table heading for {spec_name} {class_name} using patterns: {relevant_heading_texts}", flush=True)
             return []
-        print("    Found BiS table. Processing rows...", flush=True)
+
+        # Find the first div with class "markup-table-wrapper" *after* this heading
+        table_wrapper = None
+        current_element = found_heading
+        while current_element:
+            if current_element.name == 'div' and 'markup-table-wrapper' in current_element.get('class', []):
+                table_wrapper = current_element
+                break
+            current_element = current_element.find_next_sibling() # Check immediate siblings first
+
+        # If not found as a direct sibling, try searching within sibling containers more broadly
+        if not table_wrapper:
+            parent_container = found_heading.parent
+            while parent_container and not table_wrapper:
+                table_wrapper = parent_container.find('div', class_='markup-table-wrapper')
+                if table_wrapper: break
+                # If the heading itself is within a complex structure, we might need to go up further
+                # or search more broadly from the heading's position.
+                # For now, checking direct siblings and then siblings of parent.
+                next_sibling_container = found_heading.find_next_sibling(lambda tag: tag.find('div', class_='markup-table-wrapper'))
+                if next_sibling_container:
+                    table_wrapper = next_sibling_container.find('div', class_='markup-table-wrapper')
+                break # Avoid infinite loops, this part might need refinement based on actual HTML
+
+        if not table_wrapper:
+            print(f"    Could not find 'div.markup-table-wrapper' after the heading for {spec_name} {class_name}.", flush=True)
+            return []
+            
+        bis_table = table_wrapper.find('table')
+        if not bis_table:
+            print(f"    Could not find 'table' within 'div.markup-table-wrapper' for {spec_name} {class_name}.", flush=True)
+            return []
+
+        print("    Found BiS table within 'markup-table-wrapper'. Processing rows...", flush=True)
         
         table_body = bis_table.find('tbody')
         rows_to_parse = table_body.find_all('tr') if table_body else bis_table.find_all('tr')
 
         for row_idx, row in enumerate(rows_to_parse):
-            cells = row.find_all('td')
-            if len(cells) < 2: 
-                continue
+            cells = row.find_all(['td', 'th']) # Header rows might use <th>
+            if len(cells) < 2: continue
 
             try:
                 raw_slot_name = cells[0].get_text(strip=True)
+                # Skip header rows based on common header text
+                if raw_slot_name.lower() in ["slot", "item", "source", "notes"]:
+                    continue
+
                 ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name, raw_slot_name) 
 
                 item_cell = cells[1]
-                item_link_tag = item_cell.find('a', href=re.compile(r'/(item|spell|itemset|transmog-set|azerite-essence|currency|title|achievement|npc|object|quest|zone|faction|pet|battlepet|mount|toy|bfa-champion|follower|garrison-ability|garrison-building|garrison-mission|garrison-ship|garrison-shipyard-blueprint|holiday|threat|currency|sound|emote|event|statistic|talent-calc|transmog-set|transmog-item)='))
+                item_link_tag = item_cell.find('a', href=re.compile(r'/item='))
                 
-                if not item_link_tag:
-                    continue
+                if not item_link_tag: continue
 
                 item_name = item_link_tag.get_text(strip=True)
                 if not item_name: 
                     span_text = item_link_tag.find('span', class_='tinyicontxt')
                     if span_text: item_name = span_text.get_text(strip=True)
-                if not item_name: 
-                    item_name = "Unknown Item - Parse Error"
+                if not item_name: item_name = "Unknown Item - Parse Error"
 
                 wowhead_item_id_match = re.search(r'/item=(\d+)', item_link_tag.get('href', ''))
                 wowhead_item_id = wowhead_item_id_match.group(1) if wowhead_item_id_match else None
@@ -227,11 +268,8 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                     if match: blizzard_item_id = int(match.group(1))
                 
                 if not blizzard_item_id and wowhead_item_id: 
-                    try:
-                        blizzard_item_id = int(wowhead_item_id) 
-                    except ValueError:
-                        print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback.", flush=True)
-
+                    try: blizzard_item_id = int(wowhead_item_id) 
+                    except ValueError: print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback.", flush=True)
 
                 item_source = cells[2].get_text(strip=True) if len(cells) > 2 else "Wowhead Guide"
                 
@@ -241,10 +279,12 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                         "wowhead_item_id": wowhead_item_id, "blizzard_item_id": blizzard_item_id,
                         "item_source": item_source
                     })
+                    print(f"      Extracted: Slot='{ui_slot_type}', Item='{item_name}', BlizzID='{blizzard_item_id}'", flush=True)
+
             except Exception as e_row:
                 print(f"      Error parsing row: {row.get_text(strip=True, separator='|')}. Error: {e_row}", flush=True)
         print(f"    Extracted {len(items)} items for {class_name} - {spec_name}.", flush=True)
-    except Exception as e:
+    except Exception as e: 
         print(f"    General error parsing HTML for {class_name} - {spec_name}: {e}", flush=True)
     return items
 
@@ -298,7 +338,7 @@ def scrape_and_store_bis_data():
                         ui_slot_type=item_data.get("ui_slot_type"), item_name=item_data.get("item_name"),
                         blizzard_item_id=blizz_id, wowhead_item_id=item_data.get("wowhead_item_id"),
                         item_source=item_data.get("item_source"),
-                        last_scraped=datetime.utcnow() # Set last_scraped time
+                        last_scraped=datetime.utcnow() 
                     )
                     db_session.add(suggestion)
                     items_added_for_spec += 1
