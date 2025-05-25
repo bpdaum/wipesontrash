@@ -154,8 +154,9 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
 def parse_wowhead_bis_table(html_content, class_name, spec_name):
     """
     Parses the HTML content of a Wowhead BiS page to extract item information.
+    This version attempts to find the *first* table on the page.
     """
-    print(f"    Parsing HTML for {class_name} - {spec_name}...", flush=True)
+    print(f"    Parsing HTML for {class_name} - {spec_name} (Attempting to find the first table)...", flush=True)
     if not html_content:
         print("    No HTML content to parse.", flush=True)
         return []
@@ -175,60 +176,41 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
             return [] 
 
     try:
-        relevant_heading_texts = [
-            f"Overall {spec_name} {class_name} Best in Slot Gear",
-            f"{spec_name} {class_name} Best in Slot Gear" 
-        ]
-        
-        found_heading = None
-        for text_pattern_str in relevant_heading_texts:
-            text_pattern = re.compile(text_pattern_str, re.IGNORECASE)
-            for heading_tag_name in ['h3', 'h4', 'h2']: 
-                headings = soup.find_all(heading_tag_name, string=text_pattern)
-                if headings:
-                    found_heading = headings[0] 
-                    print(f"    Found heading: '{found_heading.get_text(strip=True)}' using tag '{heading_tag_name}'", flush=True)
-                    break 
-            if found_heading:
-                break 
-        
-        if not found_heading:
-            print(f"    Could not find a suitable BiS table heading for {spec_name} {class_name} using patterns: {relevant_heading_texts}", flush=True)
-            return []
-
-        # --- NEW LOGIC: Find table with classes 'exclude-units' and 'grid' AFTER the heading ---
-        # The class attribute can contain multiple classes, so we use a list.
-        # find_next will get the first matching table after the heading.
-        bis_table = found_heading.find_next('table', class_=['exclude-units', 'grid'])
+        # --- MODIFIED LOGIC: Find the first table on the page ---
+        bis_table = soup.find('table') 
             
         if not bis_table:
-            print(f"    ERROR: Could not find a 'table' with classes 'exclude-units' and 'grid' after the heading for {spec_name} {class_name}.", flush=True)
-            # As a last resort, try finding any table after the heading,
-            # but this is less specific and might pick up the wrong table.
-            print(f"    INFO: Attempting to find *any* table after the heading for {spec_name} {class_name} as a last resort.", flush=True)
-            bis_table = found_heading.find_next('table')
-            if not bis_table:
-                print(f"    ERROR: Still could not find *any* table after the heading for {spec_name} {class_name}.", flush=True)
-                return []
-            else:
-                print(f"    WARNING: Found a generic table after the heading. Its classes are: {bis_table.get('class')}. Parsing this table, but it might not be the correct BiS table.", flush=True)
-        # --- END NEW LOGIC ---
+            print(f"    ERROR: Could not find any 'table' element on the page for {spec_name} {class_name}.", flush=True)
+            return []
+        else:
+            print(f"    SUCCESS: Found the first 'table' element on the page. Its classes are: {bis_table.get('class')}", flush=True)
+            # For debugging, print the HTML of the found table
+            # Limiting the output to avoid overly long logs, adjust 'limit' as needed or remove for full table.
+            # print(f"    DEBUG: HTML of the first table found:\n{bis_table.prettify(limit=500)}", flush=True) 
+        # --- END MODIFIED LOGIC ---
 
-        print("    Found BiS table. Processing rows...", flush=True)
+        print("    Processing rows from the first table found...", flush=True)
         
         table_body = bis_table.find('tbody')
         rows_to_parse = table_body.find_all('tr') if table_body else bis_table.find_all('tr')
+
+        if not rows_to_parse:
+            print(f"    WARNING: The first table found for {spec_name} {class_name} has no rows (or no tbody with rows).", flush=True)
+            return []
 
         for row_idx, row in enumerate(rows_to_parse):
             cells = row.find_all(['td', 'th']) 
             
             if len(cells) < 2: 
+                # print(f"      Skipping row {row_idx+1}: Not enough cells ({len(cells)}).", flush=True)
                 continue
 
             try:
                 raw_slot_name = cells[0].get_text(strip=True)
                 
-                if raw_slot_name.lower() in ["slot", "item", "source", "notes"]:
+                # Basic check to skip obvious header rows if they exist in the first table
+                if raw_slot_name.lower() in ["slot", "item", "source", "notes", "type", "name", "details"]:
+                    # print(f"      Skipping potential header row: {raw_slot_name}", flush=True)
                     continue
 
                 ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name, raw_slot_name) 
@@ -237,6 +219,7 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                 item_link_tag = item_cell.find('a', href=re.compile(r'/item='))
                 
                 if not item_link_tag: 
+                    # print(f"      Skipping row for slot '{raw_slot_name}': No item link found.", flush=True)
                     continue
 
                 item_name = item_link_tag.get_text(strip=True)
@@ -264,18 +247,22 @@ def parse_wowhead_bis_table(html_content, class_name, spec_name):
                     try: blizzard_item_id = int(wowhead_item_id) 
                     except ValueError: print(f"    Warning: Could not convert wowhead_item_id '{wowhead_item_id}' to int for Blizzard ID fallback.", flush=True)
 
-                item_source = cells[2].get_text(strip=True) if len(cells) > 2 else "Wowhead Guide" 
+                item_source_text = "Wowhead Guide" # Default source
+                if len(cells) > 2:
+                    item_source_text = cells[2].get_text(strip=True)
                 
                 if ui_slot_type and item_name:
                     items.append({
                         "ui_slot_type": ui_slot_type, "item_name": item_name,
                         "wowhead_item_id": wowhead_item_id, "blizzard_item_id": blizzard_item_id,
-                        "item_source": item_source
+                        "item_source": item_source_text
                     })
+                    # print(f"      Extracted: Slot='{ui_slot_type}', Item='{item_name}', Source='{item_source_text}'", flush=True)
+
 
             except Exception as e_row:
                 print(f"      Error parsing row: {row.get_text(strip=True, separator='|')}. Error: {e_row}", flush=True)
-        print(f"    Extracted {len(items)} items for {class_name} - {spec_name}.", flush=True)
+        print(f"    Extracted {len(items)} items from the first table for {class_name} - {spec_name}.", flush=True)
     except Exception as e: 
         print(f"    General error parsing HTML for {class_name} - {spec_name}: {e}", flush=True)
     return items
