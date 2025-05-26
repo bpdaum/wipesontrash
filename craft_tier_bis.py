@@ -210,12 +210,10 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                                            recipe_data.get("horde_crafted_item")
                         
                         if not crafted_item_info or "name" not in crafted_item_info:
-                            # print(f"          DEBUG: Recipe {recipe_id_from_ref} ('{recipe_name_from_ref}') - no crafted_item or name. Skipping.", flush=True)
                             continue
                         
                         item_name_from_recipe_detail = crafted_item_info.get("name")
                         if not item_name_from_recipe_detail:
-                            # print(f"          DEBUG: Recipe {recipe_id_from_ref} ('{recipe_name_from_ref}') - crafted item name is empty. Skipping.", flush=True)
                             continue
 
                         print(f"          Recipe '{recipe_name_from_ref}' (ID {recipe_id_from_ref}) -> Item Name: '{item_name_from_recipe_detail}'", flush=True)
@@ -226,7 +224,7 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                             SEARCH_NAME_LOCALE_KEY: item_name_from_recipe_detail, 
                             "orderby": "id",               
                             "_page": 1,
-                            "_pageSize": 5 # Fetch a few results to check for exact match
+                            "_pageSize": 5 
                         }
                         search_api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/search/item"
                         print(f"            Searching API for exact name: '{item_name_from_recipe_detail}'", flush=True)
@@ -237,7 +235,19 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                             print(f"            WARNING: Item Search API returned no results for name '{item_name_from_recipe_detail}'. Skipping.", flush=True)
                             continue
                         
-                        # --- Exact Name Match Logic ---
+                        # --- Enhanced Debug Print for All Search Results ---
+                        print(f"            DEBUG: Item Search API for '{item_name_from_recipe_detail}' returned {len(search_results_data['results'])} result(s):", flush=True)
+                        for i, result_entry_debug in enumerate(search_results_data["results"]):
+                            api_item_data_candidate_debug = result_entry_debug.get("data")
+                            if api_item_data_candidate_debug:
+                                api_item_name_obj_debug = api_item_data_candidate_debug.get("name", {})
+                                api_item_name_en_us_debug = api_item_name_obj_debug.get("en_US", "N/A").strip()
+                                api_item_id_debug = api_item_data_candidate_debug.get("id", "N/A")
+                                print(f"              Result {i+1}: ID={api_item_id_debug}, API Name='{api_item_name_en_us_debug}'", flush=True)
+                            else:
+                                print(f"              Result {i+1}: Malformed data entry.", flush=True)
+                        # --- End Enhanced Debug Print ---
+                        
                         exact_match_item_data = None
                         for result_entry in search_results_data["results"]:
                             api_item_data_candidate = result_entry.get("data")
@@ -251,27 +261,22 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                                     break 
                         
                         if not exact_match_item_data:
-                            print(f"            WARNING: No EXACT name match found for '{item_name_from_recipe_detail}' in {len(search_results_data.get('results',[]))} API search results. Skipping.", flush=True)
+                            print(f"            WARNING: No EXACT name match found for '{item_name_from_recipe_detail}' in API search results. Skipping.", flush=True)
                             continue
-                        # --- End Exact Name Match Logic ---
                             
                         item_id_from_search = exact_match_item_data.get("id")
-                        if not item_id_from_search: # Should not happen if exact_match_item_data is populated
+                        if not item_id_from_search: 
                             print(f"            ERROR: Exact match found but ID is missing for '{item_name_from_recipe_detail}'. Data: {exact_match_item_data}", flush=True)
                             continue
 
-
                         if item_id_from_search in item_ids_handled_this_profession:
-                            # print(f"          DEBUG: Item ID {item_id_from_search} (found for '{item_name_from_recipe_detail}') already handled in this profession run. Skipping.", flush=True)
                             continue
                         
                         existing_item_in_db = db_session.get(Item, item_id_from_search)
                         if existing_item_in_db and existing_item_in_db.icon_url:
-                            # print(f"          DEBUG: Item ID {item_id_from_search} ('{existing_item_in_db.name}') already in DB with icon. Skipping full fetch.", flush=True)
                             item_ids_handled_this_profession.add(item_id_from_search)
                             continue
                             
-                        # Fetch full item details using the ID obtained from the exact match search
                         name_from_details, quality_from_details, slot_type_from_details, icon_url_from_details = \
                             get_full_item_details_by_id(item_id_from_search, headers, static_params_for_detail)
                         
@@ -293,7 +298,6 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                                 if existing_item_in_db.source_id != data_source_id or existing_item_in_db.source_details != prof_name:
                                     existing_item_in_db.source_id = data_source_id
                                     existing_item_in_db.source_details = prof_name
-                                # Ensure other details are also up-to-date from the direct item fetch
                                 existing_item_in_db.name = name_from_details 
                                 existing_item_in_db.quality = quality_from_details
                                 existing_item_in_db.slot_type = slot_type_from_details
@@ -307,8 +311,6 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                                 items_to_commit_for_this_tier.append(new_item)
                                 total_crafted_items_processed_session += 1
                                 print(f"            Adding NEW crafted item ID {item_id_from_search}: {name_from_details}", flush=True)
-                        # else:
-                            # print(f"            DEBUG: Item ID {item_id_from_search} ('{name_from_details}') did not meet quality/slot criteria. Quality: {quality_from_details}, Slot: {slot_type_from_details}", flush=True)
                 
                 if items_to_commit_for_this_tier: 
                     db_session.add_all(items_to_commit_for_this_tier)
@@ -412,7 +414,6 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
             if not sug_item_name_stripped: continue
 
             found_item_in_db = None
-            # Try finding by ID first if available in SuggestedBiS
             if sug_blizz_id_from_sug_table:
                 found_item_in_db = db_session.get(Item, sug_blizz_id_from_sug_table)
                 if found_item_in_db and not found_item_in_db.icon_url: 
@@ -442,7 +443,7 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
                     search_params = {
                         "namespace": f"static-{REGION}", "locale": "en_US",
                         SEARCH_NAME_LOCALE_KEY: sug_item_name_stripped,
-                        "orderby": "id", "_page": 1, "_pageSize": 5 # Fetch a few to check for exact match
+                        "orderby": "id", "_page": 1, "_pageSize": 5 
                     }
                     search_api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/search/item"
                     search_results_data = make_blizzard_api_request_helper(api_url=search_api_url, params=search_params, headers=headers)
@@ -450,6 +451,19 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
 
                     exact_match_api_data = None
                     if search_results_data and search_results_data.get("results"):
+                        # Enhanced Debug for SuggestedBiS search results
+                        print(f"        DEBUG: Item Search API for '{sug_item_name_stripped}' (SuggestedBiS) returned {len(search_results_data['results'])} result(s):", flush=True)
+                        for i, result_entry_debug in enumerate(search_results_data["results"]):
+                            api_item_data_candidate_debug = result_entry_debug.get("data")
+                            if api_item_data_candidate_debug:
+                                api_item_name_obj_debug = api_item_data_candidate_debug.get("name", {})
+                                api_item_name_en_us_debug = api_item_name_obj_debug.get("en_US", "N/A").strip()
+                                api_item_id_debug = api_item_data_candidate_debug.get("id", "N/A")
+                                print(f"          Result {i+1}: ID={api_item_id_debug}, API Name='{api_item_name_en_us_debug}'", flush=True)
+                            else:
+                                print(f"          Result {i+1}: Malformed data entry.", flush=True)
+                        # End Enhanced Debug
+
                         for result_entry in search_results_data["results"]:
                             api_item_data_candidate = result_entry.get("data")
                             if api_item_data_candidate:
@@ -476,8 +490,6 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
                                 if not db_session.get(Item, item_obj.id):
                                     items_to_add_or_update_in_item_table.append(item_obj)
                                 found_item_in_db = item_obj 
-                    # else:
-                        # print(f"        API Search for '{sug_item_name_stripped}' yielded no exact results.", flush=True)
             
             if found_item_in_db and found_item_in_db.id != sug_blizz_id_from_sug_table :
                 sug_bis_entry_to_update = db_session.get(SuggestedBiS, sug_bis_id)
@@ -488,10 +500,13 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
 
     if items_to_add_or_update_in_item_table:
         print(f"    Adding/Updating {len(items_to_add_or_update_in_item_table)} items in the Item table from integrity check...", flush=True)
-        # Use merge for updates to existing items, add_all for new ones might be safer if list contains mixed.
-        # However, since we fetch existing items and modify them, session.add() should correctly track changes.
         for item_to_proc in items_to_add_or_update_in_item_table:
-            db_session.add(item_to_proc) # Handles both new and updates to detached/re-attached objects
+            # Check if the item (by ID) is already in the session to avoid conflicts before merge/add
+            # This is a bit tricky with detached objects vs new objects.
+            # Safest is to merge if it's an update to an existing DB row, add if it's truly new.
+            # However, session.add() is often smart enough if the object has its PK set and was loaded from session.
+            # For items_to_add_or_update_in_item_table, they are either new or modified loaded objects.
+            db_session.add(item_to_proc) 
     
     try:
         db_session.commit() 
