@@ -185,18 +185,33 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                 time.sleep(0.05)
 
                 if not skill_tier_data or "categories" not in skill_tier_data:
+                    print(f"      No categories found for skill tier '{skill_tier_name}'. Skipping.", flush=True)
                     continue
                 
                 items_to_commit_for_this_tier = []
 
                 for category in skill_tier_data["categories"]:
-                    if "recipes" not in category: continue
+                    category_name = category.get("name", "Unknown Category")
+                    print(f"        Processing Category: {category_name}", flush=True)
+                    if "recipes" not in category or not category["recipes"]:
+                        print(f"          No recipes found in category '{category_name}'.", flush=True)
+                        continue
+                    
+                    # --- Enhanced Debug: Print all recipes in the category ---
+                    print(f"          Found {len(category['recipes'])} recipe references in category '{category_name}':", flush=True)
+                    for rec_idx, rec_ref_debug in enumerate(category["recipes"]):
+                        print(f"            Recipe Ref {rec_idx + 1}: ID={rec_ref_debug.get('id', 'N/A')}, Name='{rec_ref_debug.get('name', 'N/A')}'", flush=True)
+                    # --- End Enhanced Debug ---
+
                     for recipe_ref in category["recipes"]:
                         recipe_id_from_ref = recipe_ref.get("id")
                         recipe_name_from_ref = recipe_ref.get("name", f"Recipe ID {recipe_id_from_ref}") 
                         
-                        if not recipe_id_from_ref: continue
+                        if not recipe_id_from_ref: 
+                            print(f"          Skipping recipe ref with no ID: {recipe_ref}", flush=True)
+                            continue
 
+                        # print(f"          Fetching details for Recipe ID {recipe_id_from_ref} ('{recipe_name_from_ref}')", flush=True) # More verbose if needed
                         recipe_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/recipe/{recipe_id_from_ref}"
                         recipe_data = make_blizzard_api_request_helper(api_url=recipe_detail_url, params=static_params_for_detail, headers=headers)
                         time.sleep(0.05)
@@ -210,10 +225,12 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                                            recipe_data.get("horde_crafted_item")
                         
                         if not crafted_item_info or "name" not in crafted_item_info:
+                            # print(f"          DEBUG: Recipe {recipe_id_from_ref} ('{recipe_name_from_ref}') - no crafted_item or name. Skipping.", flush=True)
                             continue
                         
                         item_name_from_recipe_detail = crafted_item_info.get("name")
                         if not item_name_from_recipe_detail:
+                            # print(f"          DEBUG: Recipe {recipe_id_from_ref} ('{recipe_name_from_ref}') - crafted item name is empty. Skipping.", flush=True)
                             continue
 
                         print(f"          Recipe '{recipe_name_from_ref}' (ID {recipe_id_from_ref}) -> Item Name: '{item_name_from_recipe_detail}'", flush=True)
@@ -227,31 +244,30 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                             "_pageSize": 5 
                         }
                         search_api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/search/item"
-                        print(f"            Searching API for exact name: '{item_name_from_recipe_detail}'", flush=True)
+                        # print(f"            Searching API for exact name: '{item_name_from_recipe_detail}'", flush=True) # Already printed above
                         search_results_data = make_blizzard_api_request_helper(api_url=search_api_url, params=search_params, headers=headers)
                         time.sleep(0.05)
-
-                        # --- Print Raw API Search Response ---
-                        if search_results_data:
-                            print(f"            RAW API SEARCH RESPONSE for '{item_name_from_recipe_detail}':\n{json.dumps(search_results_data, indent=2)}", flush=True)
-                        else:
+                        
+                        if search_results_data and search_results_data.get("results"):
+                            print(f"            DEBUG: Item Search API for '{item_name_from_recipe_detail}' returned {len(search_results_data['results'])} result(s) before exact match filtering:", flush=True)
+                            for i, result_entry_debug in enumerate(search_results_data["results"]):
+                                api_item_data_candidate_debug = result_entry_debug.get("data")
+                                if api_item_data_candidate_debug:
+                                    api_item_name_obj_debug = api_item_data_candidate_debug.get("name", {})
+                                    api_item_name_en_us_debug = api_item_name_obj_debug.get("en_US", "N/A").strip()
+                                    api_item_id_debug = api_item_data_candidate_debug.get("id", "N/A")
+                                    print(f"              Result {i+1}: ID={api_item_id_debug}, API Name='{api_item_name_en_us_debug}'", flush=True)
+                                else:
+                                    print(f"              Result {i+1}: Malformed data entry.", flush=True)
+                        elif search_results_data: # Results key exists but is empty or null
+                             print(f"            RAW API SEARCH RESPONSE for '{item_name_from_recipe_detail}': {json.dumps(search_results_data, indent=2)}", flush=True)
+                        else: # search_results_data itself is None
                             print(f"            RAW API SEARCH RESPONSE for '{item_name_from_recipe_detail}': None", flush=True)
-                        # --- End Print Raw API Search Response ---
+
 
                         if not search_results_data or not search_results_data.get("results"):
                             print(f"            WARNING: Item Search API returned no results for name '{item_name_from_recipe_detail}'. Skipping.", flush=True)
                             continue
-                        
-                        print(f"            DEBUG: Item Search API for '{item_name_from_recipe_detail}' returned {len(search_results_data['results'])} result(s) before exact match filtering:", flush=True)
-                        for i, result_entry_debug in enumerate(search_results_data["results"]):
-                            api_item_data_candidate_debug = result_entry_debug.get("data")
-                            if api_item_data_candidate_debug:
-                                api_item_name_obj_debug = api_item_data_candidate_debug.get("name", {})
-                                api_item_name_en_us_debug = api_item_name_obj_debug.get("en_US", "N/A").strip()
-                                api_item_id_debug = api_item_data_candidate_debug.get("id", "N/A")
-                                print(f"              Result {i+1}: ID={api_item_id_debug}, API Name='{api_item_name_en_us_debug}'", flush=True)
-                            else:
-                                print(f"              Result {i+1}: Malformed data entry.", flush=True)
                         
                         exact_match_item_data = None
                         for result_entry in search_results_data["results"]:
