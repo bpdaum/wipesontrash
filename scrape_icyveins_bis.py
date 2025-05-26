@@ -116,7 +116,7 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Shoulder": "SHOULDER", "Shoulders": "SHOULDER",
     "Back": "BACK", "Cloak": "BACK", 
     "Chest": "CHEST", 
-    "Wrist": "WRIST", "Bracers": "WRIST", "Wrists": "WRIST", # Added Wrists
+    "Wrist": "WRIST", "Bracers": "WRIST", "Wrists": "WRIST", 
     "Hands": "HANDS", "Gloves": "HANDS", 
     "Waist": "WAIST", "Belt": "WAIST",
     "Legs": "LEGS", 
@@ -126,11 +126,11 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Ring": "FINGER1", 
     "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1", "Trinket #1": "TRINKET1", 
     "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2", "Trinket #2": "TRINKET2", 
-    "Trinket": "TRINKET1", "Trinkets": "TRINKET1", # Added Trinkets
-    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", 
-    "One-Hand": "MAIN_HAND", "One-Handed Weapon": "MAIN_HAND", "1H Weapon": "MAIN_HAND", # Added One-Handed Weapon, 1H Weapon
-    "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND", "Two-Handed Weapon": "MAIN_HAND", # Added Two-Handed Weapon
-    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", "Offhand": "OFF_HAND", # Added Offhand
+    "Trinket": "TRINKET1", "Trinkets": "TRINKET1", 
+    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", "Weapon Main-Hand": "MAIN_HAND", # Added Weapon Main-Hand
+    "One-Hand": "MAIN_HAND", "One-Handed Weapon": "MAIN_HAND", "1H Weapon": "MAIN_HAND", 
+    "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND", "Two-Handed Weapon": "MAIN_HAND", 
+    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", "Offhand": "OFF_HAND", "Weapon Off-Hand": "OFF_HAND", # Added Weapon Off-Hand
     "Shield": "OFF_HAND",
     "Dagger": "MAIN_HAND", "Fist Weapon": "MAIN_HAND", "Mace": "MAIN_HAND", "Sword": "MAIN_HAND",
     "Polearm": "MAIN_HAND", "Staff": "MAIN_HAND", "Axe": "MAIN_HAND",
