@@ -197,11 +197,9 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                         print(f"          No recipes found in category '{category_name}'.", flush=True)
                         continue
                     
-                    # --- Enhanced Debug: Print all recipes in the category ---
                     print(f"          Found {len(category['recipes'])} recipe references in category '{category_name}':", flush=True)
                     for rec_idx, rec_ref_debug in enumerate(category["recipes"]):
                         print(f"            Recipe Ref {rec_idx + 1}: ID={rec_ref_debug.get('id', 'N/A')}, Name='{rec_ref_debug.get('name', 'N/A')}'", flush=True)
-                    # --- End Enhanced Debug ---
 
                     for recipe_ref in category["recipes"]:
                         recipe_id_from_ref = recipe_ref.get("id")
@@ -211,7 +209,6 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                             print(f"          Skipping recipe ref with no ID: {recipe_ref}", flush=True)
                             continue
 
-                        # print(f"          Fetching details for Recipe ID {recipe_id_from_ref} ('{recipe_name_from_ref}')", flush=True) # More verbose if needed
                         recipe_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/recipe/{recipe_id_from_ref}"
                         recipe_data = make_blizzard_api_request_helper(api_url=recipe_detail_url, params=static_params_for_detail, headers=headers)
                         time.sleep(0.05)
@@ -225,12 +222,10 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                                            recipe_data.get("horde_crafted_item")
                         
                         if not crafted_item_info or "name" not in crafted_item_info:
-                            # print(f"          DEBUG: Recipe {recipe_id_from_ref} ('{recipe_name_from_ref}') - no crafted_item or name. Skipping.", flush=True)
                             continue
                         
                         item_name_from_recipe_detail = crafted_item_info.get("name")
                         if not item_name_from_recipe_detail:
-                            # print(f"          DEBUG: Recipe {recipe_id_from_ref} ('{recipe_name_from_ref}') - crafted item name is empty. Skipping.", flush=True)
                             continue
 
                         print(f"          Recipe '{recipe_name_from_ref}' (ID {recipe_id_from_ref}) -> Item Name: '{item_name_from_recipe_detail}'", flush=True)
@@ -244,98 +239,99 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                             "_pageSize": 5 
                         }
                         search_api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/search/item"
-                        # print(f"            Searching API for exact name: '{item_name_from_recipe_detail}'", flush=True) # Already printed above
                         search_results_data = make_blizzard_api_request_helper(api_url=search_api_url, params=search_params, headers=headers)
                         time.sleep(0.05)
                         
-                        if search_results_data and search_results_data.get("results"):
-                            print(f"            DEBUG: Item Search API for '{item_name_from_recipe_detail}' returned {len(search_results_data['results'])} result(s) before exact match filtering:", flush=True)
-                            for i, result_entry_debug in enumerate(search_results_data["results"]):
-                                api_item_data_candidate_debug = result_entry_debug.get("data")
-                                if api_item_data_candidate_debug:
-                                    api_item_name_obj_debug = api_item_data_candidate_debug.get("name", {})
-                                    api_item_name_en_us_debug = api_item_name_obj_debug.get("en_US", "N/A").strip()
-                                    api_item_id_debug = api_item_data_candidate_debug.get("id", "N/A")
-                                    print(f"              Result {i+1}: ID={api_item_id_debug}, API Name='{api_item_name_en_us_debug}'", flush=True)
-                                else:
-                                    print(f"              Result {i+1}: Malformed data entry.", flush=True)
-                        elif search_results_data: # Results key exists but is empty or null
-                             print(f"            RAW API SEARCH RESPONSE for '{item_name_from_recipe_detail}': {json.dumps(search_results_data, indent=2)}", flush=True)
-                        else: # search_results_data itself is None
+                        if search_results_data:
+                            print(f"            RAW API SEARCH RESPONSE for '{item_name_from_recipe_detail}':\n{json.dumps(search_results_data, indent=2)}", flush=True)
+                        else:
                             print(f"            RAW API SEARCH RESPONSE for '{item_name_from_recipe_detail}': None", flush=True)
-
 
                         if not search_results_data or not search_results_data.get("results"):
                             print(f"            WARNING: Item Search API returned no results for name '{item_name_from_recipe_detail}'. Skipping.", flush=True)
                             continue
                         
-                        exact_match_item_data = None
+                        # Iterate through ALL search results, not just the first exact match
                         for result_entry in search_results_data["results"]:
                             api_item_data_candidate = result_entry.get("data")
-                            if api_item_data_candidate:
-                                api_item_name_obj = api_item_data_candidate.get("name", {})
-                                api_item_name_en_us = api_item_name_obj.get("en_US", "").strip()
-                                
-                                if api_item_name_en_us.lower() == item_name_from_recipe_detail.strip().lower():
-                                    exact_match_item_data = api_item_data_candidate
-                                    print(f"            SUCCESS: Exact name match found for '{item_name_from_recipe_detail}' -> API Name: '{api_item_name_en_us}', ID: {exact_match_item_data.get('id')}", flush=True)
-                                    break 
-                        
-                        if not exact_match_item_data:
-                            print(f"            WARNING: No EXACT name match found for '{item_name_from_recipe_detail}' in API search results. Skipping.", flush=True)
-                            continue
-                            
-                        item_id_from_search = exact_match_item_data.get("id")
-                        if not item_id_from_search: 
-                            print(f"            ERROR: Exact match found but ID is missing for '{item_name_from_recipe_detail}'. Data: {exact_match_item_data}", flush=True)
-                            continue
-
-                        if item_id_from_search in item_ids_handled_this_profession:
-                            continue
-                        
-                        existing_item_in_db = db_session.get(Item, item_id_from_search)
-                        if existing_item_in_db and existing_item_in_db.icon_url:
-                            item_ids_handled_this_profession.add(item_id_from_search)
-                            continue
-                            
-                        name_from_details, quality_from_details, slot_type_from_details, icon_url_from_details = \
-                            get_full_item_details_by_id(item_id_from_search, headers, static_params_for_detail)
-                        
-                        item_ids_handled_this_profession.add(item_id_from_search) 
-
-                        if not name_from_details or not slot_type_from_details:
-                            print(f"            WARNING: Failed to get full details (name/slot) for item ID {item_id_from_search} ('{item_name_from_recipe_detail}'). Skipping.", flush=True)
-                            continue
-
-                        if quality_from_details in TARGET_ITEM_QUALITIES and slot_type_from_details in EQUIPPABLE_GEAR_SLOT_CATEGORIES:
-                            if slot_type_from_details not in existing_playable_slot_types_set:
-                                print(f"            CRITICAL: API slot '{slot_type_from_details}' for crafted item '{name_from_details}' (ID:{item_id_from_search}) missing in PlayableSlot table.", flush=True)
+                            if not api_item_data_candidate:
+                                print(f"            DEBUG: Malformed result entry in search for '{item_name_from_recipe_detail}'. Entry: {result_entry}", flush=True)
                                 continue
 
-                            if existing_item_in_db: 
-                                print(f"            Found existing item in DB for ID {item_id_from_search} ('{existing_item_in_db.name}'). Updating if needed.", flush=True)
-                                if icon_url_from_details and not existing_item_in_db.icon_url:
-                                    existing_item_in_db.icon_url = icon_url_from_details
-                                if existing_item_in_db.source_id != data_source_id or existing_item_in_db.source_details != prof_name:
-                                    existing_item_in_db.source_id = data_source_id
-                                    existing_item_in_db.source_details = prof_name
-                                existing_item_in_db.name = name_from_details 
-                                existing_item_in_db.quality = quality_from_details
-                                existing_item_in_db.slot_type = slot_type_from_details
-                                db_session.add(existing_item_in_db) 
-                                total_crafted_items_processed_session +=1
-                                print(f"            Updating existing crafted item ID {item_id_from_search}: {name_from_details}", flush=True)
-                            else: 
-                                new_item = Item(id=item_id_from_search, name=name_from_details, quality=quality_from_details, 
-                                                 slot_type=slot_type_from_details, source_id=data_source_id, 
-                                                 source_details=prof_name, icon_url=icon_url_from_details)
-                                items_to_commit_for_this_tier.append(new_item)
-                                total_crafted_items_processed_session += 1
-                                print(f"            Adding NEW crafted item ID {item_id_from_search}: {name_from_details}", flush=True)
+                            item_id_from_search = api_item_data_candidate.get("id")
+                            api_item_name_obj = api_item_data_candidate.get("name", {})
+                            api_item_name_en_us = api_item_name_obj.get("en_US", "").strip()
+                            
+                            print(f"            Processing Search Result: ID={item_id_from_search}, API Name='{api_item_name_en_us}' (Target Recipe Name: '{item_name_from_recipe_detail}')", flush=True)
+
+                            if not item_id_from_search: 
+                                print(f"            ERROR: Search result for '{item_name_from_recipe_detail}' is missing ID. Data: {api_item_data_candidate}", flush=True)
+                                continue # Skip this specific search result
+
+                            if item_id_from_search in item_ids_handled_this_profession:
+                                print(f"            DEBUG: Item ID {item_id_from_search} (API Name: '{api_item_name_en_us}') already handled in this profession run. Skipping.", flush=True)
+                                continue
+                            
+                            existing_item_in_db = db_session.get(Item, item_id_from_search)
+                            if existing_item_in_db and existing_item_in_db.icon_url:
+                                print(f"            DEBUG: Item ID {item_id_from_search} ('{existing_item_in_db.name}') already in DB with icon. Skipping full fetch.", flush=True)
+                                item_ids_handled_this_profession.add(item_id_from_search)
+                                continue
+                                
+                            print(f"            Fetching full details for Item ID {item_id_from_search} (API Name: '{api_item_name_en_us}')", flush=True)
+                            name_from_details, quality_from_details, slot_type_from_details, icon_url_from_details = \
+                                get_full_item_details_by_id(item_id_from_search, headers, static_params_for_detail)
+                            
+                            item_ids_handled_this_profession.add(item_id_from_search) 
+
+                            if not name_from_details or not slot_type_from_details:
+                                print(f"            WARNING: Failed to get full details (name/slot) for item ID {item_id_from_search} (API Name: '{api_item_name_en_us}'). Skipping.", flush=True)
+                                continue
+                            
+                            print(f"              Details Fetched: Name='{name_from_details}', Quality='{quality_from_details}', Slot='{slot_type_from_details}'", flush=True)
+
+                            is_quality_ok = quality_from_details in TARGET_ITEM_QUALITIES
+                            is_slot_equippable = slot_type_from_details in EQUIPPABLE_GEAR_SLOT_CATEGORIES
+                            is_slot_type_valid_in_db = slot_type_from_details in existing_playable_slot_types_set
+
+                            print(f"              Checks: Quality OK? {is_quality_ok}, Slot Equippable? {is_slot_equippable}, Slot Type in DB? {is_slot_type_valid_in_db}", flush=True)
+
+                            if is_quality_ok and is_slot_equippable:
+                                if not is_slot_type_valid_in_db:
+                                    print(f"            CRITICAL: API slot '{slot_type_from_details}' for crafted item '{name_from_details}' (ID:{item_id_from_search}) missing in PlayableSlot table.", flush=True)
+                                    continue
+
+                                if existing_item_in_db: 
+                                    print(f"            Found existing item in DB for ID {item_id_from_search} ('{existing_item_in_db.name}'). Updating if needed.", flush=True)
+                                    updated_existing = False
+                                    if icon_url_from_details and not existing_item_in_db.icon_url:
+                                        existing_item_in_db.icon_url = icon_url_from_details
+                                        updated_existing = True
+                                    if existing_item_in_db.source_id != data_source_id or existing_item_in_db.source_details != prof_name:
+                                        existing_item_in_db.source_id = data_source_id
+                                        existing_item_in_db.source_details = prof_name
+                                        updated_existing = True
+                                    if existing_item_in_db.name != name_from_details : existing_item_in_db.name = name_from_details; updated_existing = True
+                                    if existing_item_in_db.quality != quality_from_details : existing_item_in_db.quality = quality_from_details; updated_existing = True
+                                    if existing_item_in_db.slot_type != slot_type_from_details : existing_item_in_db.slot_type = slot_type_from_details; updated_existing = True
+                                    
+                                    if updated_existing:
+                                        db_session.add(existing_item_in_db) 
+                                        total_crafted_items_processed_session +=1 # Count as processed if updated
+                                        print(f"            Updating existing crafted item ID {item_id_from_search}: {name_from_details}", flush=True)
+                                else: 
+                                    new_item = Item(id=item_id_from_search, name=name_from_details, quality=quality_from_details, 
+                                                     slot_type=slot_type_from_details, source_id=data_source_id, 
+                                                     source_details=prof_name, icon_url=icon_url_from_details)
+                                    items_to_commit_for_this_tier.append(new_item)
+                                    total_crafted_items_processed_session += 1
+                                    print(f"            Adding NEW crafted item ID {item_id_from_search}: {name_from_details}", flush=True)
+                            else:
+                                print(f"            DEBUG: Item ID {item_id_from_search} ('{name_from_details}') did not meet quality/slot criteria. Quality: {quality_from_details}, Slot: {slot_type_from_details}", flush=True)
                 
                 if items_to_commit_for_this_tier: 
                     db_session.add_all(items_to_commit_for_this_tier)
-                    print(f"      Queued {len(items_to_commit_for_this_tier)} new items from skill tier '{skill_tier_name}' for commit.", flush=True)
+                    # print(f"      Queued {len(items_to_commit_for_this_tier)} new items from skill tier '{skill_tier_name}' for commit.", flush=True) # Less verbose
             
             try: 
                 db_session.commit() 
@@ -370,7 +366,7 @@ def fetch_and_store_single_item_from_api(db_session, item_id_to_fetch, existing_
         print(f"    CRITICAL WARNING: API slot type '{slot_type_from_details}' for item ID {item_id_to_fetch} ('{name_from_details}') is not defined in PlayableSlot table. Item cannot be added.", flush=True)
         return None 
 
-    print(f"    SUCCESS: Prepared details for item ID {item_id_to_fetch}: '{name_from_details}', Quality: {quality_from_details}, Slot: {slot_type_from_details}, Icon: {'Yes' if icon_url_from_details else 'No'}", flush=True)
+    # print(f"    SUCCESS: Prepared details for item ID {item_id_to_fetch}: '{name_from_details}', Quality: {quality_from_details}, Slot: {slot_type_from_details}, Icon: {'Yes' if icon_url_from_details else 'No'}", flush=True)
     
     new_item = Item(
         id=item_id_to_fetch,
@@ -460,7 +456,7 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
                             found_item_in_db.icon_url = icon_url
                             items_to_add_or_update_in_item_table.append(found_item_in_db)
                 else:
-                    print(f"      Item '{sug_item_name_stripped}' not in DB by ID or Name. Searching Blizzard API...", flush=True)
+                    # print(f"      Item '{sug_item_name_stripped}' not in DB by ID or Name. Searching Blizzard API...", flush=True) # Less verbose
                     search_params = {
                         "namespace": f"static-{REGION}", "locale": "en_US",
                         SEARCH_NAME_LOCALE_KEY: sug_item_name_stripped,
@@ -472,18 +468,16 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
 
                     exact_match_api_data = None
                     if search_results_data and search_results_data.get("results"):
-                        # Enhanced Debug for SuggestedBiS search results
-                        print(f"        DEBUG: Item Search API for '{sug_item_name_stripped}' (SuggestedBiS) returned {len(search_results_data['results'])} result(s):", flush=True)
-                        for i, result_entry_debug in enumerate(search_results_data["results"]):
-                            api_item_data_candidate_debug = result_entry_debug.get("data")
-                            if api_item_data_candidate_debug:
-                                api_item_name_obj_debug = api_item_data_candidate_debug.get("name", {})
-                                api_item_name_en_us_debug = api_item_name_obj_debug.get("en_US", "N/A").strip()
-                                api_item_id_debug = api_item_data_candidate_debug.get("id", "N/A")
-                                print(f"          Result {i+1}: ID={api_item_id_debug}, API Name='{api_item_name_en_us_debug}'", flush=True)
-                            else:
-                                print(f"          Result {i+1}: Malformed data entry.", flush=True)
-                        # End Enhanced Debug
+                        # print(f"        DEBUG: Item Search API for '{sug_item_name_stripped}' (SuggestedBiS) returned {len(search_results_data['results'])} result(s):", flush=True)
+                        # for i, result_entry_debug in enumerate(search_results_data["results"]):
+                        #     api_item_data_candidate_debug = result_entry_debug.get("data")
+                        #     if api_item_data_candidate_debug:
+                        #         api_item_name_obj_debug = api_item_data_candidate_debug.get("name", {})
+                        #         api_item_name_en_us_debug = api_item_name_obj_debug.get("en_US", "N/A").strip()
+                        #         api_item_id_debug = api_item_data_candidate_debug.get("id", "N/A")
+                        #         print(f"          Result {i+1}: ID={api_item_id_debug}, API Name='{api_item_name_en_us_debug}'", flush=True)
+                        #     else:
+                        #         print(f"          Result {i+1}: Malformed data entry.", flush=True)
 
                         for result_entry in search_results_data["results"]:
                             api_item_data_candidate = result_entry.get("data")
@@ -492,7 +486,7 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
                                 api_item_name_en_us = api_item_name_obj.get("en_US", "").strip()
                                 if api_item_name_en_us.lower() == sug_item_name_stripped.lower():
                                     exact_match_api_data = api_item_data_candidate
-                                    print(f"        EXACT MATCH FOUND via API Search for '{sug_item_name_stripped}' -> API Name: '{api_item_name_en_us}', ID: {exact_match_api_data.get('id')}", flush=True)
+                                    # print(f"        EXACT MATCH FOUND via API Search for '{sug_item_name_stripped}' -> API Name: '{api_item_name_en_us}', ID: {exact_match_api_data.get('id')}", flush=True)
                                     break
                     
                     if exact_match_api_data:
@@ -515,7 +509,7 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
             if found_item_in_db and found_item_in_db.id != sug_blizz_id_from_sug_table :
                 sug_bis_entry_to_update = db_session.get(SuggestedBiS, sug_bis_id)
                 if sug_bis_entry_to_update:
-                    print(f"      Updating SuggestedBiS entry for '{sug_item_name_stripped}' with correct Blizzard ID: {found_item_in_db.id} (was {sug_blizz_id_from_sug_table})", flush=True)
+                    # print(f"      Updating SuggestedBiS entry for '{sug_item_name_stripped}' with correct Blizzard ID: {found_item_in_db.id} (was {sug_blizz_id_from_sug_table})", flush=True)
                     sug_bis_entry_to_update.blizzard_item_id = found_item_in_db.id
                     db_session.add(sug_bis_entry_to_update) 
 
