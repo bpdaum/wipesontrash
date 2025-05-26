@@ -127,10 +127,10 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1", "Trinket #1": "TRINKET1", 
     "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2", "Trinket #2": "TRINKET2", 
     "Trinket": "TRINKET1", "Trinkets": "TRINKET1", 
-    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", "Weapon Main-Hand": "MAIN_HAND", # Added Weapon Main-Hand
+    "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", "Weapon Main-Hand": "MAIN_HAND", 
     "One-Hand": "MAIN_HAND", "One-Handed Weapon": "MAIN_HAND", "1H Weapon": "MAIN_HAND", 
-    "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND", "Two-Handed Weapon": "MAIN_HAND", 
-    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", "Offhand": "OFF_HAND", "Weapon Off-Hand": "OFF_HAND", # Added Weapon Off-Hand
+    "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND", "Two-Handed Weapon": "MAIN_HAND", "Weapon (Two-Hand)": "MAIN_HAND", # Added Weapon (Two-Hand)
+    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", "Offhand": "OFF_HAND", "Weapon Off-Hand": "OFF_HAND", 
     "Shield": "OFF_HAND",
     "Dagger": "MAIN_HAND", "Fist Weapon": "MAIN_HAND", "Mace": "MAIN_HAND", "Sword": "MAIN_HAND",
     "Polearm": "MAIN_HAND", "Staff": "MAIN_HAND", "Axe": "MAIN_HAND",
