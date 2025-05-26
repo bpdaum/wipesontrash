@@ -19,7 +19,8 @@ BLIZZARD_API_BASE_URL = f"https://{REGION}.api.blizzard.com"
 
 # --- Import from helper_functions ---
 try:
-    from helper_functions import get_blizzard_access_token, make_api_request as make_blizzard_api_request_helper # Renamed to avoid conflict
+    # Renamed to avoid conflict if make_api_request is defined locally
+    from helper_functions import get_blizzard_access_token, make_api_request as make_blizzard_api_request_helper 
 except ImportError:
     print("Error: helper_functions.py or expected variables not found.", flush=True)
     exit(1)
@@ -65,7 +66,6 @@ class PlayableSlot(Base):
     name = Column(String(100), nullable=False) 
     display_order = Column(Integer, default=0) 
     items = relationship("Item", back_populates="slot", cascade="all, delete-orphan")
-    # Relationship for CharacterBiS referencing PlayableSlot via slot_type_ui
     bis_selections = relationship("CharacterBiS", back_populates="slot", foreign_keys="[CharacterBiS.slot_type_ui]")
     def __repr__(self): return f'<PlayableSlot Name: {self.name} Type:({self.type})>'
 
@@ -83,12 +83,12 @@ class Item(Base):
     name = Column(String(255), nullable=False, index=True)
     quality = Column(String(20)) 
     icon_url = Column(String(512), nullable=True)
-    slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) # API inventory_type.type
+    slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) 
     
     slot = relationship("PlayableSlot", back_populates="items")
-    source_id = Column(Integer, ForeignKey('data_source.id'), nullable=True, index=True) # Can be null if item added ad-hoc
+    source_id = Column(Integer, ForeignKey('data_source.id'), nullable=True, index=True) 
     source = relationship("DataSource", back_populates="items")
-    source_details = Column(String(255), nullable=True) # Can be null
+    source_details = Column(String(255), nullable=True) 
     
     bis_selections = relationship("CharacterBiS", back_populates="item", cascade="all, delete-orphan")
     def __repr__(self): return f'<Item {self.name} (ID: {self.id})>'
@@ -99,9 +99,8 @@ class Character(Base):
     name = Column(String(100), nullable=False) 
     realm_slug = Column(String(100), nullable=False) 
     class_id = Column(Integer, ForeignKey('playable_class.id')) 
-    is_active = Column(Boolean, default=True, nullable=False, index=True) # Added for completeness of schema
+    is_active = Column(Boolean, default=True, nullable=False, index=True) 
 
-    # Other fields from app.py for schema completeness if create_all is used here
     level = Column(Integer, nullable=True)
     class_name = Column(String(50), nullable=True)
     spec_name = Column(String(50), nullable=True)
@@ -128,7 +127,6 @@ class CharacterBiS(Base):
     last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     character = relationship("Character", back_populates="bis_selections")
-    # Correctly reference PlayableSlot via slot_type_ui
     slot = relationship("PlayableSlot", foreign_keys=[slot_type_ui], back_populates="bis_selections") 
     item = relationship("Item", back_populates="bis_selections")
     
@@ -166,7 +164,6 @@ def populate_playable_slots(db_session):
         {"type": "HOLDABLE", "name": "Holdable (API - Off-hand)", "display_order": 18},
         {"type": "RANGEDRIGHT", "name": "Ranged Weapon (API - RANGEDRIGHT)", "display_order": 17},
         {"type": "RANGED", "name": "Ranged (API - Generic Equipment Slot)", "display_order": 17},
-        # UI Specific Slots (ensure these types are what your UI uses for CharacterBiS.slot_type_ui)
         {"type": "FINGER1", "name": "Finger 1 (UI)", "display_order": 13}, 
         {"type": "FINGER2", "name": "Finger 2 (UI)", "display_order": 14}, 
         {"type": "TRINKET1", "name": "Trinket 1 (UI)", "display_order": 15}, 
@@ -192,8 +189,8 @@ def populate_data_sources(db_session):
     sources_data = [
         {"name": "Liberation of Undermine", "type": "Raid"},
         {"name": "Mythic+ Dungeons - TWW S1", "type": "Dungeon"}, 
-        {"name": "Crafting - TWW S1", "type": "Crafting"},
-        {"name": "Manually Added via BiS Check", "type": "System"} # For items added by the new function
+        {"name": "Crafting - TWW S1", "type": "Crafting"}, # Still define it here for other scripts
+        {"name": "Manually Added via BiS Check", "type": "System"} # Still define it here
     ]
     for source_data in sources_data:
         source = db_session.query(DataSource).filter_by(name=source_data["name"]).first()
@@ -381,7 +378,7 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
         print(f"  Loot for encounter: {enc_name} (ID: {enc_id})", flush=True)
         
         items_to_parse = encounter_ref.get("items")
-        if not items_to_parse: # If not, fetch the detailed encounter data
+        if not items_to_parse: 
             enc_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/journal-encounter/{enc_id}"
             enc_detail_data = make_blizzard_api_request_helper(api_url=enc_detail_url, params=static_params, headers=headers)
             if not enc_detail_data or "items" not in enc_detail_data:
@@ -395,38 +392,31 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
         
         print(f"    Found {len(items_to_parse)} potential item entries for {enc_name}.", flush=True)
         
-        # Set to track item IDs already processed or added in this encounter's batch
         item_ids_already_handled_in_this_encounter = set()
         items_to_commit_for_this_encounter = []
-
 
         for item_entry_index, item_entry in enumerate(items_to_parse):
             item_ref = item_entry.get("item")
             if not item_ref or "id" not in item_ref: 
-                # print(f"      DEBUG: Item Entry {item_entry_index} for {enc_name}: Skipping, no item_ref or id. Entry: {item_entry}", flush=True)
                 continue
             item_id = item_ref["id"]
             
             if item_id in item_ids_already_handled_in_this_encounter:
-                # print(f"      DEBUG: Item ID {item_id} already handled in this encounter's batch. Skipping.", flush=True)
                 continue
             
-            # print(f"      DEBUG: Item Entry {item_entry_index} for {enc_name}: Processing item_id: {item_id}", flush=True)
-            existing_item = db_session.get(Item, item_id) # Check if item exists in DB
+            existing_item = db_session.get(Item, item_id) 
             
             if existing_item and existing_item.icon_url: 
-                # print(f"      DEBUG: Item {item_id} ('{existing_item.name}') exists with icon, skipping further API calls for it.", flush=True)
-                item_ids_already_handled_in_this_encounter.add(item_id) # Mark as handled
+                item_ids_already_handled_in_this_encounter.add(item_id) 
                 continue 
 
-            # If item doesn't exist, or exists but lacks an icon, fetch details from API
             item_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id}"
             item_data = make_blizzard_api_request_helper(api_url=item_detail_url, params=static_params, headers=headers)
-            time.sleep(0.05) # API call delay
+            time.sleep(0.05) 
 
             if not item_data: 
                 print(f"    WARNING: Failed to fetch details for item ID {item_id}. URL: {item_detail_url}", flush=True)
-                item_ids_already_handled_in_this_encounter.add(item_id) # Mark as handled to avoid re-fetch attempt
+                item_ids_already_handled_in_this_encounter.add(item_id) 
                 continue
 
             item_name = item_data.get("name")
@@ -434,358 +424,52 @@ def fetch_and_store_source_items(db_session, source_name_friendly, source_journa
             item_quality = item_quality_data.get("name", "Unknown").upper() if isinstance(item_quality_data, dict) else "Unknown"
             api_slot_type = item_data.get("inventory_type", {}).get("type") 
             
-            # print(f"      FETCHED Item {item_id} - Name: '{item_name}', Quality: '{item_quality}', API Slot: '{api_slot_type}'", flush=True)
-
             fetched_icon_url = None 
             media_href = item_data.get("media", {}).get("key", {}).get("href")
             if media_href:
                 media_data = make_blizzard_api_request_helper(api_url=media_href, params=static_params, headers=headers)
-                time.sleep(0.05) # API call delay
+                time.sleep(0.05) 
                 if media_data and "assets" in media_data:
                     for asset in media_data["assets"]:
                         if asset.get("key") == "icon": fetched_icon_url = asset.get("value"); break
             
-            item_ids_already_handled_in_this_encounter.add(item_id) # Mark as handled
+            item_ids_already_handled_in_this_encounter.add(item_id) 
 
             if item_name and item_quality in ["EPIC", "RARE"] and api_slot_type and api_slot_type != "NON_EQUIP": 
-                # print(f"      QUALIFIED Item {item_id} ('{item_name}') for DB (Quality: {item_quality}, Slot: {api_slot_type}).", flush=True)
                 if not db_session.query(PlayableSlot).filter_by(type=api_slot_type).first():
                     print(f"CRITICAL: API slot '{api_slot_type}' for item '{item_name}' (ID:{item_id}) missing in PlayableSlot. Add to populate_playable_slots().", flush=True)
                     continue
 
-                if existing_item: # Item exists in DB, needs icon update
+                if existing_item: 
                     if fetched_icon_url and not existing_item.icon_url : 
                         existing_item.icon_url = fetched_icon_url
-                        # existing_item is already part of the session, changes will be picked up.
-                        # No need to add to items_to_commit_for_this_encounter unless it wasn't dirty.
-                        # For safety, ensure it's managed:
                         db_session.add(existing_item) 
                         print(f"    Updating icon for existing item ID {item_id}: {item_name}", flush=True)
                         items_processed_this_source +=1 
-                else: # Item does not exist in DB, create new
-                    # print(f"    Adding new item ID {item_id}: {item_name} (Slot: {api_slot_type}, Icon: {'Yes' if fetched_icon_url else 'No'})", flush=True)
+                else: 
                     new_item_instance = Item(id=item_id, name=item_name, quality=item_quality, slot_type=api_slot_type,
                                      source_id=data_source_id, source_details=f"{source_name_friendly} - {enc_name}",
                                      icon_url=fetched_icon_url)
                     items_to_commit_for_this_encounter.append(new_item_instance)
                     items_processed_this_source += 1
-            # else:
-                # print(f"      SKIPPED Item {item_id} ('{item_name}'). Criteria Check -> Name: {bool(item_name)}, Quality EPIC/RARE: {item_quality in ['EPIC', 'RARE']}, Slot Valid: {bool(api_slot_type and api_slot_type != 'NON_EQUIP')}", flush=True)
         
-        # After processing all items for the current encounter
         if items_to_commit_for_this_encounter:
             db_session.add_all(items_to_commit_for_this_encounter)
-            # print(f"    Queued {len(items_to_commit_for_this_encounter)} new items for encounter '{enc_name}' for commit.", flush=True)
 
         try: 
-            db_session.commit() # Commit changes for this encounter (new items and updates to existing)
-            # print(f"    Committed changes for encounter '{enc_name}'.", flush=True)
-        except IntegrityError as ie: # Catch unique constraint violations specifically
+            db_session.commit() 
+        except IntegrityError as ie: 
             db_session.rollback()
             print(f"    DB Integrity Error for encounter {enc_name}: {ie}. This might happen if an item was already added by another process or if API data has unexpected duplicates not caught by the per-encounter set.", flush=True)
         except Exception as e: 
             db_session.rollback()
             print(f"    Error committing items for encounter {enc_name}: {e}", flush=True)
         
-        # time.sleep(0.1) # Small delay between encounters if needed
-
     print(f"Finished {source_name_friendly}. Total items processed (added or icon updated): {items_processed_this_source}", flush=True)
-
-
-def fetch_and_store_crafted_items(db_session, data_source_id):
-    print("\n--- Processing Crafted Items (Scoped to 'Khaz Algar') ---", flush=True)
-    access_token = get_blizzard_access_token()
-    if not access_token:
-        print("  ERROR: Could not get Blizzard access token for crafted items. Aborting.", flush=True)
-        return
-    headers = {"Authorization": f"Bearer {access_token}"}
-    static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-
-    target_professions = {
-        "Blacksmithing": 164, "Leatherworking": 165, "Tailoring": 197,
-        "Jewelcrafting": 755, "Engineering": 202 
-    }
-    TARGET_ITEM_QUALITIES = ["EPIC", "RARE"]
-    EQUIPPABLE_GEAR_SLOT_CATEGORIES = [
-        "HEAD", "NECK", "SHOULDER", "BACK", "CLOAK", "CHEST", "ROBE", "WRIST",
-        "HANDS", "HAND", "WAIST", "LEGS", "FEET", "FINGER", "TRINKET",
-        "WEAPON", "ONE_HAND", "TWOHWEAPON", "MAIN_HAND", "OFF_HAND", "SHIELD", "HOLDABLE",
-        "RANGEDRIGHT", "RANGED"
-    ]
-    CURRENT_EXPANSION_KEYWORD = "Khaz Algar" 
-
-    total_crafted_items_added_session = 0
-
-    prof_index_url = f"{BLIZZARD_API_BASE_URL}/data/wow/profession/index"
-    prof_index_data = make_blizzard_api_request_helper(api_url=prof_index_url, params=static_params, headers=headers)
-
-    if not prof_index_data or "professions" not in prof_index_data:
-        print("  ERROR: Could not fetch profession index.", flush=True)
-        return
-
-    for prof_summary in prof_index_data["professions"]:
-        prof_name = prof_summary.get("name")
-        prof_id = prof_summary.get("id")
-
-        if prof_name in target_professions and target_professions[prof_name] == prof_id:
-            print(f"  Processing Profession: {prof_name} (ID: {prof_id})", flush=True)
-            
-            prof_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/profession/{prof_id}"
-            prof_detail_data = make_blizzard_api_request_helper(api_url=prof_detail_url, params=static_params, headers=headers)
-            time.sleep(0.05)
-
-            if not prof_detail_data or "skill_tiers" not in prof_detail_data:
-                print(f"    ERROR: Could not fetch details or skill tiers for {prof_name}.", flush=True)
-                continue
-            
-            # Set to track item IDs already handled within this profession's processing run
-            item_ids_handled_this_profession = set()
-
-            for skill_tier_summary in prof_detail_data["skill_tiers"]:
-                skill_tier_name = skill_tier_summary.get("name", "")
-                # print(f"    DEBUG: Checking Skill Tier: '{skill_tier_name}' for keyword '{CURRENT_EXPANSION_KEYWORD}'", flush=True)
-                if CURRENT_EXPANSION_KEYWORD.lower() not in skill_tier_name.lower():
-                    # print(f"    Skipping skill tier '{skill_tier_name}' (does not contain '{CURRENT_EXPANSION_KEYWORD}').", flush=True)
-                    continue
-                
-                print(f"    Processing Skill Tier: {skill_tier_name}", flush=True)
-                skill_tier_id = skill_tier_summary.get("id")
-                if not skill_tier_id: continue
-
-                skill_tier_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/profession/{prof_id}/skill-tier/{skill_tier_id}"
-                skill_tier_data = make_blizzard_api_request_helper(api_url=skill_tier_detail_url, params=static_params, headers=headers)
-                time.sleep(0.05)
-
-                if not skill_tier_data or "categories" not in skill_tier_data:
-                    # print(f"      No categories found for skill tier {skill_tier_name}", flush=True)
-                    continue
-                
-                items_to_commit_for_this_profession_tier = []
-
-                for category in skill_tier_data["categories"]:
-                    if "recipes" not in category: continue
-                    for recipe_ref in category["recipes"]:
-                        recipe_id = recipe_ref.get("id")
-                        # recipe_name_for_debug = recipe_ref.get("name", f"Recipe ID {recipe_id}") 
-                        if not recipe_id: continue
-
-                        # print(f"        DEBUG: Processing Recipe: {recipe_name_for_debug} (ID: {recipe_id})", flush=True)
-                        recipe_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/recipe/{recipe_id}"
-                        recipe_data = make_blizzard_api_request_helper(api_url=recipe_detail_url, params=static_params, headers=headers)
-                        time.sleep(0.05)
-
-                        if not recipe_data: 
-                            # print(f"          WARNING: Failed to fetch recipe details for ID {recipe_id} ({recipe_name_for_debug})", flush=True)
-                            continue
-                        
-                        crafted_item_ref = recipe_data.get("crafted_item") or \
-                                           recipe_data.get("alliance_crafted_item") or \
-                                           recipe_data.get("horde_crafted_item")
-                        
-                        if not crafted_item_ref or "id" not in crafted_item_ref: 
-                            # print(f"          DEBUG: Recipe {recipe_id} ({recipe_name_for_debug}) does not produce a direct item or item ID missing.", flush=True)
-                            continue
-                        
-                        item_id = crafted_item_ref["id"]
-                        # print(f"          DEBUG: Recipe {recipe_id} crafts item ID: {item_id}", flush=True)
-                        
-                        if item_id in item_ids_handled_this_profession:
-                            # print(f"          DEBUG: Crafted item ID {item_id} already handled in this profession's run. Skipping.", flush=True)
-                            continue
-                        
-                        existing_item = db_session.get(Item, item_id)
-                        if existing_item and existing_item.icon_url: 
-                            # print(f"          DEBUG: Crafted item ID {item_id} already exists in DB with icon. Skipping API fetch.", flush=True)
-                            item_ids_handled_this_profession.add(item_id)
-                            continue
-
-                        item_detail_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id}"
-                        item_data = make_blizzard_api_request_helper(api_url=item_detail_url, params=static_params, headers=headers)
-                        if not item_data: 
-                            # print(f"            WARNING: Failed to fetch item details for crafted item ID {item_id}.", flush=True)
-                            item_ids_handled_this_profession.add(item_id) # Mark as handled to avoid re-fetch
-                            continue
-
-                        item_name = item_data.get("name")
-                        item_quality = item_data.get("quality", {}).get("name", "Unknown").upper()
-                        api_slot_type = item_data.get("inventory_type", {}).get("type")
-                        
-                        # print(f"            FETCHED Crafted Item {item_id} - Name: '{item_name}', Quality: '{item_quality}', API Slot: '{api_slot_type}'", flush=True)
-                        item_ids_handled_this_profession.add(item_id) # Mark as handled
-
-                        if item_name and item_quality in TARGET_ITEM_QUALITIES and \
-                           api_slot_type and api_slot_type in EQUIPPABLE_GEAR_SLOT_CATEGORIES:
-                            
-                            # print(f"            QUALIFIED Crafted Item {item_id} ('{item_name}') for DB.", flush=True)
-                            fetched_icon_url = None
-                            media_href = item_data.get("media", {}).get("key", {}).get("href")
-                            if media_href:
-                                media_data = make_blizzard_api_request_helper(api_url=media_href, params=static_params, headers=headers)
-                                time.sleep(0.05)
-                                if media_data and "assets" in media_data:
-                                    for asset in media_data["assets"]:
-                                        if asset.get("key") == "icon": fetched_icon_url = asset.get("value"); break
-                            
-                            if not db_session.query(PlayableSlot).filter_by(type=api_slot_type).first():
-                                print(f"CRITICAL: API slot '{api_slot_type}' for crafted item '{item_name}' (ID:{item_id}) missing in PlayableSlot.", flush=True)
-                                continue
-
-                            if existing_item: # Exists in DB, but icon was missing
-                                if fetched_icon_url and not existing_item.icon_url:
-                                    existing_item.icon_url = fetched_icon_url
-                                    if existing_item.source_id != data_source_id or existing_item.source_details != prof_name: # Update source if different
-                                        existing_item.source_id = data_source_id
-                                        existing_item.source_details = prof_name
-                                    db_session.add(existing_item) # Ensure it's part of UoW
-                                    # print(f"        Updating icon/source for existing crafted item ID {item_id}: {item_name}", flush=True)
-                                    total_crafted_items_added_session +=1 # Count as processed
-                            else: # New item
-                                # print(f"        Adding new crafted item ID {item_id}: {item_name} (Slot: {api_slot_type}, Icon: {'Yes' if fetched_icon_url else 'No'})", flush=True)
-                                new_crafted_item = Item(id=item_id, name=item_name, quality=item_quality, slot_type=api_slot_type,
-                                                 source_id=data_source_id, source_details=prof_name,
-                                                 icon_url=fetched_icon_url)
-                                items_to_commit_for_this_profession_tier.append(new_crafted_item)
-                                total_crafted_items_added_session += 1
-                        # else:
-                            # print(f"            SKIPPED Crafted Item {item_id} ('{item_name}'). Criteria Check -> Name: {bool(item_name)}, Quality: {item_quality in TARGET_ITEM_QUALITIES}, Slot Valid: {bool(api_slot_type and api_slot_type in EQUIPPABLE_GEAR_SLOT_CATEGORIES)}", flush=True)
-            
-                if items_to_commit_for_this_profession_tier: 
-                    db_session.add_all(items_to_commit_for_this_profession_tier)
-                    # print(f"    Queued {len(items_to_commit_for_this_profession_tier)} items from skill tier '{skill_tier_name}' for commit.", flush=True)
-            
-            # Commit after each profession to manage transaction size
-            try: 
-                db_session.commit()
-                print(f"  Committed items for profession {prof_name} (Khaz Algar tiers).", flush=True)
-            except IntegrityError as ie:
-                db_session.rollback()
-                print(f"    DB Integrity Error for profession {prof_name}: {ie}.", flush=True)
-            except Exception as e:
-                db_session.rollback()
-                print(f"    Error committing crafted items for {prof_name}: {e}", flush=True)
-            
-    print(f"--- Finished processing Crafted Items. Total items processed (added or icon updated) in this session: {total_crafted_items_added_session} ---", flush=True)
-
-# --- NEW FUNCTIONS FOR BiS ITEM CHECK ---
-def fetch_and_store_single_item_from_api(db_session, item_id_to_fetch, existing_playable_slot_types_set, system_data_source_id):
-    print(f"  Attempting to fetch details for missing BiS item ID: {item_id_to_fetch}", flush=True)
-    access_token = get_blizzard_access_token()
-    if not access_token:
-        print(f"    ERROR: Could not get Blizzard access token for item ID {item_id_to_fetch}.", flush=True)
-        return None
-    
-    headers = {"Authorization": f"Bearer {access_token}"}
-    static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
-    
-    item_api_url = f"{BLIZZARD_API_BASE_URL}/data/wow/item/{item_id_to_fetch}"
-    item_data = make_blizzard_api_request_helper(api_url=item_api_url, params=static_params, headers=headers)
-    time.sleep(0.05) 
-
-    if not item_data or "id" not in item_data:
-        print(f"    ERROR: Failed to fetch or parse item data for ID {item_id_to_fetch}. Response: {item_data}", flush=True)
-        return None
-
-    item_name = item_data.get("name")
-    quality_data = item_data.get("quality", {})
-    item_quality = quality_data.get("name", "Unknown").upper() if isinstance(quality_data, dict) else "Unknown"
-    
-    inventory_type_data = item_data.get("inventory_type", {})
-    api_slot_type = inventory_type_data.get("type") if isinstance(inventory_type_data, dict) else None
-
-    if not item_name or not api_slot_type:
-        print(f"    WARNING: Item ID {item_id_to_fetch} missing critical data (name or slot_type). Name: '{item_name}', Slot: '{api_slot_type}'. Skipping.", flush=True)
-        return None
-
-    if api_slot_type not in existing_playable_slot_types_set:
-        print(f"    CRITICAL WARNING: API slot type '{api_slot_type}' for item ID {item_id_to_fetch} ('{item_name}') is not defined in PlayableSlot table. Item cannot be added. Please update populate_playable_slots().", flush=True)
-        return None 
-
-    icon_url = None
-    media_href = item_data.get("media", {}).get("key", {}).get("href")
-    if media_href:
-        media_data = make_blizzard_api_request_helper(api_url=media_href, params=static_params, headers=headers)
-        time.sleep(0.05) 
-        if media_data and "assets" in media_data:
-            for asset in media_data["assets"]:
-                if asset.get("key") == "icon":
-                    icon_url = asset.get("value")
-                    break
-    
-    print(f"    SUCCESS: Fetched details for item ID {item_id_to_fetch}: '{item_name}', Quality: {item_quality}, Slot: {api_slot_type}, Icon: {'Yes' if icon_url else 'No'}", flush=True)
-    
-    new_item = Item(
-        id=item_id_to_fetch,
-        name=item_name,
-        quality=item_quality,
-        icon_url=icon_url,
-        slot_type=api_slot_type,
-        source_id=system_data_source_id, 
-        source_details="Added via CharacterBiS check" 
-    )
-    return new_item
-
-def ensure_character_bis_items_in_db(db_session):
-    print("\n--- Ensuring CharacterBiS items are in Item Table ---", flush=True)
-    
-    system_data_source = db_session.query(DataSource).filter_by(name="Manually Added via BiS Check").first()
-    if not system_data_source:
-        print("    ERROR: 'Manually Added via BiS Check' data source not found. Cannot proceed with BiS item check.", flush=True)
-        return
-    system_data_source_id = system_data_source.id
-
-    try:
-        bis_item_ids_query = db_session.query(CharacterBiS.item_id).filter(CharacterBiS.item_id != None).distinct()
-        bis_item_ids = {row.item_id for row in bis_item_ids_query.all()}
-        
-        if not bis_item_ids:
-            print("    No items found in CharacterBiS table to check.", flush=True)
-            return
-
-        print(f"    Found {len(bis_item_ids)} distinct item IDs in CharacterBiS table.", flush=True)
-
-        existing_item_ids_query = db_session.query(Item.id).all()
-        existing_item_ids_set = {row.id for row in existing_item_ids_query}
-        print(f"    Found {len(existing_item_ids_set)} item IDs in the main Item table.", flush=True)
-
-        playable_slot_types_query = db_session.query(PlayableSlot.type).all()
-        valid_slot_types_set = {row.type for row in playable_slot_types_query}
-        if not valid_slot_types_set:
-            print("    CRITICAL ERROR: PlayableSlot table is empty. Cannot validate item slot types.", flush=True)
-            return
-
-        items_to_add_to_db = []
-        for bis_item_id in bis_item_ids:
-            if bis_item_id not in existing_item_ids_set:
-                print(f"  Item ID {bis_item_id} from CharacterBiS is missing from Item table. Attempting to fetch...", flush=True)
-                new_item_obj = fetch_and_store_single_item_from_api(db_session, bis_item_id, valid_slot_types_set, system_data_source_id)
-                if new_item_obj:
-                    # Double check if it was somehow added by another concurrent process or previous step within this session run
-                    if not db_session.get(Item, new_item_obj.id):
-                        items_to_add_to_db.append(new_item_obj)
-                    else:
-                        print(f"    INFO: Item ID {new_item_obj.id} was already added to session or DB, likely by another part of the script. Skipping duplicate add.", flush=True)
-
-
-        if items_to_add_to_db:
-            print(f"    Adding {len(items_to_add_to_db)} missing BiS items to the Item table...", flush=True)
-            db_session.add_all(items_to_add_to_db)
-            db_session.commit()
-            print(f"    Successfully added {len(items_to_add_to_db)} items.", flush=True)
-        else:
-            print("    All items from CharacterBiS are already present in the Item table or could not be fetched/validated/already queued.", flush=True)
-
-    except Exception as e:
-        db_session.rollback()
-        print(f"    ERROR during CharacterBiS item check: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-    
-    print("--- Finished CharacterBiS item check ---", flush=True)
-
 
 # --- MAIN EXECUTION ---
 def main():
-    print("Starting WoW Info Population Script...", flush=True)
+    print("Starting WoW Info Population Script (Raid/Dungeon Items)...", flush=True)
     db_session = SessionLocal()
     print("Ensuring DB tables exist...", flush=True)
     all_tables_to_ensure = [
@@ -797,26 +481,42 @@ def main():
     
     print("Clearing Item and DataSource tables. PlayableSlot will be additively updated/verified.", flush=True)
     try:        
+        # Clear CharacterBiS first to avoid FK constraint violations when Item is cleared.
+        # This assumes that if CharacterBiS entries are important, they will be repopulated
+        # or handled by other scripts (like scrape_icyveins_bis.py or user actions in the app).
+        # If CharacterBiS is managed *only* by user input, this line might be too destructive
+        # without a more sophisticated merge/update strategy for items.
+        # For a clean item population run, clearing dependents is often necessary.
+        if CharacterBiS.__table__.exists(engine):
+             print("  INFO: Clearing CharacterBiS table to allow full reset of Item table.", flush=True)
+             db_session.query(CharacterBiS).delete(synchronize_session=False)
+             # A commit here might be safer if other operations depend on CharacterBiS being empty immediately.
+             # However, we are about to clear Item table anyway.
+
         db_session.query(Item).delete(synchronize_session=False)
         db_session.query(DataSource).delete(synchronize_session=False) 
-        db_session.commit()
+        db_session.commit() # Commit the clearing of Item, DataSource (and CharacterBiS if done)
         print("Item and DataSource tables cleared.", flush=True)
     except Exception as e:
         db_session.rollback()
-        print(f"Error clearing tables: {e}", flush=True)
+        print(f"Error clearing tables: {e}. This might be due to existing CharacterBiS entries not being cleared or other FK constraints.", flush=True)
+        # Depending on severity, might want to exit or log more details.
+        # For now, we continue to try and populate base data.
 
-    populate_playable_slots(db_session) 
-    data_sources = populate_data_sources(db_session) 
+    populate_playable_slots(db_session) # This also commits
+    data_sources = populate_data_sources(db_session) # This also commits
     
-    if not update_playable_classes_and_specs(db_session): 
+    if not update_playable_classes_and_specs(db_session): # This also commits
         print("Error updating classes/specs. Some item processing might be affected.", flush=True)
 
+    # Raid Items
     undermine_id = find_journal_instance_id("Liberation of Undermine", "instance")
     if undermine_id and "Liberation of Undermine" in data_sources:
         fetch_and_store_source_items(db_session, "Liberation of Undermine", undermine_id, data_sources["Liberation of Undermine"], "raid")
     else:
         print("Could not process Liberation of Undermine raid items (ID or DataSource missing).", flush=True)
     
+    # M+ Items
     print("\n--- Processing Mythic+ Dungeons ---", flush=True)
     mplus_dungeon_names = [ 
         "Operation: Mechagon", "THE MOTHERLODE!!", "Theater of Pain",  
@@ -838,19 +538,15 @@ def main():
                     fetch_and_store_source_items(db_session, d_name, d_id, mplus_source_id_val, "dungeon")
             else:
                 print(f"Could not find journal ID for M+ dungeon '{d_name}'. Skipping.", flush=True)
-            time.sleep(0.5) 
+            time.sleep(0.5) # Small delay between processing each dungeon
     else: 
         print(f"Data source '{mplus_source_name}' not found. Cannot process M+ dungeon items.", flush=True)
 
-    if "Crafting - TWW S1" in data_sources:
-        fetch_and_store_crafted_items(db_session, data_sources["Crafting - TWW S1"])
-    else:
-        print(f"Data source 'Crafting - TWW S1' not found. Cannot process crafted items.", flush=True)
-
-    ensure_character_bis_items_in_db(db_session)
+    # Note: Calls to fetch_and_store_crafted_items and ensure_character_bis_items_in_db
+    # have been moved to craft_tier_bis.py
 
     db_session.close()
-    print("WoW Info Population Script Finished.", flush=True)
+    print("WoW Info Population Script (Raid/Dungeon Items) Finished.", flush=True)
 
 if __name__ == "__main__":
     if not BLIZZARD_CLIENT_ID or not BLIZZARD_CLIENT_SECRET:
