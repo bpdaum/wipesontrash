@@ -231,12 +231,18 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                         search_results_data = make_blizzard_api_request_helper(api_url=search_api_url, params=search_params, headers=headers)
                         time.sleep(0.05)
 
+                        # --- Print Raw API Search Response ---
+                        if search_results_data:
+                            print(f"            RAW API SEARCH RESPONSE for '{item_name_from_recipe_detail}':\n{json.dumps(search_results_data, indent=2)}", flush=True)
+                        else:
+                            print(f"            RAW API SEARCH RESPONSE for '{item_name_from_recipe_detail}': None", flush=True)
+                        # --- End Print Raw API Search Response ---
+
                         if not search_results_data or not search_results_data.get("results"):
                             print(f"            WARNING: Item Search API returned no results for name '{item_name_from_recipe_detail}'. Skipping.", flush=True)
                             continue
                         
-                        # --- Enhanced Debug Print for All Search Results ---
-                        print(f"            DEBUG: Item Search API for '{item_name_from_recipe_detail}' returned {len(search_results_data['results'])} result(s):", flush=True)
+                        print(f"            DEBUG: Item Search API for '{item_name_from_recipe_detail}' returned {len(search_results_data['results'])} result(s) before exact match filtering:", flush=True)
                         for i, result_entry_debug in enumerate(search_results_data["results"]):
                             api_item_data_candidate_debug = result_entry_debug.get("data")
                             if api_item_data_candidate_debug:
@@ -246,7 +252,6 @@ def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_
                                 print(f"              Result {i+1}: ID={api_item_id_debug}, API Name='{api_item_name_en_us_debug}'", flush=True)
                             else:
                                 print(f"              Result {i+1}: Malformed data entry.", flush=True)
-                        # --- End Enhanced Debug Print ---
                         
                         exact_match_item_data = None
                         for result_entry in search_results_data["results"]:
@@ -501,11 +506,6 @@ def ensure_data_integrity(db_session, existing_playable_slot_types_set, system_d
     if items_to_add_or_update_in_item_table:
         print(f"    Adding/Updating {len(items_to_add_or_update_in_item_table)} items in the Item table from integrity check...", flush=True)
         for item_to_proc in items_to_add_or_update_in_item_table:
-            # Check if the item (by ID) is already in the session to avoid conflicts before merge/add
-            # This is a bit tricky with detached objects vs new objects.
-            # Safest is to merge if it's an update to an existing DB row, add if it's truly new.
-            # However, session.add() is often smart enough if the object has its PK set and was loaded from session.
-            # For items_to_add_or_update_in_item_table, they are either new or modified loaded objects.
             db_session.add(item_to_proc) 
     
     try:
