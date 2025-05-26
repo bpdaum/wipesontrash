@@ -116,7 +116,7 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Shoulder": "SHOULDER", "Shoulders": "SHOULDER",
     "Back": "BACK", "Cloak": "BACK", 
     "Chest": "CHEST", 
-    "Wrist": "WRIST", "Bracers": "WRIST",
+    "Wrist": "WRIST", "Bracers": "WRIST", "Wrists": "WRIST", # Added Wrists
     "Hands": "HANDS", "Gloves": "HANDS", 
     "Waist": "WAIST", "Belt": "WAIST",
     "Legs": "LEGS", 
@@ -126,10 +126,11 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Ring": "FINGER1", 
     "Trinket 1": "TRINKET1", "Trinket1": "TRINKET1", "Trinket #1": "TRINKET1", 
     "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2", "Trinket #2": "TRINKET2", 
-    "Trinket": "TRINKET1", 
+    "Trinket": "TRINKET1", "Trinkets": "TRINKET1", # Added Trinkets
     "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", 
-    "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND",
-    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", 
+    "One-Hand": "MAIN_HAND", "One-Handed Weapon": "MAIN_HAND", "1H Weapon": "MAIN_HAND", # Added One-Handed Weapon, 1H Weapon
+    "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND", "Two-Handed Weapon": "MAIN_HAND", # Added Two-Handed Weapon
+    "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", "Offhand": "OFF_HAND", # Added Offhand
     "Shield": "OFF_HAND",
     "Dagger": "MAIN_HAND", "Fist Weapon": "MAIN_HAND", "Mace": "MAIN_HAND", "Sword": "MAIN_HAND",
     "Polearm": "MAIN_HAND", "Staff": "MAIN_HAND", "Axe": "MAIN_HAND",
@@ -182,7 +183,7 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
         print("    No HTML content to parse.", flush=True)
         return []
 
-    all_extracted_items = [] # To store items from the best table found
+    all_extracted_items = [] 
     parser_to_use = 'lxml' 
     try:
         soup = BeautifulSoup(html_content, parser_to_use) 
@@ -197,7 +198,7 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
             return [] 
 
     try:
-        all_tables_on_page = soup.find_all('table') # Get all tables
+        all_tables_on_page = soup.find_all('table') 
             
         if not all_tables_on_page:
             print(f"    ERROR: Could not find any 'table' elements on the page for {spec_name} {class_name}.", flush=True)
@@ -205,19 +206,19 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
         
         print(f"    Found {len(all_tables_on_page)} table(s) on the page. Checking up to the first 3.", flush=True)
         
-        best_item_count = -1 # Keep track of the table that yielded the most items
+        best_item_count = -1 
 
-        for table_index, bis_table in enumerate(all_tables_on_page[:3]): # Limit to checking first 3 tables
+        for table_index, bis_table in enumerate(all_tables_on_page[:3]): 
             print(f"\n    --- Processing Table #{table_index + 1} ---", flush=True)
             print(f"    Table classes: {bis_table.get('class')}", flush=True)
             
-            current_table_items = [] # Items extracted from the current table being processed
+            current_table_items = [] 
             table_body = bis_table.find('tbody')
             rows_to_parse = table_body.find_all('tr') if table_body else bis_table.find_all('tr')
 
             if not rows_to_parse:
                 print(f"    WARNING: Table #{table_index + 1} for {spec_name} {class_name} has no rows (or no tbody with rows).", flush=True)
-                continue # Move to the next table
+                continue 
 
             ring_count = 0
             trinket_count = 0
@@ -295,10 +296,10 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
                     print(f"      Error parsing row content for slot '{cells[0].get_text(strip=True)}': {e_row}", flush=True)
             
             print(f"    Table #{table_index + 1} yielded {len(current_table_items)} items.", flush=True)
-            if len(current_table_items) >= 10: # Threshold for considering it the main BiS table
+            if len(current_table_items) >= 10: 
                 print(f"    Table #{table_index + 1} has >= 10 items. Assuming this is the correct BiS table.", flush=True)
                 all_extracted_items = current_table_items
-                break # Stop processing further tables
+                break 
             elif len(current_table_items) > best_item_count:
                 print(f"    Table #{table_index + 1} has {len(current_table_items)} items, which is more than previous best ({best_item_count}). Storing these as potential BiS.", flush=True)
                 best_item_count = len(current_table_items)
