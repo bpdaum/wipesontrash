@@ -55,7 +55,7 @@ class SuggestedBiS(Base):
     ui_slot_type = Column(String(50), ForeignKey('playable_slot.type'), nullable=False, index=True) 
     item_name = Column(String(255), nullable=False)
     blizzard_item_id = Column(Integer, ForeignKey('item.id'), nullable=True, index=True) 
-    wowhead_item_id = Column(String(50), nullable=True) # Kept for potential future use or if different ID is found
+    wowhead_item_id = Column(String(50), nullable=True) 
     item_source = Column(String(255), nullable=True) 
     last_scraped = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
 
@@ -68,8 +68,6 @@ class SuggestedBiS(Base):
 
 # --- Icy Veins Scraping Configuration ---
 ICYVEINS_BASE_URL = "https://www.icy-veins.com" 
-# (class_slug, spec_slug, class_display, spec_display, role_slug_for_url)
-# role_slug_for_url should be "dps", "tank", or "healing"
 SPECS_TO_SCRAPE = [ 
     ("death-knight", "blood", "Death Knight", "Blood", "tank"),
     ("death-knight", "frost", "Death Knight", "Frost", "dps"),
@@ -130,7 +128,7 @@ CANONICAL_UI_SLOT_NAMES_MAP = {
     "Trinket 2": "TRINKET2", "Trinket2": "TRINKET2", "Trinket #2": "TRINKET2", 
     "Trinket": "TRINKET1", 
     "Main Hand": "MAIN_HAND", "Main-Hand": "MAIN_HAND", "Mainhand Weapon": "MAIN_HAND", 
-    "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND", # Added 2H Weapon
+    "One-Hand": "MAIN_HAND", "Two-Hand": "MAIN_HAND", "Weapon": "MAIN_HAND", "2H Weapon": "MAIN_HAND",
     "Off Hand": "OFF_HAND", "Off-Hand": "OFF_HAND", "Offhand Weapon": "OFF_HAND", 
     "Shield": "OFF_HAND",
     "Dagger": "MAIN_HAND", "Fist Weapon": "MAIN_HAND", "Mace": "MAIN_HAND", "Sword": "MAIN_HAND",
@@ -179,12 +177,12 @@ def get_html_content(url, class_slug_for_file=None, spec_slug_for_file=None):
         return None
 
 def parse_icyveins_bis_table(html_content, class_name, spec_name):
-    print(f"    Parsing HTML for {class_name} - {spec_name} (Icy Veins - First Table Strategy)...", flush=True)
+    print(f"    Parsing HTML for {class_name} - {spec_name} (Icy Veins - Multi-Table Check Strategy)...", flush=True)
     if not html_content:
         print("    No HTML content to parse.", flush=True)
         return []
 
-    items = []
+    all_extracted_items = [] # To store items from the best table found
     parser_to_use = 'lxml' 
     try:
         soup = BeautifulSoup(html_content, parser_to_use) 
@@ -199,124 +197,123 @@ def parse_icyveins_bis_table(html_content, class_name, spec_name):
             return [] 
 
     try:
-        bis_table = soup.find('table') 
+        all_tables_on_page = soup.find_all('table') # Get all tables
             
-        if not bis_table:
-            print(f"    ERROR: Could not find any 'table' element on the page for {spec_name} {class_name}.", flush=True)
+        if not all_tables_on_page:
+            print(f"    ERROR: Could not find any 'table' elements on the page for {spec_name} {class_name}.", flush=True)
             return []
-        else:
-            print(f"    SUCCESS: Found the first 'table' element on the page. Its classes are: {bis_table.get('class')}", flush=True)
         
-        print("    Processing rows from the first table found...", flush=True)
+        print(f"    Found {len(all_tables_on_page)} table(s) on the page. Checking up to the first 3.", flush=True)
         
-        table_body = bis_table.find('tbody')
-        rows_to_parse = table_body.find_all('tr') if table_body else bis_table.find_all('tr')
+        best_item_count = -1 # Keep track of the table that yielded the most items
 
-        if not rows_to_parse:
-            print(f"    WARNING: The first table found for {spec_name} {class_name} has no rows (or no tbody with rows).", flush=True)
-            return []
-
-        ring_count = 0
-        trinket_count = 0
-
-        for row_idx, row in enumerate(rows_to_parse):
-            cells = row.find_all(['td', 'th']) 
+        for table_index, bis_table in enumerate(all_tables_on_page[:3]): # Limit to checking first 3 tables
+            print(f"\n    --- Processing Table #{table_index + 1} ---", flush=True)
+            print(f"    Table classes: {bis_table.get('class')}", flush=True)
             
-            if len(cells) < 2: 
-                continue
+            current_table_items = [] # Items extracted from the current table being processed
+            table_body = bis_table.find('tbody')
+            rows_to_parse = table_body.find_all('tr') if table_body else bis_table.find_all('tr')
 
-            try:
-                raw_slot_name_from_table = cells[0].get_text(strip=True)
-                
-                if raw_slot_name_from_table.lower() in ["slot", "item", "source", "notes", "type", "name", "details"]:
-                    continue
+            if not rows_to_parse:
+                print(f"    WARNING: Table #{table_index + 1} for {spec_name} {class_name} has no rows (or no tbody with rows).", flush=True)
+                continue # Move to the next table
 
-                ui_slot_type = ""
-                if raw_slot_name_from_table in CANONICAL_UI_SLOT_NAMES_MAP:
-                    ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP[raw_slot_name_from_table]
-                elif raw_slot_name_from_table == "Ring": 
-                    ring_count += 1
-                    ui_slot_type = f"FINGER{ring_count}"
-                elif raw_slot_name_from_table == "Trinket": 
-                    trinket_count += 1
-                    ui_slot_type = f"TRINKET{trinket_count}"
-                else: 
-                    ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name_from_table, raw_slot_name_from_table)
+            ring_count = 0
+            trinket_count = 0
 
+            for row_idx, row in enumerate(rows_to_parse):
+                cells = row.find_all(['td', 'th']) 
+                if len(cells) < 2: continue
 
-                item_cell = cells[1]
-                
-                item_name = None
-                blizzard_item_id = None
-                wowhead_id_from_href = None 
-
-                link_tag = item_cell.find('a', attrs={'data-wowhead': re.compile(r'item=\d+')})
-                if not link_tag:
-                    link_tag = item_cell.find('a', href=re.compile(r'wowhead.com/item='))
-
-                if link_tag: 
-                    name_span = link_tag.find('span') 
-                    if name_span and name_span.get_text(strip=True):
-                        item_name = name_span.get_text(strip=True)
-                    
-                    if not item_name: 
-                        item_name = link_tag.get_text(strip=True)
-
-                    if not item_name: 
-                        img_tag = link_tag.find('img', alt=True)
-                        if img_tag and img_tag.get('alt', '').strip():
-                            item_name = img_tag['alt'].strip().replace(" Icon", "")
-                    
-                    data_wowhead_attr = link_tag.get('data-wowhead')
-                    if data_wowhead_attr:
-                        match = re.search(r'item=(\d+)', data_wowhead_attr)
-                        if match: blizzard_item_id = int(match.group(1))
-                    
-                    href_attr = link_tag.get('href', '')
-                    href_match = re.search(r'item=(\d+)', href_attr)
-                    if href_match:
-                        wowhead_id_from_href = href_match.group(1)
-                        if not blizzard_item_id: 
-                            try: blizzard_item_id = int(wowhead_id_from_href)
-                            except ValueError: pass 
-                
-                else: 
-                    cell_text_content = item_cell.get_text(strip=True)
-                    if cell_text_content and cell_text_content not in ["]", ":10520]", "", "None", "-", "N/A"]:
-                        item_name_candidate = cell_text_content.split('(', 1)[0].strip()
-                        if item_name_candidate: 
-                            item_name = item_name_candidate
-                        else:
-                            continue 
-                    else:
+                try:
+                    raw_slot_name_from_table = cells[0].get_text(strip=True)
+                    if raw_slot_name_from_table.lower() in ["slot", "item", "source", "notes", "type", "name", "details"]:
                         continue
 
-                if not item_name: 
-                    item_name = "Unknown Item - Parse Error"
+                    ui_slot_type = ""
+                    if raw_slot_name_from_table in CANONICAL_UI_SLOT_NAMES_MAP:
+                        ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP[raw_slot_name_from_table]
+                    elif raw_slot_name_from_table == "Ring": 
+                        ring_count += 1
+                        ui_slot_type = f"FINGER{ring_count}"
+                    elif raw_slot_name_from_table == "Trinket": 
+                        trinket_count += 1
+                        ui_slot_type = f"TRINKET{trinket_count}"
+                    else: 
+                        ui_slot_type = CANONICAL_UI_SLOT_NAMES_MAP.get(raw_slot_name_from_table, raw_slot_name_from_table)
 
-                item_source_text = "Icy Veins Guide" 
-                if len(cells) > 2:
-                    source_cell_text = cells[2].get_text(strip=True)
-                    if source_cell_text: 
-                        item_source_text = source_cell_text
-                
-                if ui_slot_type and item_name and item_name != "Unknown Item - Parse Error":
-                    items.append({
-                        "ui_slot_type": ui_slot_type, 
-                        "item_name": item_name,
-                        "wowhead_item_id": wowhead_id_from_href, 
-                        "blizzard_item_id": blizzard_item_id,    
-                        "item_source": item_source_text
-                    })
+                    item_cell = cells[1]
+                    item_name, blizzard_item_id, wowhead_id_from_href = None, None, None
 
-            except Exception as e_row:
-                print(f"      Error parsing row content for slot '{cells[0].get_text(strip=True)}': {e_row}", flush=True)
+                    link_tag = item_cell.find('a', attrs={'data-wowhead': re.compile(r'item=\d+')})
+                    if not link_tag:
+                        link_tag = item_cell.find('a', href=re.compile(r'wowhead.com/item='))
+
+                    if link_tag: 
+                        name_span = link_tag.find('span') 
+                        if name_span and name_span.get_text(strip=True): item_name = name_span.get_text(strip=True)
+                        if not item_name: item_name = link_tag.get_text(strip=True)
+                        if not item_name: 
+                            img_tag = link_tag.find('img', alt=True)
+                            if img_tag and img_tag.get('alt', '').strip(): item_name = img_tag['alt'].strip().replace(" Icon", "")
+                        
+                        data_wowhead_attr = link_tag.get('data-wowhead')
+                        if data_wowhead_attr:
+                            match = re.search(r'item=(\d+)', data_wowhead_attr)
+                            if match: blizzard_item_id = int(match.group(1))
+                        
+                        href_attr = link_tag.get('href', '')
+                        href_match = re.search(r'item=(\d+)', href_attr)
+                        if href_match:
+                            wowhead_id_from_href = href_match.group(1)
+                            if not blizzard_item_id: 
+                                try: blizzard_item_id = int(wowhead_id_from_href)
+                                except ValueError: pass 
+                    else: 
+                        cell_text_content = item_cell.get_text(strip=True)
+                        if cell_text_content and cell_text_content not in ["]", ":10520]", "", "None", "-", "N/A"]:
+                            item_name_candidate = cell_text_content.split('(', 1)[0].strip()
+                            if item_name_candidate: item_name = item_name_candidate
+                            else: continue 
+                        else: continue
+
+                    if not item_name: item_name = "Unknown Item - Parse Error"
+
+                    item_source_text = "Icy Veins Guide" 
+                    if len(cells) > 2:
+                        source_cell_text = cells[2].get_text(strip=True)
+                        if source_cell_text: item_source_text = source_cell_text
+                    
+                    if ui_slot_type and item_name and item_name != "Unknown Item - Parse Error":
+                        current_table_items.append({
+                            "ui_slot_type": ui_slot_type, "item_name": item_name,
+                            "wowhead_item_id": wowhead_id_from_href, "blizzard_item_id": blizzard_item_id,    
+                            "item_source": item_source_text
+                        })
+                except Exception as e_row:
+                    print(f"      Error parsing row content for slot '{cells[0].get_text(strip=True)}': {e_row}", flush=True)
+            
+            print(f"    Table #{table_index + 1} yielded {len(current_table_items)} items.", flush=True)
+            if len(current_table_items) >= 10: # Threshold for considering it the main BiS table
+                print(f"    Table #{table_index + 1} has >= 10 items. Assuming this is the correct BiS table.", flush=True)
+                all_extracted_items = current_table_items
+                break # Stop processing further tables
+            elif len(current_table_items) > best_item_count:
+                print(f"    Table #{table_index + 1} has {len(current_table_items)} items, which is more than previous best ({best_item_count}). Storing these as potential BiS.", flush=True)
+                best_item_count = len(current_table_items)
+                all_extracted_items = current_table_items
         
-        print(f"    Extracted {len(items)} items from the first table for {class_name} - {spec_name}.", flush=True)
+        if not all_extracted_items:
+            print(f"    No items extracted from any of the first {min(len(all_tables_on_page), 3)} tables for {class_name} - {spec_name}.", flush=True)
+        elif len(all_extracted_items) < 10:
+            print(f"    WARNING: Best table found for {class_name} - {spec_name} only yielded {len(all_extracted_items)} items (less than 10).", flush=True)
+        
+        print(f"    Finished processing tables. Final extracted item count: {len(all_extracted_items)} for {class_name} - {spec_name}.", flush=True)
 
     except Exception as e: 
         print(f"    General error parsing HTML for {class_name} - {spec_name}: {e}", flush=True)
-    return items
+    return all_extracted_items
 
 def scrape_and_store_bis_data():
     print("Starting Icy Veins BiS scraping process...", flush=True)
@@ -393,7 +390,7 @@ def scrape_and_store_bis_data():
             print(f"  No items extracted for {class_display} - {spec_display}.", flush=True)
         
         print("Waiting for 20 seconds before next spec...", flush=True) 
-        time.sleep(10) 
+        time.sleep(20) 
 
     db_session.close() 
     print("\nIcy Veins BiS scraping process finished.", flush=True)
