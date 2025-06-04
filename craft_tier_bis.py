@@ -128,6 +128,39 @@ def get_full_item_details_by_id(item_id, headers, static_params):
                     break
     return item_name, quality, slot_type, icon_url
 
+def find_journal_instance_id(instance_name_to_find, instance_type="instance"):
+    """Queries the Blizzard API for the journal index and finds the ID for a given instance/dungeon name."""
+    print(f"Attempting to find Journal ID for {instance_type}: '{instance_name_to_find}'", flush=True)
+    
+    access_token = get_blizzard_access_token()
+    if not access_token:
+        print(f"ERROR: Could not get access token for journal {instance_type} search", flush=True)
+        return None
+    
+    headers = {"Authorization": f"Bearer {access_token}"}
+    static_params = {"namespace": f"static-{REGION}", "locale": "en_US"}
+    
+    endpoint = f"/data/wow/journal-{instance_type}/index"
+    index_data = make_blizzard_api_request_helper(
+        api_url=f"{BLIZZARD_API_BASE_URL}{endpoint}", 
+        params=static_params, 
+        headers=headers
+    )
+
+    if index_data and f"{instance_type}s" in index_data:
+        for instance in index_data[f"{instance_type}s"]:
+            if instance.get("name", "").lower() == instance_name_to_find.lower():
+                instance_id = instance.get("id")
+                print(f"Found {instance_type} '{instance_name_to_find}' with ID: {instance_id}", flush=True)
+                return instance_id
+        print(f"Error: {instance_type.capitalize()} '{instance_name_to_find}' not found in the journal index.", flush=True)
+        return None
+    else:
+        print(f"Error: Could not fetch or parse journal {instance_type} index.", flush=True)
+        if index_data: 
+            print(f"DEBUG: Journal {instance_type.capitalize()} Index Response: {json.dumps(index_data, indent=2)}", flush=True)
+        return None
+
 # --- Modified and Existing Functions ---
 
 def fetch_and_store_crafted_items(db_session, data_source_id, existing_playable_slot_types_set):
@@ -558,7 +591,7 @@ def fetch_and_store_tier_items(db_session, data_source_id, existing_playable_slo
 def main():
     print("Starting Item Database Update Process...", flush=True)
     
-    db_session = get_db_session()
+    db_session = SessionLocal()
     if not db_session:
         print("Failed to get database session. Exiting.", flush=True)
         sys.exit(1)
