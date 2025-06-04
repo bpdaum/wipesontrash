@@ -606,7 +606,7 @@ def main():
         # Get or create the system data source
         system_source = db_session.query(DataSource).filter_by(name="System").first()
         if not system_source:
-            system_source = DataSource(name="System", description="Items added by system processes")
+            system_source = DataSource(name="System", type="System")
             db_session.add(system_source)
             db_session.commit()
             
